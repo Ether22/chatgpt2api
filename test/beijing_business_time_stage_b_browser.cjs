@@ -29,12 +29,12 @@ const path = require('node:path');
       await page.screenshot({ path: path.join(evidence, timezoneId.replaceAll('/', '-') + '-accounts-b.png') });
       await page.goto(origin + '/image/');
       await page.getByText('2026/09/08 00:00:01 北京时间', { exact: true }).first().waitFor();
-      await page.waitForFunction(() => [...document.images].some(image => image.complete && image.naturalWidth > 0));
-      await page.screenshot({ path: path.join(evidence, timezoneId.replaceAll('/', '-') + '-conversations-b.png') });
+      await page.waitForFunction(() => [...document.images].some(image => image.complete && image.naturalWidth === 24));
+      await page.screenshot({ animations: 'disabled', path: path.join(evidence, timezoneId.replaceAll('/', '-') + '-conversations-b.png') });
       await page.goto(origin + '/image-manager/');
       await page.getByText('2026/09/08 00:00:01 北京时间', { exact: true }).first().waitFor();
-      await page.waitForFunction(() => [...document.images].some(image => image.complete && image.naturalWidth > 0));
-      await page.screenshot({ path: path.join(evidence, timezoneId.replaceAll('/', '-') + '-gallery-b.png') });
+      await page.waitForFunction(() => [...document.images].some(image => image.complete && image.naturalWidth === 24));
+      await page.screenshot({ animations: 'disabled', path: path.join(evidence, timezoneId.replaceAll('/', '-') + '-gallery-b.png') });
       results.push({ timezoneId, accounts: true, legacyUnchanged: true, conversations: true, gallery: true });
       await context.close();
     }
