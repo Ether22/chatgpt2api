@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import threading
 from pathlib import Path
 
 from services.config import DATA_DIR
 from services.image_storage_service import write_json_atomic
 from services.image_task_service import image_task_service
+from services.image_import_parser import parse_markdown, validate_candidates
 from utils.business_time import beijing_iso
 
 
@@ -52,6 +54,8 @@ class ImageImportService:
             if pending and item["request_id"] in pending["targets"]:
                 public.update(reference=None, error="清理尚未完成，请重试清理")
             result["references"].append(public)
+        result["md_version"] = state.get("md_version", 0)
+        result["candidates"] = validate_candidates(state.get("candidates", []), result["references"])
         return result
 
     @staticmethod
@@ -78,6 +82,70 @@ class ImageImportService:
         with self._lock:
             return self._public(self._read(identity))
 
+    def correct_candidate(self, identity, request_id, version, md_version, key, changes):
+        allowed = {"document_id", "name", "prompt", "size", "output_name", "reference_names", "skipped"}
+        if not changes or set(changes) - allowed:
+            raise ValueError("请提供可修改的候选字段")
+        for field, value in changes.items():
+            if field == "skipped":
+                valid = isinstance(value, bool)
+            elif field == "reference_names":
+                valid = value is None or (isinstance(value, list) and len(value) <= 10000
+                         and all(isinstance(name, str) and name and len(name) <= 255 for name in value))
+            else:
+                valid = (field == "output_name" and value is None) or (isinstance(value, str) and len(value) <= (5 * 1024 * 1024 if field == "prompt" else 255))
+            if not valid:
+                raise ValueError(f"候选字段无效：{field}")
+        digest = hashlib.sha256(json.dumps(changes, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+        fingerprint = ["candidate", version, md_version, key, digest]
+        with self._lock:
+            state = self._read(identity)
+            if self._replayed(state, request_id, fingerprint):
+                return self._public(state)
+            self._check(state, version)
+            if md_version != state.get("md_version", 0):
+                raise ImportConflict("MD 已替换，请刷新预览后重新操作")
+            candidate = next((item for item in state.get("candidates", []) if item["key"] == key), None)
+            if candidate is None:
+                raise KeyError(key)
+            for field, value in changes.items():
+                if field == "skipped":
+                    candidate["skipped"] = value
+                else:
+                    if field == "size":
+                        value = re.sub(r"\s*[×Xx]\s*", "x", value.strip())
+                    candidate["config"][field] = value
+                    candidate["errors"] = [error for error in candidate["errors"] if error["field"] != field]
+            state["version"] += 1
+            state["receipts"][request_id] = fingerprint
+            self._write(identity, state)
+            return self._public(state)
+
+    def validated_candidates(self, identity, version, md_version, keys, *, allow_pending=False):
+        """Read a consistent server configuration for submission; this does not pin files.
+
+        The caller must persist/pin its immutable snapshot before dispatching tasks.
+        allow_pending admits only registered uploads, never invalid or skipped rows.
+        """
+        with self._lock:
+            state = self._read(identity)
+            self._check(state, version)
+            if md_version != state.get("md_version", 0):
+                raise ImportConflict("MD 已替换，请刷新预览")
+            if not keys or len(keys) != len(set(keys)):
+                raise ValueError("请选择不重复的候选条目")
+            public = self._public(state)
+            by_key = {item["key"]: item for item in public["candidates"]}
+            selected = []
+            for key in keys:
+                if key not in by_key:
+                    raise KeyError(key)
+                candidate = by_key[key]
+                if candidate["skipped"] or candidate["status"] == "error" or (candidate["status"] == "pending" and not allow_pending):
+                    raise ValueError(f"条目 {candidate['config']['document_id']} 已跳过、有错误或参考图尚未就绪")
+                selected.append(candidate)
+            return {"version": public["version"], "revision": public["revision"], "md_version": md_version, "candidates": selected}
+
     def replace_md(self, identity, request_id, version, name, data):
         self._filename(name)
         if not name.lower().endswith(".md") or not data or len(data) > 5 * 1024 * 1024:
@@ -94,6 +162,8 @@ class ImageImportService:
             self._check(state, version)
             state["md"] = {"name": name, "content": content, "size": len(data)}
             state["version"] += 1
+            state["md_version"] = state["version"]
+            state["candidates"] = parse_markdown(content, state["md_version"])
             state["receipts"][request_id] = fingerprint
             self._write(identity, state)
             return self._public(state)
@@ -180,6 +250,8 @@ class ImageImportService:
             state["references"] = [item for item in state["references"] if item["request_id"] not in pending["targets"]]
             if clear:
                 state["md"] = None
+                state["md_version"] = state["version"]
+                state["candidates"] = []
             for upload_id in pending["targets"]:
                 state["receipts"][upload_id] = ["cancelled"]
             state["pending"] = None

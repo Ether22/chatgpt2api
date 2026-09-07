@@ -25,6 +25,11 @@ class ClearImports(ImportMutation):
     upload_ids: list[RequestId] = Field(default_factory=list, max_length=10000)
 
 
+class CandidateCorrection(ImportMutation):
+    md_version: int = Field(ge=0, strict=True)
+    changes: dict = Field(min_length=1, max_length=7)
+
+
 async def import_call(method, *args):
     try:
         return await run_in_threadpool(method, *args)
@@ -49,6 +54,11 @@ def create_router():
     async def reserve_reference(body: ReferenceReservation, authorization: str | None = Header(default=None)):
         return await import_call(image_import_service.reserve_reference, require_identity(authorization),
                                  body.request_id, body.version, body.name, body.size)
+
+    @router.patch("/api/image-imports/candidates/{key}")
+    async def correct_candidate(key: str, body: CandidateCorrection, authorization: str | None = Header(default=None)):
+        return await import_call(image_import_service.correct_candidate, require_identity(authorization),
+                                 body.request_id, body.version, body.md_version, key, body.changes)
 
     @router.put("/api/image-imports/references/{upload_id}")
     async def upload_reference(upload_id: RequestId, request: Request, file: UploadFile = File(...),

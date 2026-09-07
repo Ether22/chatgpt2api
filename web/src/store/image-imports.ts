@@ -14,9 +14,28 @@ export type ImportReference = {
 };
 export type ImportMutation = { request_id: string; version: number };
 export type ImportCleanup = ImportMutation & { upload_ids: string[]; clear: boolean };
+export type ImportCandidateConfig = {
+  document_id: string;
+  name: string;
+  prompt: string;
+  size: string;
+  output_name: string | null;
+  reference_names: string[] | null;
+};
+export type ImportCandidate = {
+  key: string;
+  config: ImportCandidateConfig;
+  skipped: boolean;
+  status: "ready" | "pending" | "error";
+  errors: { field: string; code: string; message: string }[];
+  matches: { name: string; status: "ready" | "pending" | "error"; upload_id: string | null; reference: StoredReferenceImage | null }[];
+};
+export type CandidateChanges = Partial<ImportCandidateConfig & { skipped: boolean }>;
 export type ImageImports = {
   version: number;
   revision: number;
+  md_version: number;
+  candidates: ImportCandidate[];
   md: { name: string; content: string; size: number } | null;
   references: ImportReference[];
   pending: ImportCleanup | null;
@@ -34,6 +53,10 @@ async function importAuth(authKey: string) {
 }
 
 export const fetchImageImports = async (authKey: string) => httpRequest<ImageImports>("/api/image-imports", await importAuth(authKey));
+export const correctImportCandidate = async (authKey: string, key: string, mutation: ImportMutation & { md_version: number }, changes: CandidateChanges) =>
+  httpRequest<ImageImports>(`/api/image-imports/candidates/${encodeURIComponent(key)}`, {
+    ...await importAuth(authKey), method: "PATCH", body: { ...mutation, changes },
+  });
 export const reserveImportReference = async (authKey: string, file: File, mutation: ImportMutation) =>
   httpRequest<ImageImports>("/api/image-imports/references", {
     ...await importAuth(authKey), method: "POST", body: { ...mutation, name: file.name, size: file.size },

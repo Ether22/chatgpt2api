@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "metrics": {
+    "fairness-cup.md-upload-parse-render-ms": 161,
+    "food-containers.md-upload-parse-render-ms": 163
+  },
+  "errors": [],
+  "consumption": 0
+}

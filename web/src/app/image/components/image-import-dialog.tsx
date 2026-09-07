@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { formatBeijingDateTime } from "@/lib/business-time";
-import { cleanupImageImports, fetchImageImports, ImportIdentityChanged, reserveImportReference, uploadImportFile, type ImageImports, type ImportCleanup, type ImportMutation } from "@/store/image-imports";
+import { cleanupImageImports, correctImportCandidate, fetchImageImports, ImportIdentityChanged, reserveImportReference, uploadImportFile, type CandidateChanges, type ImportCandidate, type ImageImports, type ImportCleanup, type ImportMutation } from "@/store/image-imports";
 import { ReferenceThumbnail } from "./reference-thumbnail";
 
 type Upload = { file: File; mutation: ImportMutation; url: string; progress: number; busy: boolean; error?: string; cancelled?: boolean };
@@ -161,6 +161,18 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
     });
   }
 
+  async function correct(key: string, changes: CandidateChanges, version: number, mdVersion: number) {
+    await enqueue(async () => {
+      try {
+        accept(await correctImportCandidate(authKey, key, { request_id: crypto.randomUUID(), version, md_version: mdVersion }, changes));
+      } catch (reason) {
+        handleImportError(reason);
+        await refresh().catch(handleImportError);
+        throw reason;
+      }
+    });
+  }
+
   const pending = materials?.pending ?? failedCleanup;
   const blocked = !materials || busy || !!materials.pending;
   const rows = [
@@ -220,6 +232,12 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
             </ul>
           </section>
         </div>
+        {materials?.md && <section className="mt-4 min-w-0 space-y-3" aria-label="MD 条目预览">
+          <h3 className="font-medium">MD 条目预览 · {materials.candidates.length} 条</h3>
+          <p className="text-xs text-muted-foreground">仅使用下列 Prompt 和目标尺寸。缺少文件或结构错误需修正；等待上传表示文件已登记，尚未就绪。跳过的条目不提交。</p>
+          {materials.candidates.length === 0 && <p role="status" className="text-sm">未识别到需要生成的条目。请检查章节标识、Prompt 区块，或文档是否声明直通。</p>}
+          {materials.candidates.map((candidate) => <CandidatePreview key={candidate.key} candidate={candidate} version={materials.version} mdVersion={materials.md_version} disabled={blocked} onCorrect={correct} />)}
+        </section>}
       </div>
       <DialogFooter className="shrink-0 flex-row flex-wrap items-center justify-end gap-2 border-t pt-3">
         <span className="basis-full text-xs text-muted-foreground sm:mr-auto sm:basis-auto">{materials?.updated_at ? `更新于 ${formatBeijingDateTime(materials.updated_at)}` : "尚未导入素材"}</span>
@@ -231,4 +249,89 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
       {preview && <ImageLightbox open={!!preview} onOpenChange={(value) => { if (!value) setPreview(null); }} images={[preview]} currentIndex={0} onIndexChange={() => {}} />}
     </DialogContent>
   </Dialog>;
+}
+
+function CandidatePreview({ candidate, version, mdVersion, disabled, onCorrect }: {
+  candidate: ImportCandidate; version: number; mdVersion: number; disabled: boolean;
+  onCorrect: (key: string, changes: CandidateChanges, version: number, mdVersion: number) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<{ config: ImportCandidate["config"]; version: number } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const { config } = candidate;
+  const fieldNames: Record<string, string> = { document_id: "文档标识", name: "名称", prompt: "Prompt", size: "目标尺寸", output_name: "输出名称", reference_names: "参考图声明" };
+  const conflicts = [...new Set(candidate.errors.filter(item => item.code === "conflicting_field" || item.code === "unclosed_prompt").map(item => item.field))];
+  const title = `${config.document_id} ${config.name}`.trim();
+  const status = { ready: "已就绪", pending: "等待上传", error: "需要修正" }[candidate.status];
+  async function save(changes: CandidateChanges, baseVersion: number) {
+    setSaving(true);
+    setError("");
+    try {
+      await onCorrect(candidate.key, changes, baseVersion, mdVersion);
+      setDraft(null);
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setSaving(false); }
+  }
+  function edit() { setError(""); setDraft({ config: { ...config }, version }); }
+  const inputClass = "mt-1 w-full min-w-0 rounded-md border bg-background p-2 text-sm";
+  return <article className="min-w-0 rounded-xl border p-3 text-sm" aria-label={`条目 ${title}`}>
+    <div className="flex flex-wrap items-center gap-2">
+      <h4 className="min-w-0 flex-1 break-words font-medium">{title}</h4>
+      <span role="status" className={candidate.status === "error" ? "text-rose-600" : "text-muted-foreground"}>{candidate.skipped ? `已跳过 · ${status}` : status}</span>
+      <Button size="sm" variant="outline" disabled={disabled || saving} onClick={() => void save({ skipped: !candidate.skipped }, version)}>{candidate.skipped ? "取消跳过" : "跳过此条"}</Button>
+    </div>
+    <p className="mt-2 break-all">目标尺寸：{config.size || "缺失"} · 输出名称：{config.output_name || "未指定（按条目命名）"}</p>
+    <details className="mt-2">
+      <summary className="cursor-pointer">查看实际 Prompt（{config.prompt.length} 字符）</summary>
+      <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-sans text-xs">{config.prompt || "缺少明确的 Prompt 区块"}</pre>
+    </details>
+    <p className="mt-2 text-xs">参考图（按声明顺序）：{config.reference_names === null ? "缺少声明" : config.reference_names.length === 0 ? "明确无参考图" : ""}</p>
+    <ol className="mt-1 space-y-1">
+      {candidate.matches.map((match, index) => <li key={`${index}:${match.name}`} className="flex min-w-0 items-center gap-2 text-xs">
+        {match.reference && <ReferenceThumbnail src={match.reference.url} alt={match.name} className="size-10 shrink-0 rounded object-cover" />}
+        <span className="min-w-0 break-all">{index + 1}. {match.name} · {match.status === "ready" ? "已匹配" : match.status === "pending" ? "已登记，等待上传" : "未匹配或有冲突"}</span>
+      </li>)}
+    </ol>
+    {candidate.errors.length > 0 && <ul className="mt-2 space-y-1 text-xs text-rose-600" aria-label="条目错误">
+      {candidate.errors.map((item, index) => <li key={index} className="break-words">{item.message}</li>)}
+    </ul>}
+    {error && <p role="alert" className="mt-2 break-words text-rose-600">{error}</p>}
+    {!draft ? <Button className="mt-3" variant="outline" size="sm" disabled={disabled || saving} onClick={edit}>修正此条</Button> :
+      <form className="mt-3 space-y-3" onSubmit={(event) => {
+        event.preventDefault();
+        const fields = new FormData(event.currentTarget);
+        const changes: CandidateChanges = {};
+        for (const key of ["document_id", "name", "prompt", "size", "output_name"] as const) {
+          const value = key === "output_name" ? String(fields.get(key) || "") || null : String(fields.get(key) || "");
+          if (value !== draft.config[key] || fields.has(`confirm_${key}`)) Object.assign(changes, { [key]: value });
+        }
+        const mode = String(fields.get("reference_mode"));
+        const listedNames = String(fields.get("reference_names") || "").split(/\r?\n/).filter(name => name.length > 0);
+        const names = mode === "missing" || (mode === "files" && listedNames.length === 0) ? null : mode === "none" ? [] : listedNames;
+        if (JSON.stringify(names) !== JSON.stringify(draft.config.reference_names) || fields.has("confirm_reference_names")) changes.reference_names = names;
+        if (Object.keys(changes).length) void save(changes, draft.version);
+        else setDraft(null);
+      }}>
+        <div key={draft.version} className="space-y-3">
+          <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+            <label>文档标识<input className={inputClass} name="document_id" defaultValue={draft.config.document_id} /></label>
+            <label>名称<input className={inputClass} name="name" defaultValue={draft.config.name} /></label>
+            <label>目标尺寸<input className={inputClass} name="size" placeholder="1600x1600" defaultValue={draft.config.size} /></label>
+            <label>输出名称（可留空）<input className={inputClass} name="output_name" defaultValue={draft.config.output_name ?? ""} /></label>
+          </div>
+          <label className="block">Prompt<textarea aria-label="Prompt" className={inputClass} rows={6} name="prompt" defaultValue={draft.config.prompt} /></label>
+          <label className="block">参考图声明<select aria-label="参考图声明" className={inputClass} name="reference_mode" defaultValue={draft.config.reference_names === null ? "missing" : draft.config.reference_names.length ? "files" : "none"}>
+            <option value="missing">尚未声明（无效）</option><option value="none">明确无参考图</option><option value="files">使用以下文件，按行匹配</option>
+          </select></label>
+          <label className="block">参考图文件名（每行一个，保留顺序和大小写）<textarea aria-label="参考图文件名（每行一个，保留顺序和大小写）" className={inputClass} rows={3} name="reference_names" defaultValue={draft.config.reference_names?.join("\n") ?? ""} /></label>
+          {conflicts.map(field => <label key={field} className="flex items-start gap-2 text-xs"><input type="checkbox" name={`confirm_${field}`} />确认以表单中的{fieldNames[field]}修正该字段冲突</label>)}
+        </div>
+        {draft.version !== version && <p className="text-xs text-amber-700">素材版本已变化，请重新载入此条后修正。</p>}
+        <div className="flex flex-wrap gap-2">
+          <Button type="submit" size="sm" disabled={disabled || saving}>{saving ? "正在保存并校验…" : "保存并校验"}</Button>
+          <Button type="button" size="sm" variant="outline" disabled={saving} onClick={edit}>重新载入此条</Button>
+          <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => setDraft(null)}>取消修正</Button>
+        </div>
+      </form>}
+  </article>;
 }

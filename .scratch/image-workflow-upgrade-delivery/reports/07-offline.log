@@ -1,0 +1,41 @@
+[storage] Initializing storage backend: json
+[storage] Using JSON storage: C:\Users\ForestHill\.codex\worktrees\fde8\chatgpt2api\data\accounts.json
+.................................................................... [ 28%]
+........................................................................ [ 59%]
+........................................F............................... [ 89%]
+.........................                                                [100%]
+================================== FAILURES ===================================
+___ MultiImageResultTests.test_poll_waits_for_generated_asset_ids_to_settle ___
+test\test_multi_image_results.py:127: in test_poll_waits_for_generated_asset_ids_to_settle
+    self.assertEqual(file_ids, ["file-one", "file-two"])
+E   AssertionError: Lists differ: ['file-one'] != ['file-one', 'file-two']
+E   
+E   Second list contains 1 additional elements.
+E   First extra element 1:
+E   'file-two'
+E   
+E   - ['file-one']
+E   + ['file-one', 'file-two']
+---------------------------- Captured stderr call -----------------------------
+[INFO] {"event": "image_poll_start", "conversation_id": "conv-1", "timeout_secs": 10, "initial_wait_secs": 0.0, "interval_secs": 0.5, "initial_file_ids": [], "initial_sediment_ids": []}
+
+[DEBUG] {"event": "image_poll_task_check_failed", "conversation_id": "conv-1", "attempt": 1, "error": "'FakeBackend' object has no attribute 'session'"}
+
+[DEBUG] {"event": "image_poll_check", "conversation_id": "conv-1", "attempt": 1, "file_ids": ["file-one"], "sediment_ids": []}
+
+[INFO] {"event": "image_poll_hit_no_settle", "conversation_id": "conv-1", "file_ids": ["file-one"], "sediment_ids": []}
+
+------------------------------ Captured log call ------------------------------
+INFO     chatgpt2api:log.py:99 {"event": "image_poll_start", "conversation_id": "conv-1", "timeout_secs": 10, "initial_wait_secs": 0.0, "interval_secs": 0.5, "initial_file_ids": [], "initial_sediment_ids": []}
+DEBUG    chatgpt2api:log.py:95 {"event": "image_poll_task_check_failed", "conversation_id": "conv-1", "attempt": 1, "error": "'FakeBackend' object has no attribute 'session'"}
+DEBUG    chatgpt2api:log.py:95 {"event": "image_poll_check", "conversation_id": "conv-1", "attempt": 1, "file_ids": ["file-one"], "sediment_ids": []}
+INFO     chatgpt2api:log.py:99 {"event": "image_poll_hit_no_settle", "conversation_id": "conv-1", "file_ids": ["file-one"], "sediment_ids": []}
+============================== warnings summary ===============================
+..\..\..\..\Documents\chatgpt2api\.venv\runtime\Lib\site-packages\_pytest\config\__init__.py:1345
+  C:\Users\ForestHill\Documents\chatgpt2api\.venv\runtime\Lib\site-packages\_pytest\config\__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; anyio
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED test/test_multi_image_results.py::MultiImageResultTests::test_poll_waits_for_generated_asset_ids_to_settle
+1 failed, 236 passed, 1 warning, 4 subtests passed in 34.89s
