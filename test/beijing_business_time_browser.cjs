@@ -43,6 +43,11 @@ const path = require('node:path');
       await page.getByRole('dialog').getByText('2026/09/08 00:00:01 北京时间', { exact: true }).waitFor();
       await page.screenshot({ path: path.join(evidence, timezoneId.replaceAll('/', '-') + '-backup.png') });
       await page.keyboard.press('Escape');
+      const [download] = await Promise.all([
+        page.waitForEvent('download'),
+        page.getByRole('button', { name: '下载', exact: true }).click(),
+      ]);
+      assert.match(download.suggestedFilename(), /^backup-20260908T000001\+0800-.*\.tar\.gz$/);
       await page.goto(origin + '/logs/');
       await page.getByRole('cell', { name: '2026/09/08 00:00:01 北京时间', exact: true }).waitFor();
       await page.getByRole('button', { name: '查看详情', exact: true }).click();
