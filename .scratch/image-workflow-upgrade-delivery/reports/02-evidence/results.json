@@ -1,0 +1,117 @@
+[
+  {
+    "results": [
+      {
+        "size": {
+          "width": 1280,
+          "height": 600
+        },
+        "box": {
+          "x": 360,
+          "y": 16,
+          "width": 560,
+          "height": 568
+        },
+        "keyboard": "pass",
+        "clipboard": "full URL matches"
+      }
+    ],
+    "finishBody": {
+      "session_id": "synthetic-02",
+      "callback": "synthetic-callback-02"
+    },
+    "cancel": "pass"
+  },
+  {
+    "results": [
+      {
+        "size": {
+          "width": 320,
+          "height": 480
+        },
+        "box": {
+          "x": 12.8046875,
+          "y": 16,
+          "width": 294.390625,
+          "height": 448
+        },
+        "keyboard": "pass",
+        "clipboard": "full URL matches"
+      }
+    ],
+    "finishBody": {
+      "session_id": "synthetic-02",
+      "callback": "synthetic-callback-02"
+    },
+    "cancel": "pass"
+  },
+  {
+    "results": [
+      {
+        "size": {
+          "width": 375,
+          "height": 667
+        },
+        "box": {
+          "x": 15,
+          "y": 16,
+          "width": 345,
+          "height": 635
+        },
+        "keyboard": "pass",
+        "clipboard": "full URL matches"
+      }
+    ],
+    "finishBody": {
+      "session_id": "synthetic-02",
+      "callback": "synthetic-callback-02"
+    },
+    "cancel": "pass"
+  },
+  {
+    "results": [
+      {
+        "size": {
+          "width": 640,
+          "height": 360
+        },
+        "box": {
+          "x": 40,
+          "y": 16,
+          "width": 560,
+          "height": 328
+        },
+        "keyboard": "pass",
+        "clipboard": "full URL matches"
+      }
+    ],
+    "finishBody": {
+      "session_id": "synthetic-02",
+      "callback": "synthetic-callback-02"
+    },
+    "cancel": "pass"
+  },
+  {
+    "results": [
+      {
+        "size": {
+          "width": 667,
+          "height": 375
+        },
+        "box": {
+          "x": 53.5,
+          "y": 16,
+          "width": 560,
+          "height": 343
+        },
+        "keyboard": "pass",
+        "clipboard": "full URL matches"
+      }
+    ],
+    "finishBody": {
+      "session_id": "synthetic-02",
+      "callback": "synthetic-callback-02"
+    },
+    "cancel": "pass"
+  }
+]
