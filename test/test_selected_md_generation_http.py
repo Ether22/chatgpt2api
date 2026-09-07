@@ -1,6 +1,7 @@
 """Selected MD batches through HTTP, real storage and a controlled upstream."""
 import time
 import sqlite3
+import json
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
@@ -402,3 +403,39 @@ def test_unconfirmed_upload_after_service_restart_is_explicit_failure_and_origin
         assert len(env["calls"]) == 1
     finally:
         restored.shutdown()
+
+
+def test_ready_reference_commit_failure_never_releases_concurrent_waiting_turns(imports, monkeypatch):
+    env = imports
+    state = replace(env, document().replace("参考图：无", "参考图：first.png"))
+    state = reserve(env, version=state["version"]).json()
+    assert batch(env, state, count=2, entries=[{"key": item["key"]} for item in state["candidates"]]).status_code == 200
+    original_connect, failed = sqlite3.connect, False
+    class ReadyCommitFailure(sqlite3.Connection):
+        ready_write = False
+        def execute(self, sql, parameters=()):
+            if sql.startswith("INSERT INTO image_rows") and parameters[0] == "references":
+                self.ready_write = json.loads(parameters[2]).get("state") == "ready"
+            return super().execute(sql, parameters)
+        def __exit__(self, error_type, error, traceback):
+            nonlocal failed
+            if error_type is None and self.ready_write and not failed:
+                failed = True
+                self.rollback()
+                raise OSError("controlled ready reference commit failure")
+            return super().__exit__(error_type, error, traceback)
+    def connect(database, *args, **kwargs):
+        if Path(database) == env["path"]:
+            kwargs["factory"] = ReadyCommitFailure
+        return original_connect(database, *args, **kwargs)
+    try:
+        with monkeypatch.context() as fault:
+            fault.setattr(sqlite3, "connect", connect)
+            assert upload(env).status_code == 507
+            history = wait_for_history(env, 6)
+        assert failed
+        assert all(image["status"] == "error" for turn in history["items"][0]["turns"] for image in turn["images"])
+        assert env["calls"] == []
+        assert all(not reference["url"] for turn in history["items"][0]["turns"] for reference in turn["referenceImages"])
+    finally:
+        env["service"].shutdown()

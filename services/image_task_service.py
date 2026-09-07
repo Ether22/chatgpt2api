@@ -547,7 +547,12 @@ class ImageTaskService:
                     if reference.get("upload_cancelled"):
                         raise ValueError("该上传已取消，请使用新request_id")
                     reference["state"] = "ready"
-                    self._save_locked(references=[reference["id"]])
+                    try:
+                        self._save_locked(references=[reference["id"]])
+                    except Exception:
+                        # Do not expose an uncommitted ready state to waiting turns.
+                        reference["state"] = "pending"
+                        raise
                     return self._public_reference(reference)
             except Exception as exc:
                 with self._lock:
