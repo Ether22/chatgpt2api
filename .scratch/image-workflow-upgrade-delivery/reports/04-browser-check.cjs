@@ -101,6 +101,7 @@ async function eventually(check) {
     await preview.waitFor();
     await eventually(() => preview.locator('img').evaluate(image => image.complete && image.naturalWidth === 40));
     assert.deepEqual((await detail(second)).turns[0].referenceImages, snapshot);
+    await preview.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(output, 'restored-snapshot.png') });
     await page.getByRole('button', { name: '复用配置', exact: true }).first().click();
     await page.getByRole('button', { name: '移除参考图 reference.png', exact: true }).waitFor();
