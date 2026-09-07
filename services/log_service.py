@@ -5,7 +5,6 @@ import json
 import itertools
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -17,6 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from services.config import DATA_DIR
 from services.protocol.error_response import anthropic_error_response, openai_error_response
 from utils.helper import anthropic_sse_stream, sse_json_stream
+from utils.business_time import beijing_iso
 
 LOG_TYPE_CALL = "call"
 LOG_TYPE_ACCOUNT = "account"
@@ -63,7 +63,7 @@ class LogService:
     def add(self, type: str, summary: str = "", detail: dict[str, Any] | None = None, **data: Any) -> None:
         item = {
             "id": uuid4().hex,
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "time": beijing_iso(),
             "type": type,
             "summary": summary,
             "detail": detail or data,
@@ -80,6 +80,11 @@ class LogService:
             item = self._parse_line(lines[line_number], line_number)
             if item is None:
                 continue
+            item["time"] = beijing_iso(str(item.get("time") or ""))
+            if isinstance(item.get("detail"), dict):
+                for key in ("started_at", "ended_at"):
+                    if isinstance(item["detail"].get(key), str):
+                        item["detail"][key] = beijing_iso(item["detail"][key])
             if not self._matches_filters(item, type=type, start_date=start_date, end_date=end_date):
                 continue
             items.append(item)
@@ -307,8 +312,8 @@ class LoggedCall:
             "role": self.identity.get("role"),
             "endpoint": self.endpoint,
             "model": self.model,
-            "started_at": datetime.fromtimestamp(self.started).strftime("%Y-%m-%d %H:%M:%S"),
-            "ended_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "started_at": beijing_iso(self.started),
+            "ended_at": beijing_iso(),
             "duration_ms": int((time.time() - self.started) * 1000),
             "status": status,
         }

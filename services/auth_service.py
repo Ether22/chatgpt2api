@@ -10,12 +10,13 @@ from typing import Literal
 
 from services.config import config
 from services.storage.base import StorageBackend
+from utils.business_time import beijing_iso
 
 AuthRole = Literal["admin", "user"]
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return beijing_iso(datetime.now(timezone.utc))
 
 
 def _hash_key(value: str) -> str:
@@ -82,8 +83,8 @@ class AuthService:
             "name": item.get("name"),
             "role": item.get("role"),
             "enabled": bool(item.get("enabled", True)),
-            "created_at": item.get("created_at"),
-            "last_used_at": item.get("last_used_at"),
+            "created_at": beijing_iso(str(item["created_at"])) if item.get("created_at") else None,
+            "last_used_at": beijing_iso(str(item["last_used_at"])) if item.get("last_used_at") else None,
         }
 
     def list_keys(self, role: AuthRole | None = None) -> list[dict[str, object]]:
@@ -236,7 +237,7 @@ class AuthService:
                     continue
                 next_item = dict(item)
                 now = datetime.now(timezone.utc)
-                next_item["last_used_at"] = now.isoformat()
+                next_item["last_used_at"] = beijing_iso(now)
                 self._items[index] = next_item
                 item_id = self._clean(next_item.get("id"))
                 last_flush_at = self._last_used_flush_at.get(item_id)

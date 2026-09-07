@@ -18,6 +18,7 @@ from curl_cffi import requests
 from services.config import BASE_DIR, CONFIG_FILE, DATA_DIR, config, load_backup_state, save_backup_state
 from services.image_storage_service import IMAGE_INDEX_FILE
 from services.image_tags_service import TAGS_FILE
+from utils.business_time import beijing_iso, beijing_now
 
 
 def _utc_now() -> datetime:
@@ -25,7 +26,7 @@ def _utc_now() -> datetime:
 
 
 def _iso_now() -> str:
-    return _utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return beijing_iso(_utc_now().replace(microsecond=0))
 
 
 def _clean(value: object) -> str:
@@ -351,10 +352,14 @@ class BackupService:
         self.run_backup(trigger="schedule")
 
     def get_status(self) -> dict[str, object]:
-        return {
+        state = {
             **load_backup_state(),
             "running": self._running,
         }
+        for key in ("last_started_at", "last_finished_at"):
+            if state.get(key):
+                state[key] = beijing_iso(str(state[key]))
+        return state
 
     def is_configured(self) -> bool:
         settings = config.get_backup_settings()
@@ -410,7 +415,7 @@ class BackupService:
                 "key": key,
                 "name": name,
                 "size": int(item.get("size") or 0),
-                "updated_at": item.get("updated_at"),
+                "updated_at": beijing_iso(str(item.get("updated_at") or "")),
                 "encrypted": encrypted,
             })
         return parsed
@@ -516,7 +521,7 @@ class BackupService:
         else:
             payload = payload_raw
             suffix = ".tar.gz"
-        timestamp = _utc_now().strftime("%Y%m%dT%H%M%SZ")
+        timestamp = beijing_now().strftime("%Y%m%dT%H%M%S%z")
         random_tag = f"{random.randint(0, 0xFFFF):04x}"
         object_key = f"{client.prefix.rstrip('/')}/backup-{timestamp}-{random_tag}{suffix}"
         metadata = {
@@ -600,7 +605,7 @@ class BackupService:
         files.sort(key=lambda item: str(item.get("name") or ""))
         snapshots.sort(key=lambda item: str(item.get("name") or ""))
         return {
-            "created_at": metadata.get("created_at"),
+            "created_at": beijing_iso(str(metadata["created_at"])) if metadata.get("created_at") else None,
             "trigger": metadata.get("trigger"),
             "app_version": metadata.get("app_version"),
             "storage_backend": metadata.get("storage_backend"),
