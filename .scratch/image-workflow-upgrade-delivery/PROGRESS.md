@@ -9,7 +9,7 @@
 - 主对话：01a07c8d-1fed-7362-8ace-418f3f4cfb0e。
 - 集成分支：codex/image-workflow-integration。
 - 原始代码起点：dc105e5。
-- 统一文档基线：准备提交，提交后记录实际 SHA。
+- 统一文档基线：2e3cba11c3d6e85a0daba22b4d4292cecd95af4d（37 个已确认文档文件，工作区干净后派发）。
 - 首批：01 Astra medium、02 Astra medium、15 Astra high；最多同时三个实施对话。
 - 前置票只有在主对话集成并验证后才算满足；新票从最新集成基线创建独立工作树。
 - 正式执行票在本目录 issues 下，原八项粗分主题仅作背景，不重复实施。
@@ -22,8 +22,8 @@
 
 | 票 | 标题 | 阻塞票 | Codex 对话 | 分支 | 模型/强度 | 状态 | 实施提交 | 集成提交/验证 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 01 | Prompt 折叠、图片顺序与数量记忆 | 无 | 待创建 | codex/image-task-01 | gpt-6-astra / medium | 准备派发 | — | — |
-| 02 | OAuth 弹窗底部操作可达 | 无 | 待创建 | codex/image-task-02 | gpt-6-astra / medium | 准备派发 | — | — |
+| 01 | Prompt 折叠、图片顺序与数量记忆 | 无 | client-new-thread:b2aef621-1ed9-4927-9ca7-2083258dc0fe（待实际 ID 回报） | codex/image-task-01 | gpt-6-astra / medium | 工作树已建立 | — | — |
+| 02 | OAuth 弹窗底部操作可达 | 无 | 01a07cd9-5bba-7003-ac8b-728c6f60fbad | codex/image-task-02 | gpt-6-astra / medium | 实施中 | — | — |
 | 03 | 普通生图在服务器保存并跨浏览器恢复 | 无 | 待创建 | codex/image-task-03 | gpt-6-astra / high | 待调度 | — | — |
 | 04 | 普通参考图生成与独立快照 | 3 | 待创建 | codex/image-task-04 | gpt-6-astra / high | 待调度 | — | — |
 | 05 | 同会话排队、并发、恢复与失败详情 | 4 | 待创建 | codex/image-task-05 | gpt-6-astra / high | 待调度 | — | — |
@@ -36,7 +36,7 @@
 | 12 | 查看器下方操作与本轮直接下载 | 8, 10 | 待创建 | codex/image-task-12 | gpt-6-astra / medium | 待调度 | — | — |
 | 13 | 服务器分页与大型图库按需浏览 | 3 | 待创建 | codex/image-task-13 | gpt-6-astra / high | 待调度 | — | — |
 | 14 | 所有结果的右侧定位导航与窄屏抽屉 | 9, 13 | 待创建 | codex/image-task-14 | gpt-6-astra / high | 待调度 | — | — |
-| 15 | 监控、禁用与可消费额度 | 无 | 待创建 | codex/image-task-15 | gpt-6-astra / high | 准备派发 | — | — |
+| 15 | 监控、禁用与可消费额度 | 无 | 01a07cd9-5e81-7a41-9890-e40f01e0855a | codex/image-task-15 | gpt-6-astra / high | 实施中 | — | — |
 | 16 | 账号隐藏与组内拖拽排序 | 15 | 待创建 | codex/image-task-16 | gpt-6-astra / medium | 待调度 | — | — |
 | 17 | 账号只保留不物理删除 | 无 | 待创建 | codex/image-task-17 | gpt-6-astra / high | 待调度 | — | — |
 | 18 | 业务 API、界面、日志及文件日期统一北京时间 | 无 | 待创建 | codex/image-task-18 | gpt-6-astra / high | 待调度 | — | — |
@@ -54,3 +54,7 @@
 
 - 已检查：工作区无已跟踪代码改动，当前未提交内容仅为本轮规格、任务、AGENTS.md、领域/代理文档；原运行配置与 data 保持不动。
 - 已检查：首批 01/02/15 在上述范围约束下可并行。
+- 01 工作树：C:/Users/ForestHill/.codex/worktrees/d9c8/chatgpt2api；02：C:/Users/ForestHill/.codex/worktrees/e6ce/chatgpt2api；15：C:/Users/ForestHill/.codex/worktrees/0dd2/chatgpt2api。三者均从共同基线创建且已拥有独立分支。
+- Git 无作者配置，本次自动化提交使用命令级 Codex <codex@local>，不修改全局身份。
+- 15 的消费资格核查补充 editable-file 的 PPT/PSD 账号选择与模型目录能力推断，不与 01/02 保留范围冲突。
+- 主对话准备 .venv/runtime 下 Python3.13 与 uv.lock 锁定依赖，解释器可共用读取；每个工作树自己的数据、配置、端口及构建输出保持隔离。完整离线测试不能调用现有 localhost:8000 真实联调脚本。
