@@ -1,0 +1,14 @@
+{
+  "result": "PASS",
+  "errors": [],
+  "partialLostResponseRolledBack": true,
+  "staleConversationRetainReleased": true,
+  "originalReferenceIds": [
+    "404e10630fbc4b56ab3180e13c9a4beb",
+    "8925bf9939d442db853d862b7a4a6c69"
+  ],
+  "changedReferenceIds": [
+    "8925bf9939d442db853d862b7a4a6c69",
+    "7792f0ab3296446784b7d51c1c895c3a"
+  ]
+}
