@@ -14,7 +14,7 @@ import tiktoken
 from services.account_service import account_service
 from services.config import config
 from services.image_storage_service import image_storage_service
-from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, InvalidAccessTokenError, OpenAIBackendAPI
+from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, InvalidAccessTokenError, OpenAIBackendAPI, ImageUploadCache
 from utils.helper import (
     IMAGE_MODELS,
     UpstreamHTTPError,
@@ -310,6 +310,7 @@ class ConversationRequest:
     base_url: str | None = None
     message_as_error: bool = False
     progress_callback: Any = None  # Callable[[str], None] | None
+    image_upload_cache: ImageUploadCache | None = None
 
 
 @dataclass
@@ -1345,6 +1346,7 @@ def _generate_single_image(
         backend = None
         try:
             backend = OpenAIBackendAPI(access_token=token)
+            backend.image_upload_cache = request.image_upload_cache
             if request.progress_callback:
                 backend.progress_callback = request.progress_callback
             stream_fn = stream_codex_image_outputs if is_codex_image_model(request.model) else stream_image_outputs

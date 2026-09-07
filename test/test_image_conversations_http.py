@@ -279,8 +279,11 @@ def test_invalid_reference_inputs_are_rejected_before_consumption(environment, r
 
 def test_reference_entry_still_submits_once_and_restores_its_config(environment):
     env = environment
-    reference = {"name": "reference.png", "type": "image/png", "dataUrl": "data:image/png;base64," + base64.b64encode(image_bytes()).decode()}
-    assert submit(env, referenceImages=[reference]).status_code == 200
+    uploaded = env["client"].post("/api/image-references", headers=env["headers"],
+        data={"request_id": "reference"}, files={"file": ("reference.png", image_bytes(), "image/png")})
+    assert uploaded.status_code == 200, uploaded.text
+    reference = uploaded.json()
+    assert submit(env, referenceImages=[{"id": reference["id"]}]).status_code == 200
     turn = wait_for_history(env)["items"][0]["turns"][0]
     assert turn["mode"] == "edit"
     assert turn["referenceImages"] == [reference]

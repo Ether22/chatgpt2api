@@ -4,6 +4,7 @@ from io import BytesIO
 from typing import Any, Iterator
 
 from PIL import Image
+from services.openai_backend_api import ImageUploadCache
 
 from services.protocol.conversation import (
     ConversationRequest,
@@ -60,7 +61,9 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     response_format = str(body.get("response_format") or "b64_json")
     base_url = str(body.get("base_url") or "") or None
     progress_callback = body.get("progress_callback")
-    encoded_images = encode_images(images)
+    encoded_images = body.get("encoded_images") if not masks else None
+    if encoded_images is None:
+        encoded_images = encode_images(images)
     if not encoded_images:
         raise ImageGenerationError("image is required")
     outputs = stream_image_outputs_with_pool(ConversationRequest(
@@ -74,6 +77,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         images=encoded_images,
         message_as_error=True,
         progress_callback=progress_callback,
+        image_upload_cache=body.get("image_upload_cache") or ImageUploadCache(),
     ))
     if body.get("stream"):
         return stream_image_chunks(outputs)

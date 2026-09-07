@@ -51,8 +51,8 @@ class ImagesEditsApiTests(unittest.TestCase):
         self.assertEqual(payload["n"], 1)
         self.assertEqual(payload["images"], [(PNG_BYTES, "image_url.png", "image/png")])
 
-    def test_edit_rejects_file_id_reference(self):
-        """测试图片编辑接口对暂不支持的 file_id 返回明确错误。"""
+    def test_edit_rejects_unknown_or_upstream_file_id_reference(self):
+        """Only owned server reference IDs are supported; arbitrary upstream IDs stay rejected."""
         response = self.client.post(
             "/v1/images/edits",
             headers=AUTH_HEADERS,
@@ -63,8 +63,8 @@ class ImagesEditsApiTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(response.status_code, 400, response.text)
-        self.assertIn("file_id image references are not supported", response.text)
+        self.assertEqual(response.status_code, 404, response.text)
+        self.assertIn("reference not found", response.text)
         self.assertEqual(self.handle_calls, [])
 
 

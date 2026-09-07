@@ -21,10 +21,11 @@ from fastapi import HTTPException
 from PIL import Image
 
 from services.config import DATA_DIR, config
+from utils.business_time import beijing_now, beijing_iso
 
 IMAGE_INDEX_FILE = DATA_DIR / "image_index.json"
 IMAGE_INDEX_LOCK = Lock()
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 _IMAGE_OWNER: ContextVar[str | None] = ContextVar("image_owner", default=None)
 
 
@@ -288,11 +289,32 @@ class ImageStorageService:
         relative_dir = Path(time.strftime("%Y"), time.strftime("%m"), time.strftime("%d"))
         return f"{relative_dir.as_posix()}/{filename}"
 
-    def save(self, image_data: bytes, base_url: str | None = None) -> StoredImage:
+    def make_reference_path(self, mime_type: str) -> str:
+        owner = _IMAGE_OWNER.get()
+        if owner is None:
+            raise ValueError("reference owner is required")
+        extension = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}[mime_type]
+        return f"managed/{_owner_namespace(owner)}/references/{beijing_now():%Y/%m/%d}/{uuid.uuid4().hex}.{extension}"
+
+    def save(self, image_data: bytes, base_url: str | None = None, *, reference: bool = False,
+             reference_path: str | None = None, storage_mode: str | None = None) -> StoredImage:
         if _IMAGE_OWNER.get() is None:
             config.cleanup_old_images()
         rel = self.make_relative_path(image_data)
-        mode = self.mode()
+        mime_type = "image/png"
+        if reference:
+            if _IMAGE_OWNER.get() is None:
+                raise ValueError("reference owner is required")
+            with Image.open(io.BytesIO(image_data)) as image:
+                extension = {"PNG": "png", "JPEG": "jpg", "WEBP": "webp", "GIF": "gif"}.get(image.format)
+                if not extension:
+                    raise ValueError("参考图仅支持 PNG、JPEG、WebP、GIF")
+                mime_type = Image.MIME[image.format]
+                image.verify()
+            rel = _safe_relative_path(reference_path) if reference_path else self.make_reference_path(mime_type)
+            if not rel.startswith(f"managed/{_owner_namespace(_IMAGE_OWNER.get())}/references/"):
+                raise ValueError("reference path must belong to its owner")
+        mode = storage_mode or self.mode()
         if mode not in {"local", "webdav", "both"}:
             mode = "local"
         stored_local = False
@@ -306,7 +328,8 @@ class ImageStorageService:
             stored_local = True
 
         if mode in {"webdav", "both"}:
-            remote_url = WebDAVClient(self.settings()).put(rel, image_data)
+            client = WebDAVClient(self.settings())
+            remote_url = client.put(rel, image_data, content_type=mime_type) if reference else client.put(rel, image_data)
             stored_webdav = True
 
         dimensions = _image_dimensions(image_data)
@@ -324,6 +347,8 @@ class ImageStorageService:
         }
         if _IMAGE_OWNER.get() is not None:
             item["owner_id"] = _IMAGE_OWNER.get()
+        if reference:
+            item.update(kind="reference", mime_type=mime_type, created_at=beijing_iso(), date=beijing_now().strftime("%Y-%m-%d"))
         if dimensions:
             item["width"], item["height"] = dimensions
         with self._index_lock:
@@ -424,7 +449,7 @@ class ImageStorageService:
         items.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
         return items
 
-    def delete(self, rel: str) -> bool:
+    def delete(self, rel: str, *, reference_storage_mode: str | None = None) -> bool:
         safe_rel = _safe_relative_path(rel)
         removed = False
         path = local_image_path(safe_rel)
@@ -434,11 +459,11 @@ class ImageStorageService:
         with self._index_lock:
             items = self._load_clean_index()
             item = items.get(safe_rel, {})
-            if item.get("webdav"):
+            if item.get("webdav") or reference_storage_mode in {"webdav", "both"}:
                 try:
                     removed = WebDAVClient(self.settings()).delete(safe_rel) or removed
                 except ImageStorageError:
-                    if not removed:
+                    if not removed or item.get("kind") == "reference" or reference_storage_mode:
                         raise
             if safe_rel in items:
                 items.pop(safe_rel, None)

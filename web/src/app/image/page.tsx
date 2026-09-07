@@ -44,6 +44,11 @@ import {
   type ImageTurn,
   type StoredImage,
   type StoredReferenceImage,
+  type DraftReferenceImage,
+  uploadReferenceImage,
+  releaseReferenceImage,
+  retainReferenceImage,
+  fetchReferenceImages,
 } from "@/store/image-conversations";
 
 const IMAGE_RATIO_STORAGE_KEY = "chatgpt2api:image_last_ratio";
@@ -113,26 +118,6 @@ function createId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("读取参考图失败"));
-    reader.readAsDataURL(file);
-  });
-}
-
-function dataUrlToFile(dataUrl: string, fileName: string, mimeType?: string) {
-  const [header, content] = dataUrl.split(",", 2);
-  const matchedMimeType = header.match(/data:(.*?);base64/)?.[1];
-  const binary = atob(content || "");
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return new File([bytes], fileName, { type: mimeType || matchedMimeType || "image/png" });
-}
-
 function filterImageModels(items: Model[]): ImageModel[] {
   return items
     .map((item) => String(item.id || "").trim())
@@ -147,44 +132,9 @@ function normalizeStoredImageModel(value: string | null, availableModels: ImageM
   return availableModels[0] || "gpt-image-2";
 }
 
-function buildReferenceImageFromResult(image: StoredImage, fileName: string): StoredReferenceImage | null {
-  if (!image.b64_json) {
-    return null;
-  }
-
-  return {
-    name: fileName,
-    type: "image/png",
-    dataUrl: `data:image/png;base64,${image.b64_json}`,
-  };
-}
-
 async function fetchImageAsFile(url: string, fileName: string) {
   const blob = await fetchStoredImageBlob(url);
   return new File([blob], fileName, { type: blob.type || "image/png" });
-}
-
-async function buildReferenceImageFromStoredImage(image: StoredImage, fileName: string) {
-  const direct = buildReferenceImageFromResult(image, fileName);
-  if (direct) {
-    return {
-      referenceImage: direct,
-      file: dataUrlToFile(direct.dataUrl, direct.name, direct.type),
-    };
-  }
-
-  if (!image.url) {
-    return null;
-  }
-  const file = await fetchImageAsFile(image.url, fileName);
-  return {
-    referenceImage: {
-      name: file.name,
-      type: file.type || "image/png",
-      dataUrl: await readFileAsDataUrl(file),
-    },
-    file,
-  };
 }
 
 function pickFallbackConversationId(conversations: ImageConversation[]) {
@@ -230,8 +180,39 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const [imageModel, setImageModel] = useState<ImageModel>("gpt-image-2");
   const [imageModels, setImageModels] = useState<ImageModel[]>(["gpt-image-2"]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [referenceImageFiles, setReferenceImageFiles] = useState<File[]>([]);
-  const [referenceImages, setReferenceImages] = useState<StoredReferenceImage[]>([]);
+  const [referenceImages, updateReferenceImages] = useState<DraftReferenceImage[]>([]);
+  const referenceImagesRef = useRef<DraftReferenceImage[]>([]);
+  const setReferenceImages = useCallback((value: DraftReferenceImage[] | ((previous: DraftReferenceImage[]) => DraftReferenceImage[])) => {
+    const previous = referenceImagesRef.current;
+    const next = typeof value === "function" ? value(previous) : value;
+    referenceImagesRef.current = next;
+    updateReferenceImages(next);
+    for (const image of previous) {
+      if (image.url.startsWith("blob:") && !next.some((item) => item.url === image.url)) URL.revokeObjectURL(image.url);
+    }
+  }, []);
+  const releaseInputs = useCallback((images: DraftReferenceImage[]) => {
+    for (const image of images) {
+      if (pendingSubmissionRef.current?.turn.referenceImages.some((item) => item.id === image.id)) continue;
+      if (!image.file) void releaseReferenceImage(image.id).catch((error) => {
+        toast.error(`释放参考图失败：${error.message}`);
+        setReferenceImages((current) => current.some((item) => item.id === image.id) ? current
+          : [...current, { ...image, error: "释放失败，请重试移除" }]);
+      });
+    }
+  }, [setReferenceImages]);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchReferenceImages().then(({ items }) => {
+      if (!cancelled) setReferenceImages((current) => [...current, ...items.filter((image) => !current.some((item) => item.id === image.id))]);
+    }).catch((error) => toast.error(`恢复参考图失败：${error.message}`));
+    return () => { cancelled = true; };
+  }, [setReferenceImages]);
+  useEffect(() => () => {
+    for (const image of referenceImagesRef.current) {
+      if (image.url.startsWith("blob:")) URL.revokeObjectURL(image.url);
+    }
+  }, []);
   const [conversations, setConversations] = useState<ImageConversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
@@ -644,12 +625,12 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
   const clearComposerInputs = useCallback(() => {
     setImagePrompt("");
-    setReferenceImageFiles([]);
+    releaseInputs(referenceImagesRef.current);
     setReferenceImages([]);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-  }, []);
+  }, [releaseInputs, setReferenceImages]);
 
   const resetComposer = useCallback(() => {
     clearComposerInputs();
@@ -772,81 +753,64 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     await handleDeleteConversation(target.id);
   };
 
-  const appendReferenceImages = useCallback(async (files: File[]) => {
-    if (files.length === 0) {
+  const uploadDraftReference = useCallback(async (draft: DraftReferenceImage) => {
+    if (!draft.file) {
+      toast.error("请移除未完成的上传并重新选择文件");
       return;
     }
-
+    setReferenceImages((current) => current.map((image) => image.id === draft.id ? { ...image, uploading: true, error: undefined } : image));
     try {
-      const previews = await Promise.all(
-        files.map(async (file) => ({
-          name: file.name,
-          type: file.type || "image/png",
-          dataUrl: await readFileAsDataUrl(file),
-        })),
-      );
-
-      setReferenceImageFiles((prev) => [...prev, ...files]);
-      setReferenceImages((prev) => [...prev, ...previews]);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
+      const saved = await uploadReferenceImage(draft.file, draft.id, (progress) => {
+        setReferenceImages((current) => current.map((image) => image.id === draft.id ? { ...image, progress } : image));
+      });
+      if (!referenceImagesRef.current.some((image) => image.id === draft.id)) {
+        await releaseReferenceImage(saved.id);
+      } else {
+        setReferenceImages((current) => current.map((image) => image.id === draft.id ? saved : image));
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "读取参考图失败";
+      const message = error instanceof Error ? error.message : "上传参考图失败";
+      setReferenceImages((current) => current.map((image) => image.id === draft.id ? { ...image, uploading: false, error: message } : image));
       toast.error(message);
     }
-  }, []);
+  }, [setReferenceImages]);
 
-  const handleReferenceImageChange = useCallback(
-    async (files: File[]) => {
-      if (files.length === 0) {
-        return;
-      }
+  const appendReferenceImages = useCallback(async (files: File[]) => {
+    const drafts = files.map((file) => ({ id: createId(), name: file.name, type: file.type,
+      size: file.size, url: URL.createObjectURL(file), file, uploading: true }));
+    setReferenceImages((current) => [...current, ...drafts]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    for (const draft of drafts) {
+      if (referenceImagesRef.current.some((image) => image.id === draft.id)) await uploadDraftReference(draft);
+    }
+  }, [setReferenceImages, uploadDraftReference]);
 
-      await appendReferenceImages(files);
-    },
-    [appendReferenceImages],
-  );
+  const handleReferenceImageChange = appendReferenceImages;
 
   const handleRemoveReferenceImage = useCallback((index: number) => {
-    setReferenceImageFiles((prev) => {
-      const next = prev.filter((_, currentIndex) => currentIndex !== index);
-      if (next.length === 0 && fileInputRef.current) {
-        fileInputRef.current.value = "";
+    const image = referenceImagesRef.current[index];
+    if (image) releaseInputs([image]);
+    setReferenceImages((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  }, [releaseInputs, setReferenceImages]);
+
+  const handleContinueEdit = useCallback(async (conversationId: string, image: StoredImage | StoredReferenceImage) => {
+    try {
+      setSelectedConversationId(conversationId);
+      if ("name" in image) {
+        const retained = await retainReferenceImage(image.id);
+        setReferenceImages((current) => current.some((item) => item.id === retained.id) ? current : [...current, retained]);
+      } else {
+        const source = image.b64_json ? `data:image/png;base64,${image.b64_json}` : image.url;
+        if (!source) return;
+        await appendReferenceImages([await fetchImageAsFile(source, `conversation-${conversationId}-${Date.now()}.png`)]);
       }
-      return next;
-    });
-    setReferenceImages((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
-  }, []);
-
-  const handleContinueEdit = useCallback(
-    async (conversationId: string, image: StoredImage | StoredReferenceImage) => {
-      try {
-        const nextReference =
-          "dataUrl" in image
-            ? {
-                referenceImage: image,
-                file: dataUrlToFile(image.dataUrl, image.name, image.type),
-              }
-            : await buildReferenceImageFromStoredImage(image, `conversation-${conversationId}-${Date.now()}.png`);
-        if (!nextReference) {
-          return;
-        }
-
-        setSelectedConversationId(conversationId);
-
-        setReferenceImages((prev) => [...prev, nextReference.referenceImage]);
-        setReferenceImageFiles((prev) => [...prev, nextReference.file]);
-        setImagePrompt("");
-        textareaRef.current?.focus();
-        toast.success("已加入当前参考图，继续输入描述即可编辑");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "读取结果图失败";
-        toast.error(message);
-      }
-    },
-    [],
-  );
+      setImagePrompt("");
+      textareaRef.current?.focus();
+      toast.success("已加入当前参考图，继续输入描述即可编辑");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "读取结果图失败");
+    }
+  }, [appendReferenceImages, setReferenceImages]);
 
   const handleReuseTurnConfig = useCallback(async (conversationId: string, turnId: string) => {
     const conversation = conversationsRef.current.find((item) => item.id === conversationId);
@@ -865,16 +829,20 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     setImageHeight(parsedSize.height);
     setImageQuality(turn.quality);
     setImageModel(turn.model);
-    setReferenceImages(turn.referenceImages);
-    setReferenceImageFiles(
-      turn.referenceImages.map((image) => dataUrlToFile(image.dataUrl, image.name, image.type)),
-    );
+    try {
+      const retained = await Promise.all(turn.referenceImages.map((image) => retainReferenceImage(image.id)));
+      releaseInputs(referenceImagesRef.current.filter((image) => !retained.some((item) => item.id === image.id)));
+      setReferenceImages(retained);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "恢复参考图失败");
+      return;
+    }
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
     textareaRef.current?.focus();
     toast.success("已复用这条提示词配置");
-  }, [handleImageCountChange]);
+  }, [handleImageCountChange, releaseInputs, setReferenceImages]);
 
   const openLightbox = useCallback((images: ImageLightboxItem[], index: number) => {
     if (images.length === 0) {
@@ -939,7 +907,11 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       return;
     }
 
-    const effectiveImageMode: ImageConversationMode = referenceImageFiles.length > 0 ? "edit" : "generate";
+    if (referenceImages.some((image) => image.file || image.error)) {
+      toast.error("请等待参考图上传完成，失败的图片请重试或移除");
+      return;
+    }
+    const effectiveImageMode: ImageConversationMode = referenceImages.length > 0 ? "edit" : "generate";
 
     const conversationId = selectedConversationId;
     const draftTurn: ImageTurn = {
@@ -960,9 +932,11 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       setSelectedConversationId(saved.id);
       shouldStickToBottomRef.current = true;
       setImagePrompt((current) => current.trim() === prompt ? "" : current);
-      setReferenceImages((current) => current === referenceImages ? [] : current);
-      setReferenceImageFiles((current) => current === referenceImageFiles ? [] : current);
+      // Remove only the submitted references; files added while submitting stay in the composer.
+      const submittedIds = new Set(referenceImages.map((image) => image.id));
+      setReferenceImages((current) => current.filter((image) => !submittedIds.has(image.id)));
       if (pendingSubmissionRef.current === pending) pendingSubmissionRef.current = null;
+      releaseInputs(referenceImages);
       toast.success("已保存并提交生成");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "保存并提交失败");
@@ -1107,6 +1081,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             onPickReferenceImage={() => fileInputRef.current?.click()}
             onReferenceImageChange={handleReferenceImageChange}
             onRemoveReferenceImage={handleRemoveReferenceImage}
+            onRetryReferenceImage={(index) => void uploadDraftReference(referenceImagesRef.current[index])}
           />
         </div>
       </section>

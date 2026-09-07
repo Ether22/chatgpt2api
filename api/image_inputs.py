@@ -5,8 +5,9 @@ import binascii
 import json
 import mimetypes
 import re
+from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Any, TypeGuard
+from typing import Any, TypeGuard, Callable
 from urllib.parse import unquote, unquote_to_bytes, urlparse
 
 from curl_cffi import requests
@@ -17,7 +18,14 @@ from starlette.datastructures import UploadFile
 from services.proxy_service import proxy_settings
 
 ImageInput = tuple[bytes, str, str]
-ImageSource = str | UploadFile | ImageInput
+
+
+@dataclass(frozen=True)
+class ImageReference:
+    id: str
+
+
+ImageSource = str | UploadFile | ImageInput | ImageReference
 
 MAX_IMAGE_REFERENCE_BYTES = 50 * 1024 * 1024
 IMAGE_REFERENCE_FIELDS = {"image", "image[]", "images", "images[]", "image_url", "image_url[]"}
@@ -105,13 +113,12 @@ def _decode_base64_image(value: object, filename: str, mime_type: str) -> ImageI
 
 
 def _source_from_object(value: dict[str, Any]) -> list[ImageSource]:
-    """提取图片引用对象：支持 image_url 或 url，明确拒绝 file_id。"""
+    """file_id only denotes an owned server reference, never an upstream file ID."""
     has_url = "image_url" in value or "url" in value
     if value.get("file_id"):
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "file_id image references are not supported; use image_url instead"},
-        )
+        if has_url or value.get("base64") or value.get("b64_json") or not isinstance(value["file_id"], str):
+            raise HTTPException(status_code=400, detail={"error": "file_id must be the only image source"})
+        return [ImageReference(value["file_id"])]
     inline = value.get("b64_json") or value.get("base64")
     if inline:
         filename = _clean(value.get("filename") or value.get("file_name"), "image.png")
@@ -287,20 +294,33 @@ def _download_image_url(url: str) -> ImageInput:
     return data, _filename_from_url(parsed.path, mime_type), mime_type
 
 
-async def read_image_sources(sources: list[ImageSource]) -> list[ImageInput]:
+async def read_image_sources(sources: list[ImageSource], *,
+                             reference_reader: Callable[[str], ImageInput] | None = None) -> list[ImageInput]:
     """读取图片来源：上传文件直接读取，URL 下载后统一返回图片元组。"""
     images: list[ImageInput] = []
     for source in sources:
+        if isinstance(source, ImageReference):
+            if reference_reader is None:
+                raise HTTPException(status_code=400, detail={"error": "file_id is unavailable here"})
+            try:
+                images.append(await run_in_threadpool(reference_reader, source.id))
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail={"error": "reference not found"}) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+            continue
         if isinstance(source, tuple):
             images.append(source)
             continue
         if _is_upload(source):
             try:
-                image_data = await source.read()
+                image_data = await source.read(MAX_IMAGE_REFERENCE_BYTES + 1)
             finally:
                 await source.close()
             if not image_data:
                 raise HTTPException(status_code=400, detail={"error": "image file is empty"})
+            if len(image_data) > MAX_IMAGE_REFERENCE_BYTES:
+                raise HTTPException(status_code=400, detail={"error": "image file exceeds 50MB limit"})
             images.append((image_data, source.filename or "image.png", source.content_type or "image/png"))
             continue
         images.append(await run_in_threadpool(_download_image_url, source))

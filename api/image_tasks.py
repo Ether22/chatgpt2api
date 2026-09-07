@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import base64
-import binascii
-from typing import Literal
-
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -29,22 +25,8 @@ class ResumePollRequest(BaseModel):
 
 
 class ReferenceImageRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
-    type: Literal["image/png", "image/jpeg", "image/webp", "image/gif"]
-    dataUrl: str = Field(max_length=(MAX_IMAGE_REFERENCE_BYTES + 2) // 3 * 4 + 100)
-
-    @field_validator("dataUrl")
-    @classmethod
-    def valid_image_data_url(cls, value: str) -> str:
-        header, separator, encoded = value.partition(",")
-        if not separator or header not in {f"data:{mime};base64" for mime in ("image/png", "image/jpeg", "image/webp", "image/gif")}:
-            raise ValueError("参考图必须为图片 Base64 data URL")
-        try:
-            if not base64.b64decode(encoded, validate=True):
-                raise ValueError("参考图不能为空")
-        except binascii.Error as exc:
-            raise ValueError("参考图 Base64 无效") from exc
-        return value
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=128)
 
 
 class ImageTurnRequest(BaseModel):
@@ -116,6 +98,32 @@ async def filter_or_log(call: LoggedCall, text: str) -> None:
 
 def create_router() -> APIRouter:
     router = APIRouter()
+
+    @router.get("/api/image-references")
+    async def list_references(authorization: str | None = Header(default=None)):
+        return await conversation_call(image_task_service.list_references, require_identity(authorization))
+
+    @router.post("/api/image-references/{reference_id}/retain")
+    async def retain_reference(reference_id: str, authorization: str | None = Header(default=None)):
+        return await conversation_call(image_task_service.retain_reference, require_identity(authorization), reference_id)
+
+    @router.post("/api/image-references")
+    async def upload_reference(request: Request, file: UploadFile = File(...),
+                               request_id: str = Form(..., min_length=1, max_length=128),
+                               authorization: str | None = Header(default=None)):
+        identity = require_identity(authorization)
+        try:
+            data = await file.read(MAX_IMAGE_REFERENCE_BYTES + 1)
+        finally:
+            await file.close()
+        if not data or len(data) > MAX_IMAGE_REFERENCE_BYTES:
+            raise HTTPException(status_code=400, detail={"error": "参考图不能为空且不得超过50MB"})
+        return await conversation_call(image_task_service.upload_reference, identity, request_id, data,
+                                       file.filename or "image.png", resolve_image_base_url(request))
+
+    @router.delete("/api/image-references/{reference_id}")
+    async def release_reference(reference_id: str, authorization: str | None = Header(default=None)):
+        return await conversation_call(image_task_service.release_reference, require_identity(authorization), reference_id)
 
     @router.get("/api/image-conversations")
     async def list_conversations(authorization: str | None = Header(default=None)):
@@ -200,8 +208,9 @@ def create_router() -> APIRouter:
         prompt = str(payload["prompt"])
         model = str(payload["model"])
         await filter_or_log(LoggedCall(identity, "/api/image-tasks/edits", model, "图生图任务", request_text=prompt), prompt)
-        images = await read_image_sources(image_sources)
-        masks = await read_image_sources(mask_sources) if mask_sources else None
+        reference_reader = lambda reference_id: image_task_service.read_reference(identity, reference_id)
+        images = await read_image_sources(image_sources, reference_reader=reference_reader)
+        masks = await read_image_sources(mask_sources, reference_reader=reference_reader) if mask_sources else None
         try:
             return await run_in_threadpool(
                 image_task_service.submit_edit,

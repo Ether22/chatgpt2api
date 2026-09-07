@@ -1,0 +1,23 @@
+{
+  "timings": {
+    "selectionFeedbackMs": 39,
+    "fourSyntheticImagesMs": 789
+  },
+  "mainUploads": 2,
+  "mainOutputs": 4,
+  "submissionBytes": 313,
+  "protectedReads": 21,
+  "errors": [],
+  "download": "original-wrong.gif; exact original bytes",
+  "checks": [
+    "immediate upload feedback",
+    "ready guard",
+    "one upload per file for four images",
+    "ordered ID-only submission",
+    "cross-browser snapshot",
+    "retain and release",
+    "cross-identity denial",
+    "failed upload retry",
+    "unsubmitted draft reload and final cleanup"
+  ]
+}

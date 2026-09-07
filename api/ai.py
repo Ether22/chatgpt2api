@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.image_inputs import parse_image_edit_request, read_image_sources
+from services.image_task_service import image_task_service
 from api.support import require_identity, resolve_image_base_url
 from services.content_filter import check_request, request_shape, request_text
 from services.editable_file_task_service import editable_file_task_service
@@ -112,9 +113,10 @@ def create_router() -> APIRouter:
         model = str(payload["model"])
         call = LoggedCall(identity, "/v1/images/edits", model, "图生图", request_text=prompt)
         await filter_or_log(call, prompt)
-        payload["images"] = await read_image_sources(image_sources)
+        reference_reader = lambda reference_id: image_task_service.read_reference(identity, reference_id)
+        payload["images"] = await read_image_sources(image_sources, reference_reader=reference_reader)
         if mask_sources:
-            payload["mask"] = await read_image_sources(mask_sources)
+            payload["mask"] = await read_image_sources(mask_sources, reference_reader=reference_reader)
         payload["base_url"] = resolve_image_base_url(request)
         return await call.run(openai_v1_image_edit.handle, payload)
 

@@ -7,10 +7,40 @@ import { httpRequest, request } from "@/lib/request";
 export type ImageConversationMode = "generate" | "edit";
 
 export type StoredReferenceImage = {
+  id: string;
   name: string;
   type: string;
-  dataUrl: string;
+  url: string;
+  size: number;
 };
+
+export type DraftReferenceImage = StoredReferenceImage & {
+  file?: File;
+  uploading?: boolean;
+  progress?: number;
+  error?: string;
+};
+
+export async function uploadReferenceImage(file: File, requestId: string, onProgress: (percent: number) => void) {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("request_id", requestId);
+  return (await request.post<StoredReferenceImage>("/api/image-references", body, {
+    onUploadProgress: (event) => onProgress(Math.round(100 * event.loaded / (event.total || file.size || 1))),
+  })).data;
+}
+
+export function releaseReferenceImage(id: string) {
+  return httpRequest(`/api/image-references/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function retainReferenceImage(id: string) {
+  return httpRequest<StoredReferenceImage>(`/api/image-references/${encodeURIComponent(id)}/retain`, { method: "POST" });
+}
+
+export function fetchReferenceImages() {
+  return httpRequest<{ items: DraftReferenceImage[] }>("/api/image-references");
+}
 
 export type StoredImage = {
   id: string;
@@ -103,7 +133,7 @@ export function submitImageTurn(turn: ImageTurn, conversationId: string | null) 
       tier: turn.tier,
       quality: turn.quality,
       count: turn.count,
-      referenceImages: turn.referenceImages,
+      referenceImages: turn.referenceImages.map(({ id }) => ({ id })),
     },
   });
 }

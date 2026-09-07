@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import io
 import copy
 import json
 import threading
@@ -15,8 +17,12 @@ from urllib.parse import urlsplit
 from services.config import DATA_DIR, config
 from services.content_filter import request_text
 from services.log_service import LOG_TYPE_CALL, log_service
-from services.image_storage_service import image_storage_service, write_json_atomic
+from services.image_storage_service import ImageStorageError, image_storage_service, write_json_atomic
+from PIL import Image, UnidentifiedImageError
+from utils.business_time import beijing_iso
 from services.protocol import openai_v1_image_edit, openai_v1_image_generations
+from services.protocol.conversation import encode_images
+from services.openai_backend_api import ImageUploadCache
 
 TASK_STATUS_QUEUED = "queued"
 TASK_STATUS_RUNNING = "running"
@@ -121,6 +127,7 @@ class ImageTaskService:
         self._tasks: dict[str, dict[str, Any]] = {}
         self._conversations: dict[str, dict[str, Any]] = {}
         self._current: dict[str, str] = {}
+        self._references: dict[str, dict[str, Any]] = {}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
             self._tasks = self._load_locked()
@@ -262,21 +269,205 @@ class ImageTaskService:
                 self._restore_current(owner, previous_current)
                 raise
 
+    def _owned_reference(self, identity: dict[str, object], reference_id: str) -> dict[str, Any]:
+        reference = self._references.get(reference_id)
+        if not reference or reference["owner_id"] != _owner_id(identity) or reference.get("deleted"):
+            raise KeyError("reference not found")
+        if reference.get("state") != "ready":
+            raise ValueError("参考图上传未完成，请重试上传或移除")
+        if not reference["input_scopes"] and not reference["turn_ids"]:
+            raise KeyError("reference released")
+        return reference
+
+    @staticmethod
+    def _public_reference(reference: dict[str, Any]) -> dict[str, Any]:
+        return {key: reference[key] for key in ("id", "name", "type", "url", "size")}
+
+    def upload_reference(self, identity: dict[str, object], request_id: str, data: bytes,
+                         name: str, base_url: str = "", *, scope: str = "ordinary") -> dict[str, Any]:
+        self._validate_reference_scope(scope)
+        owner = _owner_id(identity)
+        if not request_id.strip() or not data or len(data) > 50 * 1024 * 1024:
+            raise ValueError("参考图不能为空且不得超过50MB，request_id不能为空")
+        name = name.replace("\\", "/").rsplit("/", 1)[-1]
+        if not name or len(name) > 255:
+            raise ValueError("参考图文件名无效")
+        digest = hashlib.sha256(data).hexdigest()
+        with self._lock:
+            reference = next((item for item in self._references.values()
+                              if item["owner_id"] == owner and item["request_id"] == request_id and item["upload_scope"] == scope), None)
+            if reference:
+                if reference.get("deleted") or reference["digest"] != digest or reference["name"] != name:
+                    raise ValueError("上传request_id已使用，请为新文件使用新标识")
+                if reference["state"] == "ready":
+                    if scope not in reference["input_scopes"]:
+                        return self.retain_reference(identity, reference["id"], scope=scope)
+                    return self._public_reference(reference)
+                if not reference["input_scopes"]:
+                    raise ValueError("该上传正在清理，请使用新request_id")
+            else:
+                try:
+                    with Image.open(io.BytesIO(data)) as image:
+                        mime_type = Image.MIME.get(image.format)
+                        if mime_type not in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
+                            raise ValueError("参考图仅支持 PNG、JPEG、WebP、GIF")
+                        image.verify()
+                except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError) as exc:
+                    raise ValueError("无法读取参考图") from exc
+                image_storage_service.check_writable(verify_destinations=True)
+                with image_storage_service.owner_scope(owner):
+                    path = image_storage_service.make_reference_path(mime_type)
+                reference_id = uuid.uuid4().hex
+                reference = {"id": reference_id, "owner_id": owner, "request_id": request_id,
+                             "name": name, "type": mime_type, "url": f"/images/{path}", "size": len(data),
+                             "path": path, "digest": digest, "input_scopes": [scope], "upload_scope": scope, "turn_ids": [],
+                             "created_at": beijing_iso(), "state": "pending",
+                             "storage_mode": image_storage_service.mode(),
+                             "storage_target": self._reference_storage_target()}
+                self._references[reference_id] = reference
+                try:
+                    # Record the intended file before either destination can receive bytes.
+                    self._save_locked()
+                except Exception:
+                    del self._references[reference_id]
+                    raise
+            self._check_reference_destination(reference)
+            with image_storage_service.owner_scope(owner):
+                image_storage_service.save(data, base_url, reference=True, reference_path=reference["path"],
+                                           storage_mode=reference["storage_mode"])
+            reference["state"] = "ready"
+            try:
+                self._save_locked()
+            except Exception:
+                reference["state"] = "pending"
+                raise
+            return self._public_reference(reference)
+
+    @staticmethod
+    def _validate_reference_scope(scope: str) -> None:
+        if scope not in {"ordinary", "imports"}:
+            raise ValueError("unknown reference scope")
+
+    @staticmethod
+    def _reference_storage_target() -> dict[str, str]:
+        settings = image_storage_service.settings()
+        return {key: (str(settings.get(key) or "") if key == "webdav_username" else str(settings.get(key) or "").rstrip("/"))
+                for key in ("webdav_url", "webdav_root_path", "webdav_username")}
+
+    def _check_reference_destination(self, reference: dict[str, Any]) -> None:
+        if reference["storage_mode"] in {"webdav", "both"} and reference["storage_target"] != self._reference_storage_target():
+            raise ImageStorageError("参考图远端存储位置已变更，请恢复原位置后重试")
+
+    def list_references(self, identity: dict[str, object], *, scope: str = "ordinary") -> dict[str, Any]:
+        self._validate_reference_scope(scope)
+        with self._lock:
+            return {"items": [
+                {**self._public_reference(item),
+                 **({"error": "释放未完成，请重试移除"} if item.get("cleanup_scope") else
+                    {"error": "上传未完成，请移除并重新选择"} if item["state"] != "ready" else {})}
+                for item in self._references.values()
+                if item["owner_id"] == _owner_id(identity) and (scope in item["input_scopes"] or item.get("cleanup_scope") == scope)
+                and not item.get("deleted")
+            ]}
+
+    def retain_reference(self, identity: dict[str, object], reference_id: str, *, scope: str = "ordinary") -> dict[str, Any]:
+        self._validate_reference_scope(scope)
+        with self._lock:
+            reference = self._owned_reference(identity, reference_id)
+            previous = reference["input_scopes"][:]
+            reference["input_scopes"] = list(dict.fromkeys([*previous, scope]))
+            try:
+                self._save_locked()
+            except Exception:
+                reference["input_scopes"] = previous
+                raise
+            return self._public_reference(reference)
+
+    def read_reference(self, identity: dict[str, object], reference_id: str) -> tuple[bytes, str, str]:
+        with self._lock:
+            reference = self._owned_reference(identity, reference_id)
+            self._check_reference_destination(reference)
+            return image_storage_service.get_bytes(reference["path"]), reference["name"], reference["type"]
+
+    def release_reference(self, identity: dict[str, object], reference_id: str, *, scope: str = "ordinary") -> dict[str, bool]:
+        self._validate_reference_scope(scope)
+        with self._lock:
+            reference = self._references.get(reference_id)
+            if not reference or reference["owner_id"] != _owner_id(identity):
+                raise KeyError("reference not found")
+            if reference.get("deleted"):
+                return {"retained": False}
+            previous = copy.deepcopy(reference)
+            reference["input_scopes"] = [item for item in reference["input_scopes"] if item != scope]
+            if not reference["input_scopes"] and not reference["turn_ids"]:
+                reference["cleanup_scope"] = scope
+            try:
+                self._save_locked()
+            except Exception:
+                self._references[reference_id] = previous
+                raise
+            return self._delete_unused_reference(reference)
+
+    def release_turn_reference(self, identity: dict[str, object], reference_id: str, turn_id: str) -> dict[str, bool]:
+        """Deletion callers release each snapshot ID after removing its turn/conversation and settling tasks."""
+        owner = _owner_id(identity)
+        with self._lock:
+            reference = self._references.get(reference_id)
+            if not reference or reference["owner_id"] != owner:
+                raise KeyError("reference not found")
+            if any(item["owner_id"] == owner and not item.get("deleted")
+                   and any(turn["id"] == turn_id for turn in item["turns"]) for item in self._conversations.values()):
+                raise ValueError("轮次快照仍存在，不能释放参考图")
+            if any(task["owner_id"] == owner and task.get("turn_id") == turn_id
+                   and task["status"] not in TERMINAL_STATUSES for task in self._tasks.values()):
+                raise ValueError("轮次仍有在途任务，不能释放参考图")
+            previous = copy.deepcopy(reference)
+            reference["turn_ids"] = [item for item in reference["turn_ids"] if item != turn_id]
+            if not reference["input_scopes"] and not reference["turn_ids"]:
+                reference["cleanup_scope"] = reference["upload_scope"]
+            try:
+                self._save_locked()
+            except Exception:
+                self._references[reference_id] = previous
+                raise
+            return self._delete_unused_reference(reference)
+
+    def _delete_unused_reference(self, reference: dict[str, Any]) -> dict[str, bool]:
+        if reference["turn_ids"] or reference["input_scopes"]:
+            return {"retained": True}
+        if reference.get("deleted"):
+            return {"retained": False}
+        # Keep the record until every destination confirms deletion; each release operation is retryable.
+        self._check_reference_destination(reference)
+        image_storage_service.delete(reference["path"], reference_storage_mode=reference["storage_mode"])
+        thumbnail = config.image_thumbnails_dir / f'{reference["path"]}.png'
+        thumbnail.unlink(missing_ok=True)
+        reference["deleted"] = True
+        try:
+            self._save_locked()
+        except Exception:
+            reference.pop("deleted", None)
+            raise
+        return {"retained": False}
+
     def submit_turn(self, identity: dict[str, object], submission: dict[str, Any], base_url: str = "") -> dict[str, Any]:
         owner = _owner_id(identity)
         request_id = submission["request_id"]
         payload = {key: submission.get(key) for key in ("prompt", "model", "size", "quality")}
         payload.update(n=1, response_format="url", base_url=base_url)
         references = submission.get("referenceImages", [])
-        if references:
-            payload["images"] = [(base64.b64decode(image["dataUrl"].split(",", 1)[1], validate=True),
-                                  image["name"], image["type"]) for image in references]
         mode = "edit" if references else "generate"
         with self._lock:
             # One identity's concurrent first submissions resolve the target under the same save lock.
             for existing in self._conversations.values():
                 if existing["owner_id"] == owner and any(turn["request_id"] == request_id for turn in existing["turns"]):
                     return self.get_conversation(identity, existing["id"])
+            reference_records = [self._owned_reference(identity, image["id"]) for image in references]
+            if reference_records:
+                payload["images"] = [self.read_reference(identity, image["id"]) for image in reference_records]
+                # Shared immutable encoding and upload coordination stay in memory, outside the durable snapshot.
+                payload["encoded_images"] = encode_images(payload["images"])
+                payload["image_upload_cache"] = ImageUploadCache()
             image_storage_service.check_writable(verify_destinations=True)
             previous_current = self._current.get(owner)
             conversation_id = submission.get("conversation_id") or previous_current
@@ -299,6 +490,10 @@ class ImageTaskService:
                     ("prompt", "model", "size", "quality", "count", "ratio", "tier", "referenceImages")}
             turn.update(id=turn_id, sourceEntryId=source_id, mode=mode, createdAt=now,
                         task_ids=task_ids, request_id=request_id)
+            turn["referenceImages"] = [self._public_reference(reference) for reference in reference_records]
+            for reference in reference_records:
+                if turn_id not in reference["turn_ids"]:
+                    reference["turn_ids"].append(turn_id)
             conversation["turns"].append(turn)
             conversation["updatedAt"] = now
             if len(conversation["turns"]) == 1:
@@ -313,6 +508,9 @@ class ImageTaskService:
             try:
                 self._save_locked()
             except Exception:
+                for reference in reference_records:
+                    if turn_id in reference["turn_ids"]:
+                        reference["turn_ids"].remove(turn_id)
                 for task_id in task_ids:
                     self._tasks.pop(_task_key(owner, task_id), None)
                 if previous_conversation is None:
@@ -601,6 +799,7 @@ class ImageTaskService:
         if isinstance(raw, dict):
             self._conversations = raw.get("conversations", {})
             self._current = raw.get("current", {})
+            self._references = raw.get("references", {})
         raw_items = raw.get("tasks") if isinstance(raw, dict) else raw
         if not isinstance(raw_items, list):
             return {}
@@ -645,7 +844,8 @@ class ImageTaskService:
 
     def _save_locked(self) -> None:
         # ponytail: single-process JSON snapshot under one lock; use transactional row storage for larger histories/multiple workers.
-        snapshot = {"tasks": list(self._tasks.values()), "conversations": self._conversations, "current": self._current}
+        snapshot = {"tasks": list(self._tasks.values()), "conversations": self._conversations, "current": self._current,
+                    "references": self._references}
         write_json_atomic(self.path, snapshot)
 
     def _recover_unfinished_locked(self) -> bool:

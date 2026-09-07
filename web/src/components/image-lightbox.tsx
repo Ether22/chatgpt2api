@@ -13,6 +13,7 @@ type LightboxImage = {
   src: string;
   sizeLabel?: string;
   dimensions?: string;
+  filename?: string;
 };
 
 type ImageLightboxProps = {
@@ -192,7 +193,8 @@ export function ImageLightbox({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `image-${current.id}.png`;
+      const extension = ({ "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/png": "png" } as Record<string, string>)[blob.type] || "png";
+      link.download = current.filename ? `${current.filename.replace(/\.[^.]+$/, "")}.${extension}` : `image-${current.id}.png`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (error) {

@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import mimetypes
 import os
@@ -9,7 +10,7 @@ import time
 
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -150,6 +151,30 @@ class EditableFileExportResult:
     zip_path: Path
 
 
+class ImageUploadCache:
+    """Runtime only: one submitted turn owns this cache, never another identity or a restart."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._uploads: dict[tuple[str, ...], Future] = {}
+
+    def get(self, key: tuple[str, ...], upload: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
+        with self._lock:
+            future = self._uploads.get(key)
+            producer = future is None
+            if producer:
+                future = self._uploads[key] = Future()
+        if producer:
+            try:
+                future.set_result(upload())
+            except BaseException as exc:
+                future.set_exception(exc)
+                with self._lock:
+                    self._uploads.pop(key, None)
+                raise
+        return dict(future.result())
+
+
 class OpenAIBackendAPI:
     """ChatGPT Web 后端封装。
 
@@ -181,6 +206,7 @@ class OpenAIBackendAPI:
         self.pow_script_sources: list[str] = []
         self.pow_data_build = ""
         self.progress_callback: Callable[[str], None] | None = None
+        self.image_upload_cache: ImageUploadCache | None = None
         self.session = requests.Session(**proxy_settings.build_session_kwargs(
             account=self.account,
             impersonate=self.fp["impersonate"],
@@ -911,6 +937,18 @@ class OpenAIBackendAPI:
         return base64.b64decode(payload)
 
     def _upload_image(self, image: str, file_name: str = "image.png") -> Dict[str, Any]:
+        cache = getattr(self, "image_upload_cache", None)
+        if cache is None:
+            return self._upload_image_uncached(image, file_name)
+        headers = {str(key).lower(): str(value) for key, value in self.session.headers.items()}
+        authorization = headers.get("authorization", "")
+        if not authorization:
+            return self._upload_image_uncached(image, file_name)
+        key = (self.base_url, "backend-api/files:multimodal", hashlib.sha256(authorization.encode()).hexdigest(),
+               headers.get("chatgpt-account-id", ""), hashlib.sha256(self._decode_image_base64(image)).hexdigest(), file_name)
+        return cache.get(key, lambda: self._upload_image_uncached(image, file_name))
+
+    def _upload_image_uncached(self, image: str, file_name: str = "image.png") -> Dict[str, Any]:
         """上传一张 base64 图片，返回底层文件元数据。"""
         data = self._decode_image_base64(image)
         if (

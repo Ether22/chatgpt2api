@@ -1,4 +1,7 @@
 "use client";
+
+import type { DraftReferenceImage } from "@/store/image-conversations";
+import { ReferenceThumbnail } from "./reference-thumbnail";
 import { ArrowUp, ChevronDown, ImagePlus, Info, LoaderCircle, RectangleHorizontal, RectangleVertical, Square, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type RefObject } from "react";
 
@@ -23,7 +26,8 @@ type ImageComposerProps = {
   imageModels: ImageModel[];
   availableQuota: string;
   activeTaskCount: number;
-  referenceImages: Array<{ name: string; dataUrl: string }>;
+  referenceImages: DraftReferenceImage[];
+  onRetryReferenceImage: (index: number) => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   fileInputRef: RefObject<HTMLInputElement | null>;
   onPromptChange: (value: string) => void;
@@ -108,6 +112,7 @@ export function ImageComposer({
   onPickReferenceImage,
   onReferenceImageChange,
   onRemoveReferenceImage,
+  onRetryReferenceImage,
 }: ImageComposerProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -117,7 +122,7 @@ export function ImageComposer({
   const sizeMenuRef = useRef<HTMLDivElement>(null);
   const sizeMenuBtnRef = useRef<HTMLButtonElement>(null);
   const lightboxImages = useMemo(
-    () => referenceImages.map((image, index) => ({ id: `${image.name}-${index}`, src: image.dataUrl })),
+    () => referenceImages.map((image) => ({ id: image.id, src: image.url, filename: image.name })),
     [referenceImages],
   );
   const modelOptions = useMemo(
@@ -233,8 +238,8 @@ export function ImageComposer({
                   className="group size-14 overflow-hidden rounded-2xl border border-stone-200 bg-stone-50 transition hover:border-stone-300 sm:size-16"
                   aria-label={`预览参考图 ${image.name || index + 1}`}
                 >
-                  <img
-                    src={image.dataUrl}
+                  <ReferenceThumbnail
+                    src={image.url}
                     alt={image.name || `参考图 ${index + 1}`}
                     className="h-full w-full object-cover"
                   />
@@ -250,6 +255,8 @@ export function ImageComposer({
                 >
                   <X className="size-3" />
                 </button>
+                {image.uploading ? <span role="status" className="absolute bottom-0 inset-x-0 bg-white/90 text-center text-[10px]">上传中 {image.progress || 0}%</span> : null}
+                {image.error ? <button type="button" onClick={() => onRetryReferenceImage(index)} title={image.error} aria-label={`重试上传 ${image.name}`} className="absolute bottom-0 inset-x-0 bg-rose-50 text-[10px] text-rose-700">上传失败 · 重试</button> : null}
               </div>
             ))}
           </div>
@@ -514,7 +521,7 @@ export function ImageComposer({
                 <button
                   type="button"
                   onClick={() => void onSubmit()}
-                  disabled={!prompt.trim() || !isImageCountValid}
+                  disabled={!prompt.trim() || !isImageCountValid || referenceImages.some((image) => image.uploading || image.error)}
                   className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-stone-950 text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300 sm:size-11"
                   aria-label={referenceImages.length > 0 ? "编辑图片" : "生成图片"}
                 >

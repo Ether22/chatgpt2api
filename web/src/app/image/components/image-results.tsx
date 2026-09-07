@@ -7,12 +7,14 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ImageConversation, ImageTurnStatus, StoredImage, StoredReferenceImage } from "@/store/image-conversations";
 import { fetchStoredImageBlob, useImageSource } from "@/store/image-conversations";
+import { ReferenceThumbnail } from "./reference-thumbnail";
 
 export type ImageLightboxItem = {
   id: string;
   src: string;
   sizeLabel?: string;
   dimensions?: string;
+  filename?: string;
 };
 
 type ImageResultsProps = {
@@ -142,7 +144,8 @@ export function ImageResults({
       {selectedConversation.turns.map((turn, turnIndex) => {
         const referenceLightboxImages = turn.referenceImages.map((image, index) => ({
           id: `${turn.id}-reference-${index}`,
-          src: image.dataUrl,
+          src: image.url,
+          filename: image.name,
         }));
         const successfulTurnImages = turn.images.flatMap((image) => {
           const src = image.status === "success" ? getStoredImageSrc(image) : "";
@@ -208,8 +211,8 @@ export function ImageResults({
                               className="group relative h-24 w-24 overflow-hidden border border-stone-200/80 bg-stone-100/60 text-left transition hover:border-stone-300"
                               aria-label={`预览参考图 ${image.name || index + 1}`}
                             >
-                              <img
-                                src={image.dataUrl}
+                              <ReferenceThumbnail
+                                src={image.url}
                                 alt={image.name || `参考图 ${index + 1}`}
                                 className="absolute inset-0 h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
                               />
