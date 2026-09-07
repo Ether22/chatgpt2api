@@ -968,7 +968,8 @@ class ImageTaskService:
                     if previous is None:
                         self._references.pop(reference_id, None)
                     else:
-                        self._references[reference_id] = previous
+                        self._references[reference_id].clear()
+                        self._references[reference_id].update(previous)
                 for key, _, _ in starts:
                     self._tasks.pop(key, None)
                 if previous_conversation is None:

@@ -10,6 +10,7 @@ from test.test_image_imports_http import imports, reserve, upload
 from test.test_image_import_preview_http import replace
 from test.test_selected_md_generation_http import batch, document
 from test.test_image_scope_deletion import wait_cleanup
+from test.image_storage_faults import deny_sqlite_commits
 
 
 def test_deleting_ready_md_result_preserves_another_turn_waiting_for_upload(imports):
@@ -90,6 +91,43 @@ def test_scope_deletion_preserves_current_md_upload_for_future_turns(imports, mo
             assert turn["images"][0]["status"] == "success"
             assert len(env["calls"]) == before + 1
             assert env["client"].get(turn["referenceImages"][0]["url"], headers=env["headers"]).status_code == 200
+        finally:
+            release.set()
+            env["service"].shutdown()
+
+
+def test_failed_batch_rollback_keeps_active_md_upload_and_original_turn(imports, monkeypatch):
+    from services.image_storage_service import image_storage_service
+
+    env = imports
+    state = replace(env, document())
+    state = reserve(env, version=state["version"]).json()
+    selected = [{"key": state["candidates"][1]["key"]}]
+    assert batch(env, state, entries=selected).status_code == 200
+    entered, release = Event(), Event()
+    real_save = image_storage_service.save
+
+    def controlled_save(*args, **kwargs):
+        if kwargs.get("reference"):
+            entered.set()
+            assert release.wait(10)
+        return real_save(*args, **kwargs)
+
+    monkeypatch.setattr(image_storage_service, "save", controlled_save)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(upload, env)
+        try:
+            assert entered.wait(5)
+            with monkeypatch.context() as fault:
+                deny_sqlite_commits(fault, env["path"], "controlled concurrent batch commit failure")
+                response = batch(env, state, entries=selected, request_id="failed-second-batch")
+                assert response.status_code == 507, response.text
+            release.set()
+            assert future.result(5).status_code == 200
+            assert wait_for_history(env)["items"][0]["turns"][0]["images"][0]["status"] == "success"
+            assert batch(env, state, entries=selected, request_id="failed-second-batch").status_code == 200
+            assert len(wait_for_history(env, 2)["items"][0]["turns"]) == 2
+            assert len(env["calls"]) == 2
         finally:
             release.set()
             env["service"].shutdown()
