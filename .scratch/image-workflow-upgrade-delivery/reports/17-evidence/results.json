@@ -1,0 +1,24 @@
+[
+  {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "accounts": 2,
+    "deletionButtons": 0,
+    "oldSettings": 0,
+    "editAndRefresh": "passed",
+    "pageErrors": []
+  },
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "accounts": 2,
+    "deletionButtons": 0,
+    "oldSettings": 0,
+    "editAndRefresh": "passed",
+    "pageErrors": []
+  }
+]
