@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from api import image_tasks, support, system
 from services import config as config_module, image_storage_service as storage_module, image_tags_service
 from services.image_task_service import ImageTaskService
+from services.storage import image_rows
 
 
 def seed(directory, owner="benchmark-owner", dense=False):
@@ -58,8 +59,9 @@ def seed(directory, owner="benchmark-owner", dense=False):
                               model="gpt-image-2", quality="auto", size="1024x1024", ratio="1:1", tier="1k", createdAt=created))
         conversations[cid] = dict(id=cid, owner_id=owner, title=f"Large gallery {conv}", createdAt=created,
                                   updatedAt=created, turns=turns, sourceEntries=sources)
-    (directory / "tasks.json").write_text(json.dumps(dict(tasks=tasks, conversations=conversations, current={owner: "gallery-0"})))
-    (directory / "image_index.json").write_text(json.dumps({"items": index}))
+    image_rows.save(directory / "tasks.json", {"tasks": {f"{owner}:{task['id']}": task for task in tasks},
+                                               "conversations": conversations, "current": {owner: "gallery-0"}})
+    image_rows.save(directory / "image_index.json", {"images": index})
     return ImageTaskService(directory / "tasks.json")
 
 
@@ -120,8 +122,8 @@ def measure(label):
             results["select_save"] = {"ms": round((time.perf_counter()-started)*1000, 2), "snapshot_bytes": service.path.stat().st_size}
             started = time.perf_counter()
             with storage_module.image_storage_service.owner_scope(identity["id"]):
-                storage_module.image_storage_service.save((directory / "images" / next(iter(json.loads((directory / "image_index.json").read_text())["items"]))).read_bytes())
-            results["image_save"] = {"ms": round((time.perf_counter()-started)*1000, 2), "index_bytes": (directory / "image_index.json").stat().st_size}
+                storage_module.image_storage_service.save((directory / "images" / next(iter(image_rows.load(directory / "image_index.json", "images")))).read_bytes())
+            results["image_save"] = {"ms": round((time.perf_counter()-started)*1000, 2), "index_bytes": (directory / "image_index.sqlite3").stat().st_size}
         target = Path(__file__).parent / "13-evidence"
         target.mkdir(exist_ok=True)
         (target / f"{label}.json").write_text(json.dumps(results, indent=2))

@@ -93,6 +93,7 @@ def test_wait_for_history_retries_when_tasks_finish_between_list_and_detail(envi
     entered, release = threading.Event(), threading.Event()
 
     def upstream(payload):
+        payload["lifecycle_callback"]("sending", {"protocol": "controlled"})
         entered.set()
         assert release.wait(10)
         return env["upstream"](payload)

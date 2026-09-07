@@ -1,10 +1,10 @@
 """Bounded history and gallery reads through real HTTP and temporary storage."""
-import json
 import time
 
 from test.test_image_conversations_http import environment, submit, image_bytes, wait_for_history
 from services.image_storage_service import image_storage_service
 from services.image_tags_service import set_tags
+from services.storage import image_rows
 
 
 def test_history_metadata_and_target_page_are_bounded_and_owner_scoped(environment):
@@ -70,12 +70,14 @@ def test_gallery_paginates_after_identity_and_tag_filtering(environment):
     assert all(set(item) == {"rel"} for item in paths["items"])
     assert paths["pagination"]["total"] == 3
     # Persisted reference metadata from ticket 04 must never become a gallery result.
-    index = json.loads(image_storage_service.index_file.read_text())
-    index["items"][images[1].rel]["kind"] = "reference"
-    old = index["items"].pop(images[2].rel)
+    index = image_rows.load(image_storage_service.index_file, "images")
+    index[images[1].rel]["kind"] = "reference"
+    old = index[images[2].rel]
     reference_rel = images[2].rel.replace("/2026/", "/references/2026/")
-    index["items"][reference_rel] = {**old, "rel": reference_rel, "path": reference_rel}
-    image_storage_service.index_file.write_text(json.dumps(index))
+    image_rows.save(image_storage_service.index_file, {"images": {
+        images[1].rel: index[images[1].rel], images[2].rel: None,
+        reference_rel: {**old, "rel": reference_rel, "path": reference_rel},
+    }})
     remaining = env["client"].get("/api/images?tag=pick", headers=env["headers"]).json()
     assert [item["rel"] for item in remaining["items"]] == [images[3].rel]
 
