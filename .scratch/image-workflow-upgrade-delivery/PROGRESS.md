@@ -30,10 +30,10 @@
 | 06 | 共享 MD 与参考图导入区 | 4 | 01a07d4f-a527-73c3-ac48-80d5dc95c590 | codex/image-task-06 | gpt-6-astra / high | 已集成并验证 | 072c63f、1513740、7ea5749 | 8b29e23、8eeb38c、3a65f74、b948104；222通过+唯一05旧失败，tsc/build及主流程/身份浏览器通过 |
 | 07 | MD 结构解析、匹配预览与纠错 | 6 | 01a07d6c-ac9c-7790-8113-6b49cd54eed2 | codex/image-task-07 | gpt-6-astra / high | 已集成并验证 | fa5350a、89c364f、255e599 | 900b8ac、6c69e83、d2d5726；完整253项+7子场景、tsc/build与两真实MD浏览器通过 |
 | 08 | 选择 MD 条目并随上传进度生成 | 5, 7 | 01a07d97-89f4-7863-a7b1-b07185a80086 | codex/image-task-08 | gpt-6-astra / high | 已集成并验证 | c0d810a、30cfeec、ebf0588、43b3633 | 31ef3cd、c12bb9b、000b695、b01fd06；组合修复55be526、fee5d50；305项+7子场景、tsc/build、三组08及双浏览器10复验通过 |
-| 09 | 重跑与复用持续归入原条目 | 8 | 待创建 | codex/image-task-09 | gpt-6-astra / high | 待调度 | — | — |
+| 09 | 重跑与复用持续归入原条目 | 8 | 01a07dc4-78aa-7f32-9ec3-ef5f49828baa | codex/image-task-09 | gpt-6-astra / high | 实施中 | — | 7d14独立工作树；已验证基线f6d26ba |
 | 10 | 单张结果的真实删除与引用保护 | 4 | 01a07d73-ecb5-7913-99da-855877fd8119 | codex/image-task-10 | gpt-6-astra / high | 已集成并验证 | fd91a6c、42dc177、19dacc3、5244ff7 | a318576、b8495f6、37d9243、2e593d8；身份/增量轮询适配c7fe210、9c9d449；282项+7子场景、tsc/build及双浏览器通过 |
 | 11 | 范围删除、迟到清理与批量性能 | 5, 10 | 01a07da2-51a0-7ed2-885c-b855c1b7925f | codex/image-task-11 | gpt-6-astra / high | 实施中 | — | 06d3独立工作树；基线8dc5aaa |
-| 12 | 查看器下方操作与本轮直接下载 | 8, 10 | 待创建 | codex/image-task-12 | gpt-6-astra / medium | 待调度 | — | — |
+| 12 | 查看器下方操作与本轮直接下载 | 8, 10 | 01a07dc4-9195-7c51-8d0c-8309a686e425 | codex/image-task-12 | gpt-6-astra / medium | 实施中 | — | 10ca独立工作树；已验证基线f6d26ba |
 | 13 | 服务器分页与大型图库按需浏览 | 3 | 01a07d27-3bcf-7f53-abd0-3beed385bd47 | codex/image-task-13 | gpt-6-astra / high | 已集成并验证 | 06918eb、5e9b24a、e795ee3、43b989f | fb34468、bbf97f5、fa9561b、e4e9fe8；41项组合复验、tsc/build与两种3200图浏览器通过 |
 | 14 | 所有结果的右侧定位导航与窄屏抽屉 | 9, 13 | 待创建 | codex/image-task-14 | gpt-6-astra / high | 待调度 | — | — |
 | 15 | 监控、禁用与可消费额度 | 无 | 01a07cd9-5e81-7a41-9890-e40f01e0855a | codex/image-task-15 | gpt-6-astra / high | 已集成并验证 | 43e3834、9727a25 | 61a34d5、1e6888a；40项账号/路由/能力/导出及 tsc 通过 |
