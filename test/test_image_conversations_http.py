@@ -79,10 +79,55 @@ def wait_for_history(env, count=1):
     while time.monotonic() < deadline:
         history = read_history(env["client"], env["headers"])
         images = [image for conv in history["items"] for turn in conv["turns"] for image in turn["images"]]
-        if len(images) == count and all(image["status"] != "loading" for image in images):
+        # List metadata and detail pages are separate snapshots; both must be terminal.
+        settled = all(item["stats"] == {"queued": 0, "running": 0} for item in [history, *history["items"]])
+        if settled and len(images) == count and all(image["status"] != "loading" for image in images):
             return history
         time.sleep(0.02)
     raise AssertionError(f"Tasks did not finish: {history}")
+
+
+def test_wait_for_history_retries_when_tasks_finish_between_list_and_detail(environment, monkeypatch):
+    env = environment
+    entered, release = threading.Event(), threading.Event()
+
+    def upstream(payload):
+        entered.set()
+        assert release.wait(10)
+        return env["upstream"](payload)
+
+    monkeypatch.setattr(env["service"], "generation_handler", upstream)
+    get = env["client"].get
+    list_reads = 0
+
+    def finish_after_list(url, **kwargs):
+        nonlocal list_reads
+        response = get(url, **kwargs)
+        if url == "/api/image-conversations":
+            list_reads += 1
+            if list_reads == 1:
+                assert response.json()["stats"] == {"queued": 0, "running": 1}
+                release.set()
+                detail_url = f"/api/image-conversations/{response.json()['items'][0]['id']}"
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if get(detail_url, **kwargs).json()["turns"][0]["images"][0]["status"] == "success":
+                        break
+                    time.sleep(0.02)
+                else:
+                    raise AssertionError("Controlled upstream did not finish before the detail read")
+        return response
+
+    try:
+        assert submit(env).status_code == 200
+        assert entered.wait(10)
+        monkeypatch.setattr(env["client"], "get", finish_after_list)
+        history = wait_for_history(env)
+        assert history["stats"] == {"queued": 0, "running": 0}
+        assert list_reads >= 2
+        assert history == read_history(env["client"], env["headers"])
+    finally:
+        release.set()
 
 
 def test_roundtrip_restores_configuration_tasks_and_current_conversation(environment, monkeypatch):
