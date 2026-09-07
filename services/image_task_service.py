@@ -412,7 +412,7 @@ class ImageTaskService:
         generated = {path for key, task in self._tasks.items() if key != exclude_key and not task.get("result_deleted")
                      for path in self._result_paths(task)}
         return generated, generated | {ref["path"] for ref in self._references.values()
-                                       if not ref.get("deleted") and (ref["input_scopes"] or ref["turn_ids"])}
+                                       if ref.get("path") and not ref.get("deleted") and (ref["input_scopes"] or ref["turn_ids"])}
 
     def cleanup_result(self, identity: dict[str, object], task_id: str) -> None:
         owner = _owner_id(identity)
