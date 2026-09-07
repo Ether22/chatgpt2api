@@ -29,6 +29,16 @@ async function eventually(check, label) {
     await page.goto(`${origin}/image/`);
     const deleteSecond = () => page.getByRole('button', { name: '删除结果 2', exact: true });
     await deleteSecond().waitFor();
+    const observer = await browser.newContext({ viewport: { width: 1100, height: 800 } });
+    await observer.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    const observerPage = await observer.newPage();
+    observerPage.on('pageerror', error => errors.push(error.message));
+    await observerPage.goto(`${origin}/login/`);
+    await observerPage.getByLabel('密钥', { exact: true }).fill('ticket10-A');
+    await observerPage.getByRole('button', { name: '登录', exact: true }).click();
+    await observerPage.waitForURL('**/accounts/');
+    await observerPage.goto(`${origin}/image/`);
+    await observerPage.getByRole('button', { name: '删除结果 2', exact: true }).waitFor();
     const history = await (await context.request.get(`${origin}/api/image-conversations`, { headers })).json();
     const conversationId = history.items[0].id;
     const conversation = await (await context.request.get(`${origin}/api/image-conversations/${conversationId}`, { headers })).json();
@@ -51,6 +61,9 @@ async function eventually(check, label) {
     await page.getByText('正在清理文件', { exact: false }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(output, 'pending-desktop.png'), fullPage: true });
     await page.getByText('清理失败：WebDAV 副本', { exact: false }).waitFor({ timeout: 12000 });
+    await eventually(async () => await observerPage.getByRole('button', { name: '删除结果 2', exact: true }).count() === 0, 'other browser observes incremental deletion');
+    await observerPage.getByRole('button', { name: '重试清理结果 2', exact: true }).waitFor();
+    metrics.observer_updated_without_reload = true;
     metrics.failed = await state();
     await page.reload();
     await page.getByRole('button', { name: '重试清理结果 2', exact: true }).waitFor();
