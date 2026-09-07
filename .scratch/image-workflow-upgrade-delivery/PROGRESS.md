@@ -39,7 +39,7 @@
 | 15 | 监控、禁用与可消费额度 | 无 | 01a07cd9-5e81-7a41-9890-e40f01e0855a | codex/image-task-15 | gpt-6-astra / high | 已集成并验证 | 43e3834、9727a25 | 61a34d5、1e6888a；40项账号/路由/能力/导出及 tsc 通过 |
 | 16 | 账号隐藏与组内拖拽排序 | 15 | 01a07cf9-063a-7df3-b3ca-c0526209f6ff | codex/image-task-16 | gpt-6-astra / medium | 实施中 | — | — |
 | 17 | 账号只保留不物理删除 | 无 | 01a07cff-4ece-7c00-9b83-96a96150951d | codex/image-task-17 | gpt-6-astra / high | 实施中 | — | — |
-| 18 | 业务 API、界面、日志及文件日期统一北京时间 | 无 | client-new-thread:fcfb778e-c09a-4073-bf33-22410f8a3e57（待实际ID） | codex/image-task-18 | gpt-6-astra / high | 阶段A已派发，全票未完成 | — | — |
+| 18 | 业务 API、界面、日志及文件日期统一北京时间 | 无 | 01a07cff-709a-7512-ac93-8f632637e9e3 | codex/image-task-18 | gpt-6-astra / high | 阶段A实施中，全票未完成 | — | — |
 
 ## 修改范围与调度约束
 
@@ -77,3 +77,5 @@
 - 17补充公共搜索服务search的明确401/token_invalidated/429健康更新，限定该方法独立异常区域；未知网络异常保留原健康，不碰用途/隐藏/顺序或图片路径。
 - 03定向23项通过：跨客户端/服务重载、并发首次提交与重试、保存失败无消费及回滚、1/4/100结果、图片身份与保留。100图中另定位Windows长路径的\\?\前缀比较误判，已修复并通过全数复验；该404与此前任务索引WinError5是不同问题。前端服务器会话接入及既有图片API归属旁路审查仍在进行，尚未集成。
 - 16初验：本票4项HTTP/JSON/SQLite及与15组合14项通过，完整离线147通过+同5旧失败，tsc/build和真实API浏览器拖拽/键盘/隐藏/导出/令牌轮换/窄屏通过，进入双轴审查，尚未集成。
+- 03补充image_tags_service的两个已有标签函数最小归属筛选，已确认无其他票占用；既有图库list/delete/compress/cleanup也需消除跨身份访问managed记录的旁路，不提前实现10/11。
+- 18实际任务ID已核实；阶段A接口utils.business_time提供BEIJING、beijing_now()、beijing_iso(value=None)，带时区输入/epoch转+08:00，无时区旧字符串原样保留。17项目标检查通过，浏览器跨时区与双轴审查仍在进行。
