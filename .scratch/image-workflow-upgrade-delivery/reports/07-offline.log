@@ -1,9 +1,9 @@
 [storage] Initializing storage backend: json
 [storage] Using JSON storage: C:\Users\ForestHill\.codex\worktrees\fde8\chatgpt2api\data\accounts.json
 .................................................................... [ 28%]
-........................................................................ [ 59%]
-........................................F............................... [ 89%]
-.........................                                                [100%]
+........................................................................ [ 57%]
+.............................................F.......................... [ 87%]
+..............................                                           [100%]
 ================================== FAILURES ===================================
 ___ MultiImageResultTests.test_poll_waits_for_generated_asset_ids_to_settle ___
 test\test_multi_image_results.py:127: in test_poll_waits_for_generated_asset_ids_to_settle
@@ -38,4 +38,4 @@ INFO     chatgpt2api:log.py:99 {"event": "image_poll_hit_no_settle", "conversati
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ===========================
 FAILED test/test_multi_image_results.py::MultiImageResultTests::test_poll_waits_for_generated_asset_ids_to_settle
-1 failed, 236 passed, 1 warning, 4 subtests passed in 34.89s
+1 failed, 241 passed, 1 warning, 4 subtests passed in 35.41s
