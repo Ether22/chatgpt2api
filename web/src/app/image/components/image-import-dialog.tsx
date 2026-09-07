@@ -27,7 +27,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
   const nextTransfer = useRef(0);
   const mounted = useRef(true);
   const identityChanged = useRef(false);
-  const errorMessage = useCallback((reason: unknown) => {
+  const handleImportError = useCallback((reason: unknown) => {
     if (reason instanceof ImportIdentityChanged) {
       identityChanged.current = true;
       current.current = null;
@@ -74,8 +74,8 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
     };
   }, []);
   useEffect(() => {
-    if (open) void refresh().catch((reason: Error) => setError(errorMessage(reason)));
-  }, [open, refresh, errorMessage]);
+    if (open) void refresh().catch((reason: Error) => setError(handleImportError(reason)));
+  }, [open, refresh, handleImportError]);
 
   async function sendReference(item: Upload) {
     const id = item.mutation.request_id;
@@ -86,7 +86,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
       accept(result);
       if (!uploadsRef.current[id]?.cancelled) updateUpload(id, null);
     } catch (reason) {
-      if (!uploadsRef.current[id]?.cancelled) updateUpload(id, { busy: false, error: errorMessage(reason) });
+      if (!uploadsRef.current[id]?.cancelled) updateUpload(id, { busy: false, error: handleImportError(reason) });
     }
   }
   function scheduleReference(item: Upload) {
@@ -107,7 +107,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
         // Registration is ordered; file transfers may finish while further files are registered.
         scheduleReference(item);
       } catch (reason) {
-        updateUpload(id, { busy: false, error: errorMessage(reason) });
+        updateUpload(id, { busy: false, error: handleImportError(reason) });
       }
     });
   }
@@ -118,7 +118,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
         accept(await reserveImportReference(authKey, item.file, item.mutation));
         scheduleReference(item);
       } catch (reason) {
-        updateUpload(item.mutation.request_id, { busy: false, error: errorMessage(reason) });
+        updateUpload(item.mutation.request_id, { busy: false, error: handleImportError(reason) });
       }
     });
   }
@@ -136,7 +136,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
         accept(await uploadImportFile(authKey, item.file, "md", item.mutation, (progress) => setMdUpload({ ...item, progress, busy: true })));
         setMdUpload(null);
       } catch (reason) {
-        const message = errorMessage(reason);
+        const message = handleImportError(reason);
         if (!identityChanged.current) setMdUpload({ ...item, busy: false, error: message });
       }
     });
@@ -154,9 +154,9 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
         if (clear) setMdUpload(null);
         setFailedCleanup(null);
       } catch (reason) {
-        setError(errorMessage(reason));
+        setError(handleImportError(reason));
         if (!identityChanged.current) setFailedCleanup(operation);
-        await refresh().catch(errorMessage);
+        await refresh().catch(handleImportError);
       } finally { setBusy(false); }
     });
   }
@@ -223,7 +223,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
       </div>
       <DialogFooter className="shrink-0 flex-row flex-wrap items-center justify-end gap-2 border-t pt-3">
         <span className="basis-full text-xs text-muted-foreground sm:mr-auto sm:basis-auto">{materials?.updated_at ? `更新于 ${formatBeijingDateTime(materials.updated_at)}` : "尚未导入素材"}</span>
-        <Button variant="outline" disabled={busy} onClick={() => { setError(""); setFailedCleanup(null); void refresh().catch((reason: Error) => setError(errorMessage(reason))); }}>刷新素材</Button>
+        <Button variant="outline" disabled={busy} onClick={() => { setError(""); setFailedCleanup(null); void refresh().catch((reason: Error) => setError(handleImportError(reason))); }}>刷新素材</Button>
         {pending && <Button variant="outline" disabled={busy} onClick={() => cleanup(pending.clear, pending.upload_ids[0], pending)}>重试清理</Button>}
         <Button variant="outline" disabled={blocked} onClick={() => cleanup(true)}>清除上传内容</Button>
         <Button onClick={() => onOpenChange(false)}>完成</Button>
