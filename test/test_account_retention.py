@@ -71,6 +71,7 @@ class AccountRetentionTests(unittest.TestCase):
         with patch.dict(config.data, {"auto_remove_invalid_accounts": True, "auto_remove_rate_limited_accounts": True}):
             for mode in ("normal", "monitor", "disabled"):
                 self.service.update_account("retained", {"usage_mode": mode, "status": "正常", "quota": 1})
+                self.original["display_order"] = self.service.get_account("retained")["display_order"]
                 with patch("services.openai_backend_api.OpenAIBackendAPI.get_user_info",
                            return_value={"status": "限流", "quota": 0}):
                     self.service.refresh_accounts(["retained"])
@@ -135,6 +136,7 @@ class AccountRetentionTests(unittest.TestCase):
                 for code, expected in (("invalid_credentials", "异常"), ("account_deactivated", "禁用"),
                                        ("connection_failure", "异常")):
                     self.service.update_account("retained", {"usage_mode": mode, "status": "正常", "quota": 1})
+                    self.original["display_order"] = self.service.get_account("retained")["display_order"]
                     authorized = SimpleNamespace(status_code=200, text="ok", url="https://auth.openai.com/login")
                     refused = SimpleNamespace(status_code=403, text="error", json=lambda: {"error": {"code": code}})
                     with patch("curl_cffi.requests.Session.get", return_value=authorized,
