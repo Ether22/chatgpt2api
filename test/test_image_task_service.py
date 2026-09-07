@@ -107,7 +107,7 @@ class ImageTaskServiceTests(unittest.TestCase):
             self.assertEqual(result["items"][0]["status"], "success")
             self.assertEqual(result["items"][0]["data"][0]["url"], "http://example.test/image.png")
 
-    def test_startup_marks_unfinished_tasks_as_error(self):
+    def test_new_store_leaves_legacy_json_untouched_without_migration(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "image_tasks.json"
             path.write_text(
@@ -138,11 +138,12 @@ class ImageTaskServiceTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            original = path.read_bytes()
             service = self.make_service(path)
             result = service.list_tasks(OWNER, ["queued-task", "running-task"])
 
-            self.assertEqual([item["status"] for item in result["items"]], ["error", "error"])
-            self.assertTrue(all("已中断" in item.get("error", "") for item in result["items"]))
+            self.assertEqual(result["items"], [])
+            self.assertEqual(path.read_bytes(), original)
 
 
 if __name__ == "__main__":

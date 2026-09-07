@@ -19,6 +19,7 @@ from services.log_service import (
 )
 from services.storage.base import StorageBackend
 from utils.helper import anonymize_token
+from utils.business_time import beijing_iso
 
 
 class AccountService:
@@ -128,6 +129,7 @@ class AccountService:
 
     def _save_accounts(self) -> None:
         self.storage.save_accounts(list(self._accounts.values()))
+        self._image_slot_condition.notify_all()
 
     @staticmethod
     def is_text_account_available(account: dict) -> bool:
@@ -938,21 +940,68 @@ class AccountService:
             plan_type: str | None = None,
             source_type: str | None = None,
             plan_types: set[str] | tuple[str, ...] | None = None,
+            wait_callback=None,
     ) -> str:
-        with self._image_slot_condition:
-            while True:
-                if not self._list_ready_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types):
-                    raise RuntimeError(
-                        f"no available {plan_type or source_type or ''} image quota".replace("  ", " ").strip()
-                        if plan_type or source_type else "no available image quota"
-                    )
-                tokens = self._list_available_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types)
+        while True:
+            with self._image_slot_condition:
+                candidates = [item for token, item in self._accounts.items()
+                              if token not in (excluded_tokens or ()) and self.is_text_account_available(item)
+                              and self._account_matches_plan_type(item, plan_type)
+                              and self._account_matches_any_plan_type(item, plan_types)
+                              and self._account_matches_source_type(item, source_type)]
+                if not candidates:
+                    raise RuntimeError("no available image quota：没有合格的消费账号，请检查账号用途与状态后重试")
+                now = time.time()
+                ready = [item for item in candidates if self._is_image_account_available(item)
+                         or (self._known_image_restore(item) is not None and self._known_image_restore(item) <= now)]
+                capacity = max(1, int(config.image_account_concurrency or 1))
+                tokens = [item["access_token"] for item in ready if self._image_inflight.get(item["access_token"], 0) < capacity]
                 if tokens:
                     access_token = tokens[self._index % len(tokens)]
                     self._index += 1
                     self._image_inflight[access_token] = int(self._image_inflight.get(access_token, 0)) + 1
                     return access_token
-                self._image_slot_condition.wait(timeout=1.0)
+                restores = [stamp for item in candidates if (stamp := self._known_image_restore(item)) is not None and stamp > now]
+                if not ready and not restores:
+                    raise RuntimeError("no available image quota：账号额度耗尽或限流，且没有已知恢复时间，请检查后重试")
+                wait = ({"reason": "busy", "message": "合格账号正在处理其他图片，等待可用容量"} if ready else
+                        {"reason": "quota", "message": "账号额度或限流恢复前等待", "restore_at": beijing_iso(datetime.fromtimestamp(min(restores), timezone.utc))})
+                timeout = 1.0 if ready else min(1.0, max(.01, min(restores) - now))
+            # Progress may persist to disk; never hold the pool lock around that work.
+            if wait_callback:
+                wait_callback(wait)
+            with self._image_slot_condition:
+                self._image_slot_condition.wait(timeout=timeout)
+
+    @staticmethod
+    def _known_image_restore(account: dict) -> float | None:
+        try:
+            value = datetime.fromisoformat(str(account.get("restore_at") or "").replace("Z", "+00:00"))
+            return value.timestamp() if value.tzinfo is not None else None
+        except ValueError:
+            return None
+
+    def image_account_reference(self, access_token: str) -> str:
+        """Stable opaque reference survives token refresh without storing a credential in a task."""
+        with self._lock:
+            token = self._resolve_access_token_locked(access_token)
+            account = self._accounts.get(token)
+            if account is None:
+                raise RuntimeError("原上游账号不存在")
+            if not account.get("image_account_ref"):
+                account["image_account_ref"] = uuid.uuid4().hex
+                try:
+                    self._save_accounts()
+                except Exception:
+                    account.pop("image_account_ref", None)
+                    raise
+            return account["image_account_ref"]
+
+    def image_recovery_token(self, reference: str) -> str:
+        # Verification is read-only, so monitored/disabled accounts may still supply their own existing result.
+        with self._lock:
+            return next((token for token, account in self._accounts.items()
+                         if reference and account.get("image_account_ref") == reference), "")
 
     def release_image_slot(self, access_token: str) -> None:
         if not access_token:
@@ -971,25 +1020,33 @@ class AccountService:
             plan_type: str | None = None,
             source_type: str | None = None,
             plan_types: set[str] | tuple[str, ...] | None = None,
+            wait_callback=None,
     ) -> str:
         """从候选池中获取一个可用的图片生图 token。
 
         基于本地缓存做初筛，然后通过 fetch_remote_info 做远程验证（token 有效性、配额等）。
-        限制最大尝试次数防止 token rotation 导致无限循环。
+        已验证的 token 及其轮换别名不重复尝试；明确恢复时间允许等待后重新验证。
         """
-        max_attempts = 20  # 防止无限循环
         attempted_tokens: set[str] = set()
-        for _attempt in range(max_attempts):
-            access_token = self._acquire_next_candidate_token(
-                excluded_tokens=attempted_tokens,
-                plan_type=plan_type,
-                source_type=source_type,
-                plan_types=plan_types,
-            )
+        last_error = ""
+        while True:
+            try:
+                access_token = self._acquire_next_candidate_token(
+                    excluded_tokens=attempted_tokens,
+                    plan_type=plan_type,
+                    source_type=source_type,
+                    plan_types=plan_types,
+                    wait_callback=wait_callback,
+                )
+            except RuntimeError as exc:
+                if last_error:
+                    raise RuntimeError(f"{exc}；账号验证失败：{last_error}") from exc
+                raise
             attempted_tokens.add(access_token)
             try:
                 account = self.fetch_remote_info(access_token, "get_available_access_token")
-            except Exception:
+            except Exception as exc:
+                last_error = str(exc)
                 self.release_image_slot(access_token)
                 continue
             # fetch_remote_info 内部可能因 token rotation 导致 access_token 变化，
@@ -1005,10 +1062,10 @@ class AccountService:
             ):
                 return str((account or {}).get("access_token") or access_token)
             self.release_image_slot(access_token)
-        raise RuntimeError(
-            f"no available {plan_type or source_type or ''} image quota (tried {len(attempted_tokens)} tokens)".replace("  ", " ").strip()
-            if plan_type or source_type else f"no available image quota (tried {len(attempted_tokens)} tokens)"
-        )
+            restore = self._known_image_restore(account or {})
+            if restore is not None and restore > time.time():
+                attempted_tokens.discard(access_token)
+                attempted_tokens.discard(resolved)
 
     def get_text_access_token(
             self,
@@ -1083,7 +1140,11 @@ class AccountService:
         with self._lock:
             access_token = self._resolve_access_token_locked(access_token)
             account = self._accounts.get(access_token)
-            return dict(account) if account else None
+            return self._public_account(account) if account else None
+
+    @staticmethod
+    def _public_account(account: dict) -> dict:
+        return {key: value for key, value in account.items() if key != "image_account_ref"}
 
     def list_accounts(self) -> list[dict]:
         """返回所有账号的副本，并为每个账号附加当前图片在途数 image_inflight。
@@ -1094,7 +1155,7 @@ class AccountService:
         with self._lock:
             result = []
             for item in self._accounts.values():
-                account = dict(item)
+                account = self._public_account(item)
                 token = account.get("access_token") or ""
                 account["image_inflight"] = int(self._image_inflight.get(token, 0))
                 result.append(account)
@@ -1219,6 +1280,7 @@ class AccountService:
                 else:
                     skipped += 1
                 incoming = dict(payload)
+                incoming.pop("image_account_ref", None)
                 if not incoming.get("created_at"):
                     incoming.pop("created_at", None)
                 account = self._normalize_account(
@@ -1232,7 +1294,7 @@ class AccountService:
                 if account is not None:
                     self._accounts[access_token] = account
             self._save_accounts()
-            items = [dict(item) for item in self._accounts.values()]
+            items = [self._public_account(item) for item in self._accounts.values()]
             log_service.add(LOG_TYPE_ACCOUNT, f"新增 {added} 个账号，跳过 {skipped} 个",
                             {"added": added, "skipped": skipped})
         return {"added": added, "skipped": skipped, "items": items}
@@ -1260,7 +1322,7 @@ class AccountService:
             if not quiet:
                 log_service.add(LOG_TYPE_ACCOUNT, "更新账号",
                                 {"token": anonymize_token(access_token), "status": account.get("status")})
-            return dict(account)
+            return self._public_account(account)
         return None
 
     def _record_refresh_success(self, access_token: str) -> None:
@@ -1350,7 +1412,7 @@ class AccountService:
                 return None
             self._accounts[access_token] = account
             self._save_accounts()
-            return dict(account)
+            return self._public_account(account)
         return None
 
     def fetch_remote_info(

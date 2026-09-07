@@ -21,6 +21,7 @@ from fastapi import HTTPException
 from PIL import Image
 
 from services.config import DATA_DIR, config
+from services.storage import image_rows
 from utils.business_time import beijing_now, beijing_iso
 
 IMAGE_INDEX_FILE = DATA_DIR / "image_index.json"
@@ -245,7 +246,7 @@ class ImageStorageService:
                 os.fsync(probe.fileno())
         if verify_destinations:
             with self._index_lock:
-                self._save_index(self._load_clean_index())
+                image_rows.save(self.index_file, {})
             if self.mode() in {"webdav", "both"}:
                 result = WebDAVClient(self.settings()).test()
                 if not result.get("ok"):
@@ -258,20 +259,16 @@ class ImageStorageService:
         return _clean(self.settings().get("mode")) or "local"
 
     def _load_index(self) -> dict[str, dict[str, object]]:
-        raw = _read_json_object(self.index_file)
-        items = raw.get("items")
-        if not isinstance(items, dict):
-            if raw:
-                raise ImageStorageError("图片索引格式错误，请先修复存储")
-            return {}
-        return {str(key): value for key, value in items.items() if isinstance(value, dict)}
+        return image_rows.load(self.index_file, "images")
 
     def _load_clean_index(self) -> dict[str, dict[str, object]]:
         items = self._load_index()
         return {rel: item for rel, item in items.items() if _is_image_rel(rel)}
 
     def _save_index(self, items: dict[str, dict[str, object]]) -> None:
-        write_json_atomic(self.index_file, {"items": items})
+        with image_rows.connect(self.index_file) as connection:
+            keys = {row[0] for row in connection.execute("SELECT key FROM image_rows WHERE namespace = 'images'")}
+        image_rows.save(self.index_file, {"images": {**dict.fromkeys(keys - items.keys()), **items}})
 
     def _public_url(self, rel: str, base_url: str | None = None) -> str:
         settings = self.settings()
@@ -283,7 +280,7 @@ class ImageStorageService:
     def make_relative_path(self, image_data: bytes) -> str:
         owner = _IMAGE_OWNER.get()
         if owner is not None:
-            return f"managed/{_owner_namespace(owner)}/{time.strftime('%Y/%m/%d')}/{uuid.uuid4().hex}.png"
+            return f"managed/{_owner_namespace(owner)}/{beijing_now():%Y/%m/%d}/{uuid.uuid4().hex}.png"
         file_hash = hashlib.md5(image_data).hexdigest()
         filename = f"{int(time.time())}_{file_hash}.png"
         relative_dir = Path(time.strftime("%Y"), time.strftime("%m"), time.strftime("%d"))
@@ -337,9 +334,9 @@ class ImageStorageService:
             "rel": rel,
             "path": rel,
             "name": Path(rel).name,
-            "date": time.strftime("%Y-%m-%d"),
+            "date": beijing_now().strftime("%Y-%m-%d"),
             "size": len(image_data),
-            "created_at": _now_iso(),
+            "created_at": beijing_iso(),
             "storage": "both" if stored_local and stored_webdav else ("webdav" if stored_webdav else "local"),
             "local": stored_local,
             "webdav": stored_webdav,
@@ -352,9 +349,7 @@ class ImageStorageService:
         if dimensions:
             item["width"], item["height"] = dimensions
         with self._index_lock:
-            items = self._load_clean_index()
-            items[rel] = item
-            self._save_index(items)
+            image_rows.save(self.index_file, {"images": {rel: item}})
         return StoredImage(rel=rel, url=self._public_url(rel, base_url), storage=str(item["storage"]), size=len(image_data))
 
     def get_bytes(self, rel: str) -> bytes:
@@ -364,7 +359,7 @@ class ImageStorageService:
         path = local_image_path(safe_rel)
         if path.is_file():
             return path.read_bytes()
-        item = self._load_clean_index().get(safe_rel, {})
+        item = image_rows.get(self.index_file, "images", safe_rel) or {}
         if item.get("webdav"):
             return WebDAVClient(self.settings()).get(safe_rel)
         raise HTTPException(status_code=404, detail="image not found")
@@ -375,7 +370,7 @@ class ImageStorageService:
             return False
         if local_image_path(safe_rel).is_file():
             return True
-        item = self._load_clean_index().get(safe_rel, {})
+        item = image_rows.get(self.index_file, "images", safe_rel) or {}
         return bool(item.get("webdav"))
 
     def has_local(self, rel: str) -> bool:
@@ -480,17 +475,15 @@ class ImageStorageService:
             path.unlink()
             removed = True
         with self._index_lock:
-            items = self._load_clean_index()
-            item = items.get(safe_rel, {})
+            item = image_rows.get(self.index_file, "images", safe_rel) or {}
             if item.get("webdav") or reference_storage_mode in {"webdav", "both"}:
                 try:
                     removed = WebDAVClient(self.settings()).delete(safe_rel) or removed
                 except ImageStorageError:
                     if not removed or item.get("kind") == "reference" or reference_storage_mode:
                         raise
-            if safe_rel in items:
-                items.pop(safe_rel, None)
-                self._save_index(items)
+            if item:
+                image_rows.save(self.index_file, {"images": {safe_rel: None}})
         return removed
 
     def sync_all(self) -> dict[str, int]:

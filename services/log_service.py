@@ -17,6 +17,7 @@ from services.config import DATA_DIR
 from services.protocol.error_response import anthropic_error_response, openai_error_response
 from utils.helper import anthropic_sse_stream, sse_json_stream
 from utils.business_time import beijing_iso
+from utils.redact import redact
 
 LOG_TYPE_CALL = "call"
 LOG_TYPE_ACCOUNT = "account"
@@ -65,8 +66,8 @@ class LogService:
             "id": uuid4().hex,
             "time": beijing_iso(),
             "type": type,
-            "summary": summary,
-            "detail": detail or data,
+            "summary": redact(summary),
+            "detail": redact(detail or data),
         }
         with self.path.open("a", encoding="utf-8") as file:
             file.write(self._serialize_item(item) + "\n")

@@ -7,6 +7,7 @@ import pytest
 from PIL import Image
 
 from test.test_image_conversations_http import environment, image_bytes, submit
+from test.image_storage_faults import deny_sqlite_commits
 
 
 def upload(env, request_id="upload-one", name="original.png"):
@@ -113,19 +114,8 @@ def test_upload_confirmation_failure_keeps_retryable_record_after_reload(environ
     from services.image_task_service import ImageTaskService
     from api import image_tasks
     env = environment
-    replace = Path.replace
-    saves = 0
-
-    def fail_confirmation(source, target):
-        nonlocal saves
-        if Path(target) == env["path"]:
-            saves += 1
-            if saves > 1:
-                raise PermissionError("controlled upload confirmation failure")
-        return replace(source, target)
-
     with monkeypatch.context() as failure:
-        failure.setattr(Path, "replace", fail_confirmation)
+        deny_sqlite_commits(failure, env["path"], "controlled upload confirmation failure", after=1)
         response = env["client"].post("/api/image-references", headers=env["headers"],
             data={"request_id": "recover-upload"}, files={"file": ("original.png", image_bytes(), "image/png")})
         assert response.status_code == 507, response.text
@@ -195,17 +185,8 @@ def test_pending_upload_and_remote_delete_failure_keep_original_target_and_retry
     monkeypatch.setattr(storage, "WebDAVClient", Remote)
     settings = {"enabled": True, "mode": mode, "webdav_url": "https://synthetic.example/"}
     monkeypatch.setitem(config_module.config.data, "image_storage", settings)
-    replace = Path.replace
-    saves = 0
-    def fail_confirmation(source, target):
-        nonlocal saves
-        if Path(target) == env["path"]:
-            saves += 1
-            if saves > 1:
-                raise PermissionError("controlled confirmation failure")
-        return replace(source, target)
     with monkeypatch.context() as failure:
-        failure.setattr(Path, "replace", fail_confirmation)
+        deny_sqlite_commits(failure, env["path"], "controlled confirmation failure", after=1)
         response = env["client"].post("/api/image-references", headers=env["headers"], data={"request_id": "pending-remote"},
             files={"file": ("original.png", image_bytes(), "image/png")})
         assert response.status_code == 507
@@ -292,13 +273,8 @@ def test_failed_turn_save_rolls_back_reference_pin_without_consumption(environme
     from pathlib import Path
     env = environment
     reference = upload(env)
-    replace = Path.replace
-    def fail_save(source, target):
-        if Path(target) == env["path"]:
-            raise PermissionError("controlled turn snapshot failure")
-        return replace(source, target)
     with monkeypatch.context() as failure:
-        failure.setattr(Path, "replace", fail_save)
+        deny_sqlite_commits(failure, env["path"], "controlled turn snapshot failure")
         assert submit(env, referenceImages=[{"id": reference["id"]}]).status_code == 507
     assert env["calls"] == []
     assert env["client"].delete(f'/api/image-references/{reference["id"]}', headers=env["headers"]).json() == {"retained": False}

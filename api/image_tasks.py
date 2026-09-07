@@ -10,6 +10,7 @@ from services.content_filter import check_request
 from services.image_task_service import image_task_service
 from services.image_storage_service import ImageStorageError
 from services.log_service import LoggedCall
+from utils.redact import redact
 
 
 class ImageGenerationTaskRequest(BaseModel):
@@ -79,9 +80,9 @@ async def conversation_call(method, *args):
     except KeyError as exc:
         raise HTTPException(status_code=404, detail={"error": "conversation not found"}) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        raise HTTPException(status_code=400, detail={"error": redact(str(exc)), "retryable": True}) from exc
     except (OSError, ImageStorageError) as exc:
-        raise HTTPException(status_code=507, detail={"error": f"保存失败，未能启动生成：{exc}"}) from exc
+        raise HTTPException(status_code=507, detail={"error": redact(f"保存失败，未能启动生成：{exc}"), "retryable": True}) from exc
 
 
 def _parse_task_ids(value: str) -> list[str]:
@@ -199,9 +200,9 @@ def create_router() -> APIRouter:
                 base_url=resolve_image_base_url(request),
             )
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+            raise HTTPException(status_code=400, detail={"error": redact(str(exc)), "retryable": True}) from exc
         except (OSError, ImageStorageError) as exc:
-            raise HTTPException(status_code=507, detail={"error": f"保存失败，未能启动生成：{exc}"}) from exc
+            raise HTTPException(status_code=507, detail={"error": redact(f"保存失败，未能启动生成：{exc}"), "retryable": True}) from exc
 
     @router.post("/api/image-tasks/edits")
     async def create_edit_task(
@@ -233,9 +234,9 @@ def create_router() -> APIRouter:
                 masks=masks,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+            raise HTTPException(status_code=400, detail={"error": redact(str(exc)), "retryable": True}) from exc
         except (OSError, ImageStorageError) as exc:
-            raise HTTPException(status_code=507, detail={"error": f"保存失败，未能启动生成：{exc}"}) from exc
+            raise HTTPException(status_code=507, detail={"error": redact(f"保存失败，未能启动生成：{exc}"), "retryable": True}) from exc
 
     @router.post("/api/image-tasks/{task_id}/resume-poll")
     async def resume_image_poll(
@@ -253,6 +254,6 @@ def create_router() -> APIRouter:
                 body.extra_timeout_secs,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+            raise HTTPException(status_code=400, detail={"error": redact(str(exc)), "retryable": True}) from exc
 
     return router

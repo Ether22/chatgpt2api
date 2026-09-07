@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from typing import Any
+from utils.redact import redact
 
 
 class Logger:
@@ -85,7 +86,7 @@ class Logger:
         return value
 
     def _message(self, value: Any) -> str:
-        sanitized = self._sanitize(value)
+        sanitized = self._sanitize(redact(value))
         if isinstance(sanitized, str):
             return sanitized
         return json.dumps(sanitized, ensure_ascii=False, default=str)

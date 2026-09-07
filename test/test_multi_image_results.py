@@ -119,7 +119,8 @@ class MultiImageResultTests(unittest.TestCase):
         ])
 
         with (
-            mock.patch.dict(config.data, {"image_poll_initial_wait_secs": 0, "image_poll_interval_secs": 0.5}),
+            mock.patch.dict(config.data, {"image_poll_initial_wait_secs": 0, "image_poll_interval_secs": 0.5,
+                                          "image_check_before_hit_enabled": True, "image_settle_enabled": True}),
             mock.patch("services.openai_backend_api.time.sleep", lambda _seconds: None),
         ):
             file_ids, sediment_ids = backend._poll_image_results("conv-1", timeout_secs=10)
@@ -127,6 +128,16 @@ class MultiImageResultTests(unittest.TestCase):
         self.assertEqual(file_ids, ["file-one", "file-two"])
         self.assertEqual(sediment_ids, ["sed-one"])
         self.assertEqual(backend.calls, 3)
+
+    def test_poll_returns_first_hit_when_either_settle_switch_is_disabled(self) -> None:
+        for check, settle in ((False, True), (True, False), (False, False)):
+            with self.subTest(check=check, settle=settle), mock.patch.dict(config.data, {
+                "image_poll_initial_wait_secs": 0, "image_poll_interval_secs": 0.5,
+                "image_check_before_hit_enabled": check, "image_settle_enabled": settle,
+            }):
+                backend = FakeBackend([_conversation(["file-one"]), _conversation(["file-one", "file-two"])])
+                self.assertEqual(backend._poll_image_results("conv-1", timeout_secs=10), (["file-one"], []))
+                self.assertEqual(backend.calls, 1)
 
     def test_resolver_uses_file_and_sediment_urls(self) -> None:
         backend = FakeBackend()

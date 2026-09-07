@@ -1,0 +1,48 @@
+{
+  "seed_results": 3200,
+  "shape": "160 rounds x 20 images",
+  "task_database_bytes": 2912256,
+  "index_database_bytes": 2293760,
+  "select_current": {
+    "ms": 1.58,
+    "upsert_rows": 1,
+    "json_bytes": 9
+  },
+  "poll_100_reads": {
+    "ms": 0.37,
+    "upsert_rows": 0,
+    "json_bytes": 0
+  },
+  "10_changed_plus_100_unchanged_progress_events": {
+    "ms": 53.35,
+    "upsert_rows": 10,
+    "json_bytes": 5958
+  },
+  "save_image_at_3200_results": {
+    "median_ms": 8.61,
+    "rows_per_image": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "json_bytes_per_image": [
+      498,
+      498,
+      498,
+      498,
+      498,
+      498,
+      498,
+      498,
+      498,
+      498
+    ]
+  }
+}

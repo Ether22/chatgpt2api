@@ -25,10 +25,12 @@ def create_app() -> FastAPI:
         cleanup_thread = start_image_cleanup_scheduler(stop_event)
         backup_service.start()
         config.cleanup_old_images()
+        image_tasks.image_task_service.start()
         try:
             yield
         finally:
             stop_event.set()
+            image_tasks.image_task_service.shutdown()
             thread.join(timeout=1)
             cleanup_thread.join(timeout=1)
             backup_service.stop()

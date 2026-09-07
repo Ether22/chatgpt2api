@@ -77,6 +77,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         images=encoded_images,
         message_as_error=True,
         progress_callback=progress_callback,
+        lifecycle_callback=body.get("lifecycle_callback"),
         image_upload_cache=body.get("image_upload_cache") or ImageUploadCache(),
     ))
     if body.get("stream"):

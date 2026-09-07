@@ -23,6 +23,7 @@ from services.image_task_service import ImageTaskService
 from services.storage.json_storage import JSONStorageBackend
 from services.image_service import delete_to_target
 from urllib.parse import urlsplit
+from test.image_storage_faults import deny_sqlite_commits
 
 
 def image_bytes():
@@ -46,7 +47,7 @@ def environment(tmp_path, monkeypatch):
         calls.append(payload)
         return {"data": [{"b64_json": base64.b64encode(image_bytes()).decode()}]}
 
-    path = tmp_path / "tasks.json"
+    path = tmp_path / "tasks.sqlite3"
     service = ImageTaskService(path, generation_handler=upstream, edit_handler=upstream)
     monkeypatch.setattr(image_tasks, "image_task_service", service)
     app = FastAPI()
@@ -171,15 +172,8 @@ def test_concurrent_first_submissions_and_network_retries_share_one_target(envir
 
 def test_failed_initial_save_is_not_visible_or_consumed_and_retry_can_start(environment, monkeypatch):
     env = environment
-    replace = Path.replace
-
-    def denied(source, target):
-        if Path(target) == env["path"]:
-            raise PermissionError(13, "controlled destination sharing violation", str(target))
-        return replace(source, target)
-
     with monkeypatch.context() as failure:
-        failure.setattr(Path, "replace", denied)
+        deny_sqlite_commits(failure, env["path"], "controlled destination sharing violation")
         response = submit(env)
         assert response.status_code == 507, response.text
         assert "controlled destination sharing violation" in response.text
@@ -193,26 +187,18 @@ def test_failed_initial_save_is_not_visible_or_consumed_and_retry_can_start(envi
 
 def test_failure_saving_running_state_is_terminal_without_upstream_consumption(environment, monkeypatch):
     env = environment
-    replace = Path.replace
-    attempts = 0
-
-    def denied_on_start(source, target):
-        nonlocal attempts
-        if Path(target) == env["path"]:
-            attempts += 1
-            if 2 <= attempts <= 6:
-                raise PermissionError(13, "controlled running state save failure", str(target))
-        return replace(source, target)
-
-    monkeypatch.setattr(Path, "replace", denied_on_start)
-    assert submit(env).status_code == 200
-    image = wait_for_history(env)["items"][0]["turns"][0]["images"][0]
-    assert image["status"] == "error"
-    assert "controlled running state save failure" in image["error"]
-    assert env["calls"] == []
+    with monkeypatch.context() as failure:
+        deny_sqlite_commits(failure, env["path"], "controlled running state save failure", after=1)
+        assert submit(env).status_code == 200
+        image = wait_for_history(env)["items"][0]["turns"][0]["images"][0]
+        assert image["status"] == "error"
+        assert "controlled running state save failure" in image["error"]
+        assert env["calls"] == []
     reloaded = ImageTaskService(env["path"], generation_handler=env["upstream"])
     monkeypatch.setattr(image_tasks, "image_task_service", reloaded)
-    assert wait_for_history(env)["items"][0]["turns"][0]["images"][0]["status"] == "error"
+    reloaded.start()
+    assert wait_for_history(env)["items"][0]["turns"][0]["images"][0]["status"] == "success"
+    assert len(env["calls"]) == 1
 
 
 @pytest.mark.parametrize("count", [1, 4, 100])
@@ -284,14 +270,7 @@ def test_insufficient_disk_space_rejects_submission_before_consumption(environme
 
 def test_unwritable_image_index_is_reported_before_consumption(environment, monkeypatch):
     env = environment
-    replace = Path.replace
-
-    def denied_index(source, target):
-        if Path(target) == storage_module.image_storage_service.index_file:
-            raise PermissionError(13, "controlled image index save failure", str(target))
-        return replace(source, target)
-
-    monkeypatch.setattr(Path, "replace", denied_index)
+    deny_sqlite_commits(monkeypatch, storage_module.image_storage_service.index_file, "controlled image index save failure")
     response = submit(env)
     assert response.status_code == 507, response.text
     assert "controlled image index save failure" in response.text
@@ -342,7 +321,7 @@ def test_reference_entry_still_submits_once_and_restores_its_config(environment)
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows file sharing semantics")
-def test_real_windows_reader_lock_is_retried_without_losing_a_task(environment, monkeypatch):
+def test_real_windows_reader_does_not_lose_an_accepted_task(environment):
     import ctypes
     from ctypes import wintypes
 
@@ -358,33 +337,11 @@ def test_real_windows_reader_lock_is_retried_without_losing_a_task(environment, 
     # A real reader allows other reads/writes, but withholds FILE_SHARE_DELETE.
     handle = kernel.CreateFileW(str(env["path"]), 0x80000000, 3, None, 3, 0, None)
     assert handle != wintypes.HANDLE(-1).value, ctypes.get_last_error()
-    observed = []
-    sharing_error = threading.Event()
-    replace = Path.replace
-
-    def observe(source, target):
-        try:
-            return replace(source, target)
-        except PermissionError as exc:
-            if Path(target) == env["path"]:
-                observed.append(exc.winerror)
-                sharing_error.set()
-            raise
-
-    def release_reader():
-        sharing_error.wait(2)
-        time.sleep(0.06)
-        kernel.CloseHandle(handle)
-
-    release = threading.Thread(target=release_reader)
-    release.start()
     try:
-        monkeypatch.setattr(Path, "replace", observe)
         response = submit(env)
         assert response.status_code == 200, response.text
     finally:
-        release.join(timeout=3)
-    assert observed and set(observed).issubset({5, 32}), observed
+        kernel.CloseHandle(handle)
     image = wait_for_history(env)["items"][0]["turns"][0]["images"][0]
     assert image["status"] == "success", image
     assert len(env["calls"]) == 1

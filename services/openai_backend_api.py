@@ -206,6 +206,9 @@ class OpenAIBackendAPI:
         self.pow_script_sources: list[str] = []
         self.pow_data_build = ""
         self.progress_callback: Callable[[str], None] | None = None
+        self.lifecycle_callback = None
+        self.image_request_sent = False
+        self.image_request_id = ""
         self.image_upload_cache: ImageUploadCache | None = None
         self.session = requests.Session(**proxy_settings.build_session_kwargs(
             account=self.account,
@@ -873,9 +876,12 @@ class OpenAIBackendAPI:
             },
         })
         try:
+            self._before_image_send("", "codex")
             with urllib.request.urlopen(request, timeout=1200) as raw:
                 yield from self._iter_codex_response_events(raw)
         except urllib.error.HTTPError as error:
+            if self.lifecycle_callback and error.code in {400, 401, 403, 404, 422, 429}:
+                self.lifecycle_callback("rejected", {"status_code": error.code})
             body_text = error.read().decode("utf-8", "replace")
             body: Any = body_text
             try:
@@ -1073,15 +1079,41 @@ class OpenAIBackendAPI:
         if thinking_effort:
             payload["thinking_effort"] = thinking_effort
         path = "/backend-api/f/conversation"
+        headers = self._image_headers(path, requirements, conduit_token, "text/event-stream")
+        self._before_image_send(payload["messages"][0]["id"], "web")
         response = self.session.post(
             self.base_url + path,
-            headers=self._image_headers(path, requirements, conduit_token, "text/event-stream"),
+            headers=headers,
             json=payload,
             timeout=300,
             stream=True,
         )
+        if self.lifecycle_callback and response.status_code in {400, 401, 403, 404, 422, 429}:
+            self.lifecycle_callback("rejected", {"status_code": response.status_code})
         ensure_ok(response, path)
         return response
+
+    def _before_image_send(self, request_id: str, protocol: str) -> None:
+        callback = getattr(self, "lifecycle_callback", None)
+        if callback:
+            callback("sending", {"account_ref": account_service.image_account_reference(self.access_token),
+                                  "base_url": self.base_url, "protocol": protocol, "request_id": request_id})
+        self.image_request_sent = True
+        self.image_request_id = request_id
+
+    def find_image_conversation(self, request_id: str) -> str:
+        if not request_id:
+            return ""
+        # ponytail: verify the newest 30 conversations by exact client message ID; expand pagination if needed.
+        for item in self._list_recent_conversations(limit=30):
+            conversation_id = str(item.get("id") or item.get("conversation_id") or "")
+            if not conversation_id:
+                continue
+            mapping = self._get_conversation(conversation_id).get("mapping") or {}
+            if any(key == request_id or (node.get("message") or {}).get("id") == request_id
+                   for key, node in mapping.items() if isinstance(node, dict)):
+                return conversation_id
+        return ""
 
     def _get_conversation(self, conversation_id: str) -> Dict[str, Any]:
         """获取完整 conversation 详情。"""
@@ -2640,10 +2672,7 @@ class OpenAIBackendAPI:
     def _report_progress(self, step: str) -> None:
         """Report progress step to the callback if set."""
         if self.progress_callback:
-            try:
-                self.progress_callback(step)
-            except Exception:
-                pass
+            self.progress_callback(step)
 
     def _stream_picture_conversation(
             self,

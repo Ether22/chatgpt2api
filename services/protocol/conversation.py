@@ -311,6 +311,7 @@ class ConversationRequest:
     message_as_error: bool = False
     progress_callback: Any = None  # Callable[[str], None] | None
     image_upload_cache: ImageUploadCache | None = None
+    lifecycle_callback: Any = None
 
 
 @dataclass
@@ -856,6 +857,8 @@ def stream_image_outputs(
             quality=request.quality,
     ):
         last = event
+        if request.lifecycle_callback and event.get("conversation_id"):
+            request.lifecycle_callback("conversation", {"conversation_id": event["conversation_id"]})
         if event.get("type") == "conversation.delta":
             yield ImageOutput(
                 kind="progress",
@@ -918,7 +921,7 @@ def stream_image_outputs(
     # 当检测到文本回复但 conversation_id 丢失时，尝试从最近对话列表中恢复
     # SSE 流太短时（模型返回文本而非触发图片工具），conversation_id 可能未被捕获，
     # 但图片已在上游异步生成。通过列出最近对话来恢复 conversation_id。
-    if is_text_reply and not conversation_id:
+    if is_text_reply and not conversation_id and not request.lifecycle_callback:
         try:
             import time as _time
             recovered_id = backend.find_conversation_by_prompt(
@@ -1327,6 +1330,7 @@ def _generate_single_image(
                 plan_type=plan_type,
                 source_type="codex" if codex_model else None,
                 plan_types=("plus", "team", "pro") if codex_model and not plan_type else None,
+                **({"wait_callback": lambda info: request.lifecycle_callback("waiting", info)} if request.lifecycle_callback else {}),
             )
         except RuntimeError as exc:
             raise ImageGenerationError(str(exc) or "image generation failed", account_email=account_email) from exc
@@ -1347,6 +1351,7 @@ def _generate_single_image(
         try:
             backend = OpenAIBackendAPI(access_token=token)
             backend.image_upload_cache = request.image_upload_cache
+            backend.lifecycle_callback = request.lifecycle_callback
             if request.progress_callback:
                 backend.progress_callback = request.progress_callback
             stream_fn = stream_codex_image_outputs if is_codex_image_model(request.model) else stream_image_outputs
@@ -1375,12 +1380,11 @@ def _generate_single_image(
                 last_conversation_id = last_conversation_id or str(getattr(exc, "conversation_id", "") or "")
                 raise
             finally:
-                _remove_image_conversation_later(backend, last_conversation_id, success=returned_result)
+                if not request.lifecycle_callback:
+                    _remove_image_conversation_later(backend, last_conversation_id, success=returned_result)
             if returned_message:
-                account_service.mark_image_result(token, False)
                 return outputs
             if not returned_result:
-                account_service.mark_image_result(token, False)
                 if emitted_for_token:
                     conv_id = outputs[-1].conversation_id if outputs else ""
                     raise ImageGenerationError(
@@ -1392,14 +1396,12 @@ def _generate_single_image(
                         conversation_id=conv_id,
                     )
                 return outputs
-            account_service.mark_image_result(token, True)
             return outputs
         except ImagePollTimeoutError as exc:
-            account_service.mark_image_result(token, False)
             if account_email:
                 setattr(exc, "account_email", account_email)
             # 轮询超时：换账号重试
-            if not emitted_for_token:
+            if not emitted_for_token and not getattr(backend, "image_request_sent", False):
                 poll_timeout_retry_count += 1
                 if poll_timeout_retry_count <= MAX_POLL_TIMEOUT_RETRIES:
                     logger.warning({
@@ -1421,7 +1423,6 @@ def _generate_single_image(
                 raise
             raise
         except ImageContentPolicyError as exc:
-            account_service.mark_image_result(token, False)
             logger.warning({
                 "event": "image_stream_content_policy_error",
                 "request_token": token,
@@ -1438,12 +1439,11 @@ def _generate_single_image(
                 conversation_id=getattr(exc, "conversation_id", ""),
             ) from exc
         except ImageGenerationError as exc:
-            account_service.mark_image_result(token, False)
             if account_email and not getattr(exc, "account_email", ""):
                 exc.account_email = account_email
             error_text = str(exc)
             # 如果是模型返回文本而非图片，尝试换账号重试
-            if is_model_text_reply_instead_of_image(error_text) and not emitted_for_token:
+            if is_model_text_reply_instead_of_image(error_text) and not emitted_for_token and not getattr(backend, "image_request_sent", False):
                 text_reply_retry_count += 1
                 if text_reply_retry_count <= MAX_TEXT_REPLY_RETRIES:
                     logger.warning({
@@ -1480,7 +1480,6 @@ def _generate_single_image(
             })
             raise
         except Exception as exc:
-            account_service.mark_image_result(token, False)
             last_error = str(exc)
             logger.warning({
                 "event": "image_stream_fail",
@@ -1489,10 +1488,13 @@ def _generate_single_image(
                 "error": last_error,
                 "index": index,
             })
-            if emitted_for_token and is_token_invalid_error(exc):
+            if (emitted_for_token or getattr(backend, "image_request_sent", False)) and is_token_invalid_error(exc):
                 account_service.remove_invalid_token(token, "image_stream")
             if isinstance(exc, UpstreamHTTPError) and exc.status_code == 429:
                 account_service.mark_rate_limited(token, exc.retry_after)
+            if getattr(backend, "image_request_sent", False):
+                raise ImageGenerationError(last_error, account_email=account_email,
+                                           conversation_id=getattr(exc, "conversation_id", "")) from exc
             if not emitted_for_token and is_token_invalid_error(exc):
                 refreshed_token = account_service.refresh_access_token(token, force=True, event="image_stream")
                 if refreshed_token and refreshed_token != token:
@@ -1532,8 +1534,11 @@ def _generate_single_image(
                     continue
             raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
         finally:
-            if backend is not None:
-                backend.close()
+            try:
+                if backend is not None:
+                    backend.close()
+            finally:
+                account_service.mark_image_result(token, returned_result)
 
 
 def stream_image_outputs_with_pool(request: ConversationRequest) -> Iterator[ImageOutput]:
