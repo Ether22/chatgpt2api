@@ -93,6 +93,8 @@ export type ImageTurnStatus = "queued" | "generating" | "success" | "error";
 export type ImageTurn = {
   id: string;
   sourceEntryId?: string;
+  sourceTurnId?: string;
+  rerun?: boolean;
   md?: {
     document_id: string; name: string; document_name: string; output_name: string | null;
     reference_names: string[]; upload_ids: string[]; md_version: number; candidate_key: string;
@@ -229,6 +231,8 @@ export function submitImageTurn(authKey: string, turn: ImageTurn, conversationId
       request_id: turn.id,
       conversation_id: conversationId,
       source_entry_id: turn.sourceEntryId,
+      source_turn_id: turn.sourceTurnId,
+      rerun: turn.rerun ?? false,
       prompt: turn.prompt,
       model: turn.model,
       size: turn.size,

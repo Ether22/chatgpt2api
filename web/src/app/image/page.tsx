@@ -248,6 +248,11 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   }, []);
   const [conversations, setConversations] = useState<ImageConversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [reuseSource, setReuseSource] = useState<{ conversationId: string; turnId: string } | null>(null);
+  const reusingRef = useRef(false);
+  useEffect(() => {
+    setReuseSource((source) => source?.conversationId === selectedConversationId ? source : null);
+  }, [selectedConversationId]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isLoadingPage, setIsLoadingPage] = useState(false);
   const [historyNextOffset, setHistoryNextOffset] = useState<number | null>(null);
@@ -809,6 +814,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   }, [authKey, isLoadingHistory, isLoadingPage, refreshHistory]);
 
   const clearComposerInputs = useCallback(() => {
+    setReuseSource(null);
     setImagePrompt("");
     releaseInputs(referenceImagesRef.current);
     setReferenceImages([]);
@@ -1073,6 +1079,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
 
   const handleContinueEdit = useCallback(async (conversationId: string, image: StoredImage | StoredReferenceImage) => {
     try {
+      setReuseSource(null);
       setSelectedConversationId(conversationId);
       if ("name" in image) {
         const retained = await retainReferenceImage(authKey, image.id);
@@ -1099,7 +1106,31 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       return;
     }
 
+    if (reusingRef.current) return;
+    reusingRef.current = true;
+    const previousInputs = referenceImagesRef.current;
+    const previousConversation = selectedIdRef.current;
+    try {
+      const results = await Promise.allSettled(turn.referenceImages.map((image) => retainReferenceImage(authKey, image.id)));
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed || loadCancelledRef.current || previousInputs !== referenceImagesRef.current || previousConversation !== selectedIdRef.current) {
+        // Release every newly attempted hold, including a retain whose response was lost.
+        releaseInputs(turn.referenceImages.filter((image) => !referenceImagesRef.current.some((item) => item.id === image.id)));
+        if (failed?.status === "rejected") throw failed.reason;
+        return;
+      }
+      const retained = results.map((result) => (result as PromiseFulfilledResult<StoredReferenceImage>).value);
+      releaseInputs(previousInputs.filter((image) => !retained.some((item) => item.id === image.id)));
+      setReferenceImages(retained);
+    } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
+      toast.error(error instanceof Error ? error.message : "恢复参考图失败");
+      return;
+    } finally {
+      reusingRef.current = false;
+    }
     setSelectedConversationId(conversationId);
+    setReuseSource({ conversationId, turnId });
     setImagePrompt(turn.prompt);
     handleImageCountChange(String(Math.max(1, turn.count || turn.images.length || 1)));
     setImageRatio(turn.ratio);
@@ -1109,21 +1140,12 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     setImageHeight(parsedSize.height);
     setImageQuality(turn.quality);
     setImageModel(turn.model);
-    try {
-      const retained = await Promise.all(turn.referenceImages.map((image) => retainReferenceImage(authKey, image.id)));
-      releaseInputs(referenceImagesRef.current.filter((image) => !retained.some((item) => item.id === image.id)));
-      setReferenceImages(retained);
-    } catch (error) {
-      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
-      toast.error(error instanceof Error ? error.message : "恢复参考图失败");
-      return;
-    }
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
     textareaRef.current?.focus();
     toast.success("已复用这条提示词配置");
-  }, [handleImageCountChange, releaseInputs, setReferenceImages]);
+  }, [authKey, handleImageCountChange, releaseInputs, setReferenceImages]);
 
   const openLightbox = useCallback((images: ImageLightboxItem[], index: number) => {
     if (images.length === 0) {
@@ -1138,8 +1160,12 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const handleRegenerateTurn = useCallback(async (conversationId: string, turnId: string, count?: number, imageId?: string) => {
     const source = conversationsRef.current.find((item) => item.id === conversationId)?.turns.find((turn) => turn.id === turnId);
     if (!source || !source.prompt.trim()) return;
+    if (parseImageCount(String(count ?? source.count)) === null) {
+      toast.error("生成数量必须为 1–100 的纯数字整数");
+      return;
+    }
     const key = JSON.stringify([conversationId, turnId, count, imageId]);
-    const pending = pendingRegenerationsRef.current.get(key) ?? { ...source, id: createId(), count: count ?? source.count };
+    const pending = pendingRegenerationsRef.current.get(key) ?? { ...source, id: createId(), count: count ?? source.count, sourceTurnId: source.id, rerun: true };
     pendingRegenerationsRef.current.set(key, pending);
     try {
       await submitImageTurn(authKey, pending, conversationId);
@@ -1200,6 +1226,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     const conversationId = selectedConversationId;
     const draftTurn: ImageTurn = {
       id: createId(), prompt, model: imageModel, mode: effectiveImageMode,
+      sourceTurnId: reuseSource?.conversationId === conversationId ? reuseSource.turnId : undefined,
       referenceImages: effectiveImageMode === "edit" ? referenceImages : [],
       count: parsedCount, size: `${imageWidth || 1024}x${imageHeight || 1024}`,
       ratio: imageRatio, tier: imageTier, quality: imageQuality,
@@ -1223,6 +1250,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       const submittedIds = new Set(referenceImages.map((image) => image.id));
       setReferenceImages((current) => current.filter((image) => !submittedIds.has(image.id)));
       if (pendingSubmissionRef.current === pending) pendingSubmissionRef.current = null;
+      setReuseSource((current) => current === reuseSource ? null : current);
       releaseInputs(referenceImages);
       toast.success("已保存并提交生成");
     } catch (error) {
@@ -1384,6 +1412,12 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
             </button>
           </div>
 
+          {reuseSource && reuseSource.conversationId === selectedConversationId && (
+            <div className="flex items-center justify-center gap-3 py-1 text-xs text-stone-500">
+              <span>提交将新增原条目的轮次</span>
+              <button type="button" className="underline" onClick={() => setReuseSource(null)}>改为新条目</button>
+            </div>
+          )}
           <ImageComposer
             prompt={imagePrompt}
             imageCount={imageCount}

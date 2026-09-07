@@ -31,7 +31,7 @@ type ImageResultsProps = {
   onDeleteImage: (conversationId: string, turnId: string, imageId: string, ordinal: number) => void;
   onRetryDeleteImage: (conversationId: string, turnId: string, imageId: string, ordinal: number) => void | Promise<void>;
   onReuseTurnConfig: (conversationId: string, turnId: string) => void | Promise<void>;
-  onRegenerateTurn: (conversationId: string, turnId: string) => void | Promise<void>;
+  onRegenerateTurn: (conversationId: string, turnId: string, count?: number) => void | Promise<void>;
   onRetryImage: (conversationId: string, turnId: string, imageId: string) => void | Promise<void>;
   onTimeoutRetryContinue: (taskId: string) => void | Promise<void>;
   onDismissErrors: (conversationId: string, turnId: string) => void | Promise<void>;
@@ -208,7 +208,12 @@ export function ImageResults({
                   </div>
                 </div>
               </div>
-            ) : null}
+            ) : (
+              <div className="flex justify-end text-xs text-stone-500">
+                <span>提示词已隐藏</span>
+                <button type="button" className="ml-3 underline" onClick={() => void onReuseTurnConfig(selectedConversation.id, turn.id)}>复用配置</button>
+              </div>
+            )}
 
             {!turn.resultsDeleted ? (
               <div className="flex justify-start">
@@ -445,15 +450,8 @@ export function ImageResults({
                     </div>
                   ) : null}
 
-                  <div className="mt-3 flex items-center gap-1.5 text-[11px] sm:mt-4">
-                    <button
-                      type="button"
-                      onClick={() => void onRegenerateTurn(selectedConversation.id, turn.id)}
-                      className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1 font-medium text-stone-500 transition hover:bg-stone-200 hover:text-stone-900"
-                    >
-                      <RotateCcw className="size-3" />
-                      全部重新生成
-                    </button>
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] sm:mt-4">
+                    <RegenerateTurn count={turn.count} onRegenerate={(count) => onRegenerateTurn(selectedConversation.id, turn.id, count)} />
                     <button
                       type="button"
                       onClick={() => onDeleteResults(selectedConversation.id, turn.id)}
@@ -471,6 +469,22 @@ export function ImageResults({
       })}
     </div>
   );
+}
+
+function RegenerateTurn({ count, onRegenerate }: { count: number; onRegenerate: (count: number) => void | Promise<void> }) {
+  const [value, setValue] = useState(String(count));
+  const valid = /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 100;
+  return <>
+    <label className="flex items-center gap-1">新轮数量
+      <input type="text" inputMode="numeric" pattern="[0-9]*" value={value} aria-invalid={!valid}
+        onChange={(event) => setValue(event.target.value)} className="w-12 rounded border border-stone-200 px-1.5 py-1" />
+    </label>
+    <button type="button" disabled={!valid} onClick={() => void onRegenerate(Number(value))}
+      className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1 font-medium text-stone-500 transition hover:bg-stone-200 disabled:opacity-40">
+      <RotateCcw className="size-3" />重新生成
+    </button>
+    {!valid && <span role="alert" className="text-rose-600">请输入1–100的纯数字整数</span>}
+  </>;
 }
 
 function CollapsiblePrompt({ prompt, id }: { prompt: string; id: string }) {

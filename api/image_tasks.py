@@ -47,6 +47,8 @@ class ImageTurnRequest(BaseModel):
     request_id: str = Field(min_length=1, max_length=128)
     conversation_id: str | None = None
     source_entry_id: str | None = None
+    source_turn_id: str | None = Field(default=None, min_length=1, max_length=128)
+    rerun: bool = False
     prompt: str = Field(min_length=1)
     model: str = Field(default="gpt-image-2", min_length=1)
     size: str = Field(default="1024x1024", pattern=r"^[1-9]\d{0,4}x[1-9]\d{0,4}$")

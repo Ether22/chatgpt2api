@@ -918,14 +918,37 @@ class ImageTaskService:
             starts = []
             try:
                 for submission in submissions:
-                    records = self._submission_references(identity, submission, previous_references)
+                    source_turn = None
+                    if submission.get("source_turn_id"):
+                        if not submission.get("conversation_id"):
+                            raise ValueError("来源轮次必须指定原会话")
+                        source_turn = next((turn for turn in conversation["turns"]
+                                            if turn["id"] == submission["source_turn_id"]), None)
+                        if source_turn is None:
+                            raise KeyError("source turn not found")
+                        if submission.get("source_entry_id") not in (None, source_turn["sourceEntryId"]):
+                            raise ValueError("来源条目与原轮次不一致")
+                    if submission.get("rerun"):
+                        if source_turn is None:
+                            raise ValueError("重跑必须指定来源轮次")
+                        submission = {**submission, **{key: copy.deepcopy(source_turn[key]) for key in
+                                      ("prompt", "model", "size", "quality", "ratio", "tier", "referenceImages")}}
+                        # Pending snapshots keep the exact original reference IDs and wait for their uploads.
+                        records = [self._references[image["id"]] for image in source_turn["referenceImages"]]
+                        if any(record["owner_id"] != owner or source_turn["id"] not in record["turn_ids"]
+                               or record.get("deleted") or record.get("upload_cancelled") for record in records):
+                            raise ValueError("原轮次参考图已不可用，请重新提交配置")
+                        for record in records:
+                            previous_references.setdefault(record["id"], copy.deepcopy(record))
+                    else:
+                        records = self._submission_references(identity, submission, previous_references)
                     payload = {key: submission.get(key) for key in ("prompt", "model", "size", "quality")}
                     payload.update(n=1, response_format="url", base_url=base_url,
                                    reference_ids=[record["id"] for record in records], _preparation=Future())
                     mode = "edit" if records else "generate"
-                    source_id = submission.get("source_entry_id")
-                    md = submission.get("md")
-                    if md:
+                    source_id = source_turn["sourceEntryId"] if source_turn else submission.get("source_entry_id")
+                    md = copy.deepcopy(source_turn.get("md")) if source_turn else submission.get("md")
+                    if md and not source_turn:
                         source_id = next((source["id"] for source in conversation["sourceEntries"]
                                           if source.get("documentId") == md["document_id"]), None)
                     if source_id and not any(source["id"] == source_id for source in conversation["sourceEntries"]):
@@ -943,6 +966,9 @@ class ImageTaskService:
                                 task_ids=task_ids, request_id=request_id,
                                 referenceImages=[self._public_reference(record) for record in records])
                     if md:
+                        if source_turn and not submission.get("rerun"):
+                            md.update(reference_names=[record["name"] for record in records],
+                                      upload_ids=[record["request_id"] for record in records])
                         turn["md"] = copy.deepcopy(md)
                     for record in records:
                         if turn_id not in record["turn_ids"]:
