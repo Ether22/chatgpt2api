@@ -121,8 +121,9 @@ class AccountService:
         accounts = self.storage.load_accounts()
         return {
             normalized["access_token"]: normalized
-            for item in accounts
-            if (normalized := self._normalize_account(item)) is not None
+            for index, item in enumerate(accounts)
+            if isinstance(item, dict)
+            and (normalized := self._normalize_account({"display_order": index, **item})) is not None
         }
 
     def _save_accounts(self) -> None:
@@ -228,6 +229,9 @@ class AccountService:
         normalized["status"] = normalized.get("status") or "正常"
         usage_mode = normalized.get("usage_mode", "normal")
         normalized["usage_mode"] = usage_mode if usage_mode in ("normal", "monitor", "disabled") else "disabled"
+        normalized["hidden"] = normalized.get("hidden") is True
+        order = normalized.get("display_order")
+        normalized["display_order"] = order if type(order) is int and order >= 0 else 0
         normalized["quota"] = max(0, int(normalized.get("quota") if normalized.get("quota") is not None else 0))
         normalized["email"] = normalized.get("email") or None
         normalized["user_id"] = normalized.get("user_id") or None
@@ -838,7 +842,7 @@ class AccountService:
             }
             
             return result
-        
+
         finally:
             session.close()
 
@@ -1095,7 +1099,37 @@ class AccountService:
                 token = account.get("access_token") or ""
                 account["image_inflight"] = int(self._image_inflight.get(token, 0))
                 result.append(account)
-            return result
+            return sorted(result, key=lambda item: (item["usage_mode"] != "monitor", item["display_order"]))
+
+    def move_account(self, access_token: str, target_token: str, position: str = "before") -> None:
+        """只在同一展示组内移动，隐藏账号也保留在该组保存的顺序中。"""
+        if position not in {"before", "after"}:
+            raise ValueError("无效的排序位置")
+        with self._lock:
+            source = self._resolve_access_token_locked(access_token)
+            target = self._resolve_access_token_locked(target_token)
+            if source not in self._accounts or target not in self._accounts:
+                raise ValueError("账号不存在，请刷新列表")
+            monitor = self._accounts[source]["usage_mode"] == "monitor"
+            if (self._accounts[target]["usage_mode"] == "monitor") != monitor:
+                raise ValueError("只能在监控组或其余账号组内部排序")
+            if source == target:
+                return
+            group = sorted(
+                (item for token, item in self._accounts.items()
+                 if token != source and (item["usage_mode"] == "monitor") == monitor),
+                key=lambda item: item["display_order"],
+            )
+            index = next(i for i, item in enumerate(group) if item["access_token"] == target)
+            group.insert(index + (position == "after"), self._accounts[source])
+            previous = self._accounts.copy()
+            for index, item in enumerate(group):
+                self._accounts[item["access_token"]] = {**item, "display_order": index}
+            try:
+                self._save_accounts()
+            except Exception:
+                self._accounts = previous
+                raise
 
     def list_limited_tokens(self) -> list[str]:
         with self._lock:
@@ -1174,13 +1208,15 @@ class AccountService:
         with self._lock:
             added = 0
             skipped = 0
+            next_order = max((item["display_order"] for item in self._accounts.values()), default=-1) + 1
             for access_token, payload in deduped.items():
                 current = self._accounts.get(access_token)
                 if current is None:
                     added += 1
                     self._cumulative_total += 1
                     self._save_cumulative_total()
-                    current = {"created_at": self._now()}
+                    current = {"created_at": self._now(), "display_order": next_order}
+                    next_order += 1
                 else:
                     skipped += 1
                 incoming = dict(payload)
@@ -1237,6 +1273,10 @@ class AccountService:
             account = self._normalize_account({**current, **updates, "access_token": access_token})
             if account is None:
                 return None
+            if (account["usage_mode"] == "monitor") != (current["usage_mode"] == "monitor"):
+                account["display_order"] = max(
+                    (item["display_order"] for item in self._accounts.values()), default=-1,
+                ) + 1
             if account.get("status") == "限流" and account.get("usage_mode") == "normal" and config.auto_remove_rate_limited_accounts:
                 self._accounts.pop(access_token, None)
                 self._save_accounts()
@@ -1392,6 +1432,8 @@ class AccountService:
                 raise
         self._record_refresh_success(active_token)
         result.pop("usage_mode", None)
+        result.pop("hidden", None)
+        result.pop("display_order", None)
         return self.update_account(active_token, result)
 
     # ---- 刷新进度追踪 ----

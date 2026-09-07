@@ -12,6 +12,8 @@ import {
   Copy,
   Download,
   Eye,
+  EyeOff,
+  GripVertical,
   Link2,
   LoaderCircle,
   LogIn,
@@ -51,6 +53,7 @@ import {
   fetchReLoginProgress,
   reLoginAccounts,
   refreshAccounts,
+  moveAccount,
   testProxy,
   updateAccount,
   type Account,
@@ -182,6 +185,9 @@ function AccountsPageContent() {
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
+  const [draggedToken, setDraggedToken] = useState<string | null>(null);
+  const [isMoving, setIsMoving] = useState(false);
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<AccountStatus | AccountUsageMode | "all">("all");
   const [page, setPage] = useState(1);
@@ -264,9 +270,41 @@ function AccountsPageContent() {
         normalizedQuery.length === 0 || (account.email ?? "").toLowerCase().includes(normalizedQuery);
       const typeMatched = typeFilter === "all" || displayAccountType(account) === typeFilter;
       const statusMatched = statusFilter === "all" || account.status === statusFilter || account.usage_mode === statusFilter;
-      return searchMatched && typeMatched && statusMatched;
-    }).sort((a, b) => Number(b.usage_mode === "monitor") - Number(a.usage_mode === "monitor"));
-  }, [accounts, query, statusFilter, typeFilter]);
+      return (showHidden || !account.hidden) && searchMatched && typeMatched && statusMatched;
+    }).sort((a, b) => Number(b.usage_mode === "monitor") - Number(a.usage_mode === "monitor") || (a.display_order ?? 0) - (b.display_order ?? 0));
+  }, [accounts, query, statusFilter, typeFilter, showHidden]);
+
+  const handleVisibility = async (account: Account) => {
+    setIsUpdating(true);
+    try {
+      const data = await updateAccount(account.access_token, { hidden: !account.hidden });
+      setAccounts(data.items);
+      setSelectedIds((prev) => prev.filter((id) => id !== account.access_token));
+      toast.success(account.hidden ? "账号已取消隐藏" : "账号已隐藏，可通过显示隐藏账号找回");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "保存隐藏状态失败");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleMove = async (source: string, target: Account, position: "before" | "after") => {
+    if (isMoving || source === target.access_token) return;
+    const account = accounts.find((item) => item.access_token === source);
+    if (!account || (account.usage_mode === "monitor") !== (target.usage_mode === "monitor")) {
+      toast.error("只能在监控组或其余账号组内部排序");
+      return;
+    }
+    setIsMoving(true);
+    try {
+      setAccounts((await moveAccount(source, target.access_token, position)).items);
+      toast.success("组内顺序已保存");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "保存顺序失败");
+    } finally {
+      setIsMoving(false);
+    }
+  };
 
   const pageCount = Math.max(1, Math.ceil(filteredAccounts.length / Number(pageSize)));
   const safePage = Math.min(page, pageCount);
@@ -987,6 +1025,18 @@ function AccountsPageContent() {
               </div>
             </div>
 
+            <div className="flex flex-wrap items-center gap-3 px-4 py-3 text-xs text-stone-500">
+              <label className="flex items-center gap-2">
+                <Checkbox checked={showHidden} onCheckedChange={(checked) => {
+                  setShowHidden(Boolean(checked));
+                  setPage(1);
+                  setSelectedIds([]);
+                }} />
+                显示隐藏账号（{accounts.filter((account) => account.hidden).length}）
+              </label>
+              <span id="account-order-help">监控组始终在前。拖动排序柄到同组行的上半部 / 下半部，放到该行之前 / 之后；聚焦排序柄后按 ↑ / ↓ 移动。</span>
+              <span role="status">{isMoving ? "正在保存顺序…" : ""}</span>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1000px] text-left">
                 <thead className="border-b border-stone-100 text-[11px] text-stone-400 uppercase tracking-[0.18em]">
@@ -1019,9 +1069,40 @@ function AccountsPageContent() {
                     return (
                       <tr
                         key={account.access_token}
+                        onDragOver={(event) => { if (draggedToken && !isMoving) event.preventDefault(); }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          const bounds = event.currentTarget.getBoundingClientRect();
+                          if (draggedToken) void handleMove(draggedToken, account, event.clientY < bounds.top + bounds.height / 2 ? "before" : "after");
+                          setDraggedToken(null);
+                        }}
                         className={cn("border-b border-stone-100/80 text-sm text-stone-600 transition-colors hover:bg-stone-50/70", account.usage_mode === "monitor" && "bg-amber-50/70 hover:bg-amber-100/70")}
                       >
                         <td className={cn("px-4 py-3", account.usage_mode === "monitor" && "border-l-4 border-l-amber-400")}>
+                          <button
+                            type="button"
+                            draggable={!isMoving}
+                            aria-disabled={isMoving}
+                            aria-label={`排序 ${account.email || maskToken(account.access_token)}`}
+                            aria-describedby="account-order-help"
+                            className="mb-2 block cursor-grab rounded p-1 hover:bg-stone-100 focus-visible:outline-2 focus-visible:outline-stone-500"
+                            onDragStart={(event) => {
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("text/plain", "account-order");
+                              setDraggedToken(account.access_token);
+                            }}
+                            onDragEnd={() => setDraggedToken(null)}
+                            onKeyDown={(event) => {
+                              if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                              event.preventDefault();
+                              const group = filteredAccounts.filter((item) => (item.usage_mode === "monitor") === (account.usage_mode === "monitor"));
+                              const direction = event.key === "ArrowUp" ? -1 : 1;
+                              const target = group[group.indexOf(account) + direction];
+                              if (target) void handleMove(account.access_token, target, direction < 0 ? "before" : "after");
+                            }}
+                          >
+                            <GripVertical className="size-4" />
+                          </button>
                           <Checkbox
                             checked={selectedIds.includes(account.access_token)}
                             onCheckedChange={(checked) => {
@@ -1074,6 +1155,7 @@ function AccountsPageContent() {
                               {account.usage_mode === "monitor" ? "仅监控" : "禁用"}
                             </Badge>
                           )}
+                          {account.hidden && <Badge variant="outline" className="mt-1 whitespace-nowrap">已隐藏</Badge>}
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-xs leading-5 text-stone-500">{account.email ?? "—"}</div>
@@ -1130,6 +1212,16 @@ function AccountsPageContent() {
                         <td className="px-4 py-3 text-stone-500">{account.fail}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1 text-stone-400">
+                            <button
+                              type="button"
+                              aria-label={account.hidden ? "取消隐藏账号" : "隐藏账号"}
+                              title={account.hidden ? "取消隐藏账号" : "隐藏账号（不影响用途、刷新和导出）"}
+                              className="rounded-lg p-2 transition hover:bg-stone-100 hover:text-stone-700"
+                              onClick={() => void handleVisibility(account)}
+                              disabled={isUpdating}
+                            >
+                              {account.hidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+                            </button>
                             <button
                               type="button"
                               className="rounded-lg p-2 transition hover:bg-stone-100 hover:text-stone-700"

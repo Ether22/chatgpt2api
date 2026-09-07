@@ -23,6 +23,8 @@ export type Account = {
   source_type?: string | null;
   status: AccountStatus;
   usage_mode: AccountUsageMode;
+  hidden?: boolean;
+  display_order?: number;
   quota: number;
   email?: string | null;
   user_id?: string | null;
@@ -405,6 +407,7 @@ export async function updateAccount(
     type?: AccountType;
     status?: AccountStatus;
     usage_mode?: AccountUsageMode;
+    hidden?: boolean;
     quota?: number;
     proxy?: string;
   },
@@ -415,6 +418,13 @@ export async function updateAccount(
       access_token: accessToken,
       ...updates,
     },
+  });
+}
+
+export async function moveAccount(accessToken: string, targetToken: string, position: "before" | "after") {
+  return httpRequest<AccountListResponse>("/api/accounts/move", {
+    method: "POST",
+    body: { access_token: accessToken, target_token: targetToken, position },
   });
 }
 

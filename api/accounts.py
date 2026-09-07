@@ -68,8 +68,15 @@ class AccountUpdateRequest(BaseModel):
     type: str | None = None
     status: str | None = None
     usage_mode: Literal["normal", "monitor", "disabled"] | None = None
+    hidden: bool | None = None
     quota: int | None = None
     proxy: str | None = None
+
+
+class AccountMoveRequest(BaseModel):
+    access_token: str = Field(min_length=1)
+    target_token: str = Field(min_length=1)
+    position: Literal["before", "after"] = "before"
 
 
 class CPAPoolCreateRequest(BaseModel):
@@ -330,6 +337,15 @@ def create_router() -> APIRouter:
             media_type="application/json",
             headers={"Content-Disposition": f'attachment; filename="codex-accounts-{timestamp}.json"'},
         )
+
+    @router.post("/api/accounts/move")
+    async def move_account(body: AccountMoveRequest, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        try:
+            account_service.move_account(body.access_token, body.target_token, body.position)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        return {"items": account_service.list_accounts()}
 
     @router.post("/api/accounts/update")
     async def update_account(body: AccountUpdateRequest, authorization: str | None = Header(default=None)):
