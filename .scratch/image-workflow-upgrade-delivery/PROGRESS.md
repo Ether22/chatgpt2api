@@ -38,8 +38,8 @@
 | 14 | 所有结果的右侧定位导航与窄屏抽屉 | 9, 13 | 待创建 | codex/image-task-14 | gpt-6-astra / high | 待调度 | — | — |
 | 15 | 监控、禁用与可消费额度 | 无 | 01a07cd9-5e81-7a41-9890-e40f01e0855a | codex/image-task-15 | gpt-6-astra / high | 已集成并验证 | 43e3834、9727a25 | 61a34d5、1e6888a；40项账号/路由/能力/导出及 tsc 通过 |
 | 16 | 账号隐藏与组内拖拽排序 | 15 | 01a07cf9-063a-7df3-b3ca-c0526209f6ff | codex/image-task-16 | gpt-6-astra / medium | 已集成并验证 | 6b9f716、2c6b2e9、9d57af1 | 5f03ee3、c1b1c59、a8cfe61；主对话44项组合回归及tsc通过 |
-| 17 | 账号只保留不物理删除 | 无 | 01a07cff-4ece-7c00-9b83-96a96150951d | codex/image-task-17 | gpt-6-astra / high | 实施中 | — | — |
-| 18 | 业务 API、界面、日志及文件日期统一北京时间 | 无 | 01a07cff-709a-7512-ac93-8f632637e9e3 | codex/image-task-18 | gpt-6-astra / high | 阶段A实施中，全票未完成 | — | — |
+| 17 | 账号只保留不物理删除 | 无 | 01a07cff-4ece-7c00-9b83-96a96150951d | codex/image-task-17 | gpt-6-astra / high | 已修复审查发现，复审中 | 1c35397、8e591aa（待最终报告） | — |
+| 18 | 业务 API、界面、日志及文件日期统一北京时间 | 无 | 01a07cff-709a-7512-ac93-8f632637e9e3 | codex/image-task-18 | gpt-6-astra / high | 阶段A审查中，全票未完成 | — | — |
 
 ## 修改范围与调度约束
 
@@ -80,3 +80,6 @@
 - 03补充image_tags_service的两个已有标签函数最小归属筛选，已确认无其他票占用；既有图库list/delete/compress/cleanup也需消除跨身份访问managed记录的旁路，不提前实现10/11。
 - 18实际任务ID已核实；阶段A接口utils.business_time提供BEIJING、beijing_now()、beijing_iso(value=None)，带时区输入/epoch转+08:00，无时区旧字符串原样保留。17项目标检查通过，浏览器跨时区与双轴审查仍在进行。
 - 16三个提交已逐个集成，第三个仅收窄报告中的同页焦点和桌面脚本错误采集范围。主对话审核代码、报告与窄屏证据后，隔离工作树44项账号/隐藏排序/消费模式/能力/导出/模型目录/文本路由全部通过，TypeScript通过；首次命令中的测试文件名误写已纠正，未运行结果不计入验证。当前完成4/18；16测试服务和浏览器已停止，17取消旧删除配置后再核验隐藏+限流组合。
+- 03继续补图库image-manager两处图片读取的鉴权适配，复用已有useImageSource，避免新增身份检查后同身份缩略图401；生图页可用余额同步normal且健康正常口径。服务器会话记录不再从IndexedDB恢复或迁移；同浏览器退出A再登录B纳入验收。
+- 17主审发现搜索轮询吞掉429导致外层健康更新不执行，Spec另发现文本/图片结构化401/429被旧字符串判断漏过；受控公开入口复现后修复，相关27项通过。新增account_service.mark_rate_limited仅在Retry-After已知时记录restore_at；未知时保留原恢复信息。允许protocol/conversation文本和图片catch局部变更，不碰03会话结构，保留15资格及槽位释放。最终全套与复审未完成，暂不集成。
+- 18阶段A：独立tsc、11页生产构建及UTC/洛杉矶/上海三浏览器时区通过，密钥、备份、日志及午夜边界一致；进入两轴审查。前端工具web/src/lib/business-time.ts提供formatBeijingDateTime，后续票基于已集成版本复用。
