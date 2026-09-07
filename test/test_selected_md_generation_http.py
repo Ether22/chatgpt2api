@@ -281,7 +281,7 @@ def test_completed_reference_snapshot_save_failure_never_consumes(imports, monke
     class SnapshotDiskFailure(sqlite3.Connection):
         snapshot_write = False
         def execute(self, sql, parameters=()):
-            if sql.startswith("INSERT INTO image_rows") and parameters[0] == "conversations":
+            if sql.startswith(("INSERT INTO image_rows", "INSERT INTO main.image_rows")) and parameters[0] == "conversations":
                 self.snapshot_write = True
             return super().execute(sql, parameters)
         def __exit__(self, error_type, error, traceback):
@@ -414,7 +414,7 @@ def test_ready_reference_commit_failure_never_releases_concurrent_waiting_turns(
     class ReadyCommitFailure(sqlite3.Connection):
         ready_write = False
         def execute(self, sql, parameters=()):
-            if sql.startswith("INSERT INTO image_rows") and parameters[0] == "references":
+            if sql.startswith(("INSERT INTO image_rows", "INSERT INTO main.image_rows")) and parameters[0] == "references":
                 self.ready_write = json.loads(parameters[2]).get("state") == "ready"
             return super().execute(sql, parameters)
         def __exit__(self, error_type, error, traceback):
