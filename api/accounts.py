@@ -50,10 +50,6 @@ class AccountCreateRequest(BaseModel):
     accounts: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class AccountDeleteRequest(BaseModel):
-    tokens: list[str] = Field(default_factory=list)
-
-
 class AccountRefreshRequest(BaseModel):
     access_tokens: list[str] = Field(default_factory=list)
 
@@ -247,12 +243,9 @@ def create_router() -> APIRouter:
         }
 
     @router.delete("/api/accounts")
-    async def delete_accounts(body: AccountDeleteRequest, authorization: str | None = Header(default=None)):
+    async def delete_accounts(authorization: str | None = Header(default=None)):
         require_admin(authorization)
-        tokens = [str(token or "").strip() for token in body.tokens if str(token or "").strip()]
-        if not tokens:
-            raise HTTPException(status_code=400, detail={"error": "tokens is required"})
-        return account_service.delete_accounts(tokens)
+        raise HTTPException(status_code=405, detail={"error": "account deletion is disabled"})
 
     @router.post("/api/accounts/refresh")
     async def refresh_accounts(body: AccountRefreshRequest, authorization: str | None = Header(default=None)):

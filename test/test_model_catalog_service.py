@@ -133,9 +133,9 @@ class ModelCatalogServiceTests(unittest.TestCase):
         )
         self.assertEqual(self.calls.count("pro"), 2)
 
-    def test_removed_account_type_drops_its_stale_capabilities(self) -> None:
+    def test_disabled_account_type_drops_its_stale_capabilities(self) -> None:
         self.catalog.list_models()
-        self.accounts.delete_accounts(["pro"])
+        self.accounts.update_account("pro", {"usage_mode": "disabled"})
 
         result = self.catalog.list_models()
 

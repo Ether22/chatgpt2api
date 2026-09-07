@@ -224,16 +224,16 @@ class AccountUsageModeTests(unittest.TestCase):
         with patch("curl_cffi.requests.Session.post", side_effect=rotate):
             self.assertEqual(self.service.get_text_access_token(), "")
 
-    def test_account_removed_during_token_refresh_is_not_allocated(self):
+    def test_account_missing_after_token_refresh_is_not_allocated(self):
         token = make_jwt({"exp": 1})
         self.service.update_account("normal", {"usage_mode": "disabled"})
         self.service.add_account_items([{"access_token": token, "refresh_token": "test-refresh"}])
 
-        def rotate(*args, **kwargs):
-            self.service.delete_accounts([token])
-            return SimpleNamespace(status_code=200, text="ok", json=lambda: {"access_token": "rotated"})
-
-        with patch("curl_cffi.requests.Session.post", side_effect=rotate):
+        # A restored storage snapshot can lack the just-refreshed account.
+        restored = AccountService(JSONStorageBackend(self.directory / "restored.json"))
+        response = SimpleNamespace(status_code=200, text="ok", json=lambda: {"access_token": "rotated"})
+        with patch("curl_cffi.requests.Session.post", return_value=response), \
+             patch.object(self.service, "get_account", side_effect=restored.get_account):
             self.assertEqual(self.service.get_text_access_token(), "")
 
     def test_text_retry_does_not_consume_an_account_changed_to_monitor_or_disabled(self):

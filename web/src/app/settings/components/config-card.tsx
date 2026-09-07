@@ -31,8 +31,6 @@ export function ConfigCard() {
   const setImageRemoveConversationAlways = useSettingsStore((state) => state.setImageRemoveConversationAlways);
   const setImageSettleSecs = useSettingsStore((state) => state.setImageSettleSecs);
   const setImageTimeoutRetrySecs = useSettingsStore((state) => state.setImageTimeoutRetrySecs);
-  const setAutoRemoveInvalidAccounts = useSettingsStore((state) => state.setAutoRemoveInvalidAccounts);
-  const setAutoRemoveRateLimitedAccounts = useSettingsStore((state) => state.setAutoRemoveRateLimitedAccounts);
   const setAutoReloginAfterRefresh = useSettingsStore((state) => state.setAutoReloginAfterRefresh);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
@@ -208,16 +206,6 @@ export function ConfigCard() {
             <p className="text-xs text-stone-500">限制每个账号同时处理的图片请求数量，默认 3。</p>
           </div>
           <div className="space-y-2">
-            <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
-              <Checkbox
-                checked={Boolean(config?.auto_remove_invalid_accounts)}
-                onCheckedChange={(checked) => setAutoRemoveInvalidAccounts(Boolean(checked))}
-              />
-              自动移除异常账号
-            </label>
-            <p className="text-xs text-stone-500">刷新时检测并移除</p>
-          </div>
-          <div className="space-y-2">
             <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
               <Checkbox
                 checked={Boolean(config?.image_settle_enabled !== false)}
@@ -281,13 +269,6 @@ export function ConfigCard() {
             </div>
             <div className="flex-1" aria-hidden="true" />
           </div>
-          <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
-            <Checkbox
-              checked={Boolean(config?.auto_remove_rate_limited_accounts)}
-              onCheckedChange={(checked) => setAutoRemoveRateLimitedAccounts(Boolean(checked))}
-            />
-            自动移除限流账号
-          </label>
           <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
             <div>
               <label className="text-sm text-stone-700">控制台日志级别</label>

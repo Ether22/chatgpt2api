@@ -1825,10 +1825,20 @@ class OpenAIBackendAPI:
                poll_interval_secs: float = SEARCH_POLL_INTERVAL_SECS) -> Dict[str, Any]:
         if not self.access_token:
             raise RuntimeError("access_token is required for search")
-        conduit_token = self._prepare_search_conversation(prompt, model)
-        self._bootstrap()
-        conversation_id = self._run_search_conversation(prompt, conduit_token, model)
-        return self._wait_search_result(conversation_id, timeout_secs, poll_interval_secs)
+        try:
+            conduit_token = self._prepare_search_conversation(prompt, model)
+            self._bootstrap()
+            conversation_id = self._run_search_conversation(prompt, conduit_token, model)
+            return self._wait_search_result(conversation_id, timeout_secs, poll_interval_secs)
+        except Exception as exc:
+            from services.protocol.conversation import is_token_invalid_error
+
+            status = exc.status_code if isinstance(exc, UpstreamHTTPError) else None
+            if isinstance(exc, InvalidAccessTokenError) or status == 401 or is_token_invalid_error(str(exc)):
+                account_service.remove_invalid_token(self.access_token, "search")
+            elif status == 429:
+                account_service.update_account(self.access_token, {"status": "限流", "quota": 0})
+            raise
 
     def _prepare_search_conversation(self, prompt: str, model: str) -> str:
         path = "/backend-api/f/conversation/prepare"

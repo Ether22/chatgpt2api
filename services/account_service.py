@@ -557,7 +557,7 @@ class AccountService:
                         if progress_id:
                             self.update_relogin_progress(progress_id, access_token, "禁用")
                     else:
-                        # 永久故障：将账号标记为异常（或自动移除）
+                        # 永久故障：将账号标记为异常
                         self.remove_invalid_token(access_token, f"{event}:password_relogin_failed", quiet=True)
                         if progress_id:
                             self.update_relogin_progress(progress_id, access_token, "异常", error_type)
@@ -574,7 +574,7 @@ class AccountService:
                             "detail": result.get("detail", {}),
                         },
                     )
-                    # 永久故障：将账号标记为异常（或自动移除）
+                    # 永久故障：将账号标记为异常
                     self.remove_invalid_token(access_token, f"{event}:password_relogin_failed", quiet=True)
                     if progress_id:
                         self.update_relogin_progress(progress_id, access_token, "异常", error_type)
@@ -590,7 +590,7 @@ class AccountService:
                     "error": str(exc),
                 },
             )
-            # 将账号标记为异常（或自动移除）
+            # 将账号标记为异常
             self.remove_invalid_token(access_token, f"{event}:password_relogin_exception", quiet=True)
             if progress_id:
                 self.update_relogin_progress(progress_id, access_token, "异常", str(exc))
@@ -1067,16 +1067,9 @@ class AccountService:
             self._save_accounts()
 
     def remove_invalid_token(self, access_token: str, event: str, quiet: bool = False) -> bool:
-        if not config.auto_remove_invalid_accounts or (self.get_account(access_token) or {}).get("usage_mode") in {"monitor", "disabled"}:
-            self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
-            return False
-        removed = bool(self.delete_accounts([access_token])["removed"])
-        if removed:
-            log_service.add(LOG_TYPE_ACCOUNT, "自动移除异常账号",
-                            {"source": event, "token": anonymize_token(access_token)})
-        elif access_token:
-            self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
-        return removed
+        """Legacy failure hook: retain the account and mark its upstream health."""
+        self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
+        return False
 
     def get_account(self, access_token: str) -> dict | None:
         if not access_token:
@@ -1239,28 +1232,7 @@ class AccountService:
         return {"added": added, "skipped": skipped, "items": items}
 
     def delete_accounts(self, tokens: list[str]) -> dict:
-        target_set = set(token for token in tokens if token)
-        if not target_set:
-            return {"removed": 0, "items": self.list_accounts()}
-        with self._lock:
-            target_set = {self._resolve_access_token_locked(token) for token in target_set if token}
-            removed = sum(self._accounts.pop(token, None) is not None for token in target_set)
-            for token in target_set:
-                self._image_inflight.pop(token, None)
-            self._token_aliases = {
-                old: new
-                for old, new in self._token_aliases.items()
-                if old not in target_set and new not in target_set
-            }
-            if removed:
-                if self._accounts:
-                    self._index %= len(self._accounts)
-                else:
-                    self._index = 0
-                self._save_accounts()
-                log_service.add(LOG_TYPE_ACCOUNT, f"删除 {removed} 个账号", {"removed": removed})
-            items = [dict(item) for item in self._accounts.values()]
-        return {"removed": removed, "items": items}
+        raise ValueError("account deletion is disabled")
 
     def update_account(self, access_token: str, updates: dict, quiet: bool = False) -> dict | None:
         if not access_token:
@@ -1277,11 +1249,6 @@ class AccountService:
                 account["display_order"] = max(
                     (item["display_order"] for item in self._accounts.values()), default=-1,
                 ) + 1
-            if account.get("status") == "限流" and account.get("usage_mode") == "normal" and config.auto_remove_rate_limited_accounts:
-                self._accounts.pop(access_token, None)
-                self._save_accounts()
-                log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
-                return None
             self._accounts[access_token] = account
             self._save_accounts()
             if not quiet:
@@ -1374,11 +1341,6 @@ class AccountService:
                 next_item["fail"] = int(next_item.get("fail") or 0) + 1
             account = self._normalize_account(next_item)
             if account is None:
-                return None
-            if account.get("status") == "限流" and account.get("usage_mode") == "normal" and config.auto_remove_rate_limited_accounts:
-                self._accounts.pop(access_token, None)
-                self._save_accounts()
-                log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
                 return None
             self._accounts[access_token] = account
             self._save_accounts()

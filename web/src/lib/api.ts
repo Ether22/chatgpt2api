@@ -75,7 +75,6 @@ type AccountMutationResponse = {
   items: Account[];
   added?: number;
   skipped?: number;
-  removed?: number;
   refreshed?: number;
   relogined?: number;
   errors?: Array<{ access_token: string; error: string }>;
@@ -181,8 +180,6 @@ export type SettingsConfig = {
   image_remove_conversation_always?: boolean;
   image_settle_secs?: number | string;
   image_timeout_retry_secs?: number | string;
-  auto_remove_invalid_accounts?: boolean;
-  auto_remove_rate_limited_accounts?: boolean;
   auto_relogin_after_refresh?: boolean;
   log_levels?: string[];
   image_storage?: ImageStorageSettings;
@@ -369,13 +366,6 @@ export async function finishOAuthLogin(sessionId: string, callback: string) {
   return httpRequest<AccountMutationResponse>("/api/accounts/oauth/finish", {
     method: "POST",
     body: { session_id: sessionId, callback },
-  });
-}
-
-export async function deleteAccounts(tokens: string[]) {
-  return httpRequest<AccountMutationResponse>("/api/accounts", {
-    method: "DELETE",
-    body: { tokens },
   });
 }
 
