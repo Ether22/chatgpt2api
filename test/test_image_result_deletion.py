@@ -219,3 +219,138 @@ def test_local_cleanup_failure_remains_retryable_after_original_is_gone(environm
     assert not (config_module.config.images_dir / rel).exists()
     assert env["client"].delete(route, headers=env["headers"]).status_code == 200
     assert not thumbnail.exists() and tags.get_tags(rel) == []
+
+
+def test_persisted_delete_before_background_start_is_retryable_after_restart(environment, monkeypatch):
+    env = environment
+    assert submit(env).status_code == 200
+    conversation = wait_for_history(env)["items"][0]
+    turn = conversation["turns"][0]
+    image = turn["images"][0]
+    env["service"].delete_result(env["owner"], conversation["id"], turn["id"], image["id"])
+    monkeypatch.setattr(image_tasks, "image_task_service", ImageTaskService(env["path"]))
+    restored = env["client"].get(f'/api/image-conversations/{conversation["id"]}', headers=env["headers"]).json()
+    assert restored["turns"][0]["images"] == []
+    assert restored["turns"][0]["resultCleanups"][0]["state"] == "pending"
+    assert env["client"].get("/api/images", headers=env["headers"]).json()["items"] == []
+    assert env["client"].get(image["url"], headers=env["headers"]).status_code == 404
+    assert env["client"].get(image["url"].replace("/images/", "/image-thumbnails/"), headers=env["headers"]).status_code == 404
+    route = f'/api/image-conversations/{conversation["id"]}/turns/{turn["id"]}/images/{image["id"]}'
+    assert env["client"].delete(route, headers=env["headers"]).status_code == 200
+    assert env["client"].get(image["url"], headers=env["headers"]).status_code == 404
+
+
+def test_failed_tombstone_commit_never_starts_physical_cleanup(environment, monkeypatch):
+    from test.image_storage_faults import deny_sqlite_commits
+    env = environment
+    assert submit(env).status_code == 200
+    conversation = wait_for_history(env)["items"][0]
+    turn = conversation["turns"][0]
+    image = turn["images"][0]
+    route = f'/api/image-conversations/{conversation["id"]}/turns/{turn["id"]}/images/{image["id"]}'
+    with monkeypatch.context() as failure:
+        deny_sqlite_commits(failure, env["path"], "controlled deletion commit failure")
+        assert env["client"].delete(route, headers=env["headers"]).status_code == 507
+    monkeypatch.setattr(image_tasks, "image_task_service", ImageTaskService(env["path"]))
+    restored = env["client"].get(f'/api/image-conversations/{conversation["id"]}', headers=env["headers"]).json()
+    assert restored["turns"][0]["images"][0]["id"] == image["id"]
+    assert env["client"].get(image["url"], headers=env["headers"]).status_code == 200
+
+
+def test_simultaneous_single_deletions_do_not_restore_each_others_tags(environment, monkeypatch):
+    from pathlib import Path
+    import time
+    env = environment
+    assert submit(env, count=3).status_code == 200
+    conversation = wait_for_history(env, 3)["items"][0]
+    turn = conversation["turns"][0]
+    paths = [urlsplit(image["url"]).path.removeprefix("/images/") for image in turn["images"]]
+    for rel in paths:
+        tags.set_tags(rel, ["original"])
+    entered, release = threading.Event(), threading.Event()
+    original = Path.replace
+    def slow_first_write(path, *args, **kwargs):
+        if path == tags.TAGS_FILE.with_suffix(".tmp") and not entered.is_set():
+            entered.set()
+            assert release.wait(5)
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "replace", slow_first_write)
+    routes = [f'/api/image-conversations/{conversation["id"]}/turns/{turn["id"]}/images/{image["id"]}' for image in turn["images"][:2]]
+    with ThreadPoolExecutor(2) as pool:
+        first = pool.submit(env["client"].delete, routes[0], headers=env["headers"])
+        try:
+            assert entered.wait(5)
+            second = pool.submit(env["client"].delete, routes[1], headers=env["headers"])
+            time.sleep(.1)
+        finally:
+            release.set()
+        assert first.result(5).status_code == second.result(5).status_code == 200
+    assert [tags.get_tags(rel) for rel in paths] == [[], [], ["original"]]
+
+
+@pytest.mark.parametrize("failure", ["index_write", "tasks_wal", "index_wal", "tags_replace"])
+def test_atomic_deletion_and_tag_failures_preserve_retry_data(environment, monkeypatch, failure):
+    from pathlib import Path
+    import sqlite3
+    from services.image_storage_service import image_storage_service
+    env = environment
+    assert submit(env).status_code == 200
+    conversation = wait_for_history(env)["items"][0]
+    turn = conversation["turns"][0]
+    image = turn["images"][0]
+    rel = urlsplit(image["url"]).path.removeprefix("/images/")
+    tags.set_tags(rel, ["original"])
+    before = tags.TAGS_FILE.read_bytes()
+    route = f'/api/image-conversations/{conversation["id"]}/turns/{turn["id"]}/images/{image["id"]}'
+    index_path = image_storage_service.index_file.with_suffix(".sqlite3")
+    if failure.endswith("wal"):
+        with sqlite3.connect(env["path"] if failure == "tasks_wal" else index_path) as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+    elif failure == "index_write":
+        with sqlite3.connect(index_path) as connection:
+            connection.execute("CREATE TRIGGER fail_visibility BEFORE UPDATE ON image_rows BEGIN SELECT RAISE(ABORT, 'controlled index failure'); END")
+    else:
+        original = Path.replace
+        def fail_replace(path, target):
+            if target == tags.TAGS_FILE:
+                raise OSError("controlled tag replacement failure")
+            return original(path, target)
+        monkeypatch.setattr(Path, "replace", fail_replace)
+    response = env["client"].delete(route, headers=env["headers"])
+    assert response.status_code == (200 if failure == "tags_replace" else 507)
+    monkeypatch.setattr(image_tasks, "image_task_service", ImageTaskService(env["path"]))
+    restored = env["client"].get(f'/api/image-conversations/{conversation["id"]}', headers=env["headers"]).json()
+    assert tags.TAGS_FILE.read_bytes() == before
+    if failure == "tags_replace":
+        assert restored["turns"][0]["resultCleanups"][0]["state"] == "error"
+    else:
+        assert restored["turns"][0]["images"][0]["id"] == image["id"]
+        assert len(env["client"].get("/api/images", headers=env["headers"]).json()["items"]) == 1
+        assert env["client"].get(image["url"], headers=env["headers"]).status_code == 200
+
+
+def test_local_result_synced_to_new_webdav_deletes_the_actual_added_copy(environment, monkeypatch):
+    from services import image_storage_service as storage
+    env = environment
+    assert submit(env).status_code == 200
+    conversation = wait_for_history(env)["items"][0]
+    turn = conversation["turns"][0]
+    image = turn["images"][0]
+    remote = {}
+    class Remote:
+        def __init__(self, settings):
+            pass
+        def put(self, rel, data):
+            remote[rel] = data
+            return f"https://new.example/{rel}"
+        def delete(self, rel):
+            return remote.pop(rel, None) is not None
+    monkeypatch.setattr(storage, "WebDAVClient", Remote)
+    monkeypatch.setitem(config_module.config.data, "image_storage", {"enabled": True, "mode": "both", "webdav_url": "https://new.example", "webdav_username": "user/"})
+    assert storage.image_storage_service.sync_all()["uploaded"] == 1
+    assert len(remote) == 1
+    route = f'/api/image-conversations/{conversation["id"]}/turns/{turn["id"]}/images/{image["id"]}'
+    assert env["client"].delete(route, headers=env["headers"]).status_code == 200
+    restored = env["client"].get(f'/api/image-conversations/{conversation["id"]}', headers=env["headers"]).json()
+    assert restored["turns"][0]["resultCleanups"] == []
+    assert remote == {}

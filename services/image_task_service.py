@@ -385,18 +385,30 @@ class ImageTaskService:
             if not task.get("result_deleted") or task["result_cleanup"]["state"] in {"error", "retained"}:
                 updated = {**task, "result_deleted": True,
                            "result_cleanup": {"state": "pending", "updated_at": _now_iso()}}
+                generated_holders, held = self._result_holders(exclude_key=key)
+                with image_storage_service._index_lock:
+                    visibility = {}
+                    for path in self._result_paths(task):
+                        if not is_managed_image(path) or not image_storage_service.can_access(path, identity):
+                            raise ImageStorageError("结果文件不属于当前登录身份")
+                        if path not in generated_holders:
+                            item = image_rows.get(image_storage_service.index_file, "images", path) or {}
+                            visibility[path] = {**item, "result_hidden": True, "deleting": path not in held}
+                    image_rows.save_result_deletion(self.path, key, updated, image_storage_service.index_file, visibility)
                 self._tasks[key] = updated
-                try:
-                    self._save_locked(tasks=[key])
-                except Exception:
-                    self._tasks[key] = task
-                    raise
             return {"id": task_id, **copy.deepcopy(self._tasks[key]["result_cleanup"])}
 
     @staticmethod
     def _result_paths(task: dict[str, Any]) -> set[str]:
         return {urlsplit(image.get("url", "")).path.removeprefix("/images/")
                 for image in task.get("data", []) if urlsplit(image.get("url", "")).path.startswith("/images/")}
+
+    def _result_holders(self, *, exclude_key: str = "") -> tuple[set[str], set[str]]:
+        # ponytail: scan existing holders on single deletion; add a reverse index if bulk profiling requires it.
+        generated = {path for key, task in self._tasks.items() if key != exclude_key and not task.get("result_deleted")
+                     for path in self._result_paths(task)}
+        return generated, generated | {ref["path"] for ref in self._references.values()
+                                       if not ref.get("deleted") and (ref["input_scopes"] or ref["turn_ids"])}
 
     def cleanup_result(self, identity: dict[str, object], task_id: str) -> None:
         owner = _owner_id(identity)
@@ -411,11 +423,7 @@ class ImageTaskService:
                 if task["result_cleanup"]["state"] == "complete":
                     return
                 paths = self._result_paths(task)
-                # ponytail: scan existing holders on single deletion; add a reverse index if bulk profiling requires it.
-                generated_holders = {path for other in self._tasks.values() if not other.get("result_deleted")
-                        for path in self._result_paths(other)}
-                held = generated_holders | {ref["path"] for ref in self._references.values()
-                            if not ref.get("deleted") and (ref["input_scopes"] or ref["turn_ids"])}
+                generated_holders, held = self._result_holders()
             try:
                 if not paths and task.get("data"):
                     raise ImageStorageError("结果没有可验证的服务器文件位置，无法确认物理清理")
@@ -532,9 +540,7 @@ class ImageTaskService:
 
     @staticmethod
     def _reference_storage_target() -> dict[str, str]:
-        settings = image_storage_service.settings()
-        return {key: (str(settings.get(key) or "") if key == "webdav_username" else str(settings.get(key) or "").rstrip("/"))
-                for key in ("webdav_url", "webdav_root_path", "webdav_username")}
+        return image_storage_service.storage_target()
 
     def _check_reference_destination(self, reference: dict[str, Any]) -> None:
         if reference["storage_mode"] in {"webdav", "both"} and reference["storage_target"] != self._reference_storage_target():

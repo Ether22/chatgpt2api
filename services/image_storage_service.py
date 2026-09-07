@@ -259,7 +259,7 @@ class ImageStorageService:
 
     def storage_target(self) -> dict[str, str]:
         settings = self.settings()
-        return {key: str(settings.get(key) or "").rstrip("/")
+        return {key: (str(settings.get(key) or "") if key == "webdav_username" else str(settings.get(key) or "").rstrip("/"))
                 for key in ("webdav_url", "webdav_root_path", "webdav_username")}
 
     def _load_index(self) -> dict[str, dict[str, object]]:
@@ -554,6 +554,7 @@ class ImageStorageService:
                         "local": True,
                         "webdav": True,
                         "remote_url": remote_url,
+                        "storage_target": self.storage_target(),
                         **({"width": dimensions[0], "height": dimensions[1]} if dimensions else {}),
                     }
                     uploaded += 1

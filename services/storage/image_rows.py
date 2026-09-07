@@ -44,13 +44,35 @@ def get(path: Path, namespace: str, key: str) -> Any:
 def save(path: Path, changes: dict[str, dict[str, Any]]) -> None:
     with connect(path) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        for namespace, items in changes.items():
-            for key, value in items.items():
-                if value is None:
-                    connection.execute("DELETE FROM image_rows WHERE namespace = ? AND key = ?", (namespace, key))
-                else:
-                    connection.execute(
-                        "INSERT INTO image_rows VALUES (?, ?, ?) ON CONFLICT(namespace, key) "
-                        "DO UPDATE SET value = excluded.value WHERE value != excluded.value",
-                        (namespace, key, json.dumps(value, ensure_ascii=False, separators=(",", ":"))),
-                    )
+        _write_rows(connection, "main.image_rows", changes)
+
+
+def save_result_deletion(path: Path, task_key: str, task: dict[str, Any],
+                         index_path: Path, images: dict[str, Any]) -> None:
+    """SQLite's attached rollback-journal databases commit the tombstone and visibility together."""
+    with connect(path) as connection:
+        connection.execute("ATTACH DATABASE ? AS result_index", (str(index_path.with_suffix(".sqlite3")),))
+        databases = {name: filename for _, name, filename in connection.execute("PRAGMA database_list")}
+        for database in ("main", "result_index"):
+            journal = connection.execute(f"PRAGMA {database}.journal_mode").fetchone()[0]
+            if not databases[database] or journal not in {"delete", "truncate", "persist"}:
+                raise OSError("图片删除需要磁盘 rollback journal；当前数据库模式不支持跨库原子提交")
+        connection.execute("CREATE TABLE IF NOT EXISTS result_index.image_rows ("
+                           "namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, "
+                           "PRIMARY KEY (namespace, key))")
+        connection.execute("BEGIN IMMEDIATE")
+        _write_rows(connection, "main.image_rows", {"tasks": {task_key: task}})
+        _write_rows(connection, "result_index.image_rows", {"images": images})
+
+
+def _write_rows(connection, table: str, changes: dict[str, dict[str, Any]]) -> None:
+    for namespace, items in changes.items():
+        for key, value in items.items():
+            if value is None:
+                connection.execute(f"DELETE FROM {table} WHERE namespace = ? AND key = ?", (namespace, key))
+            else:
+                connection.execute(
+                    f"INSERT INTO {table} VALUES (?, ?, ?) ON CONFLICT(namespace, key) "
+                    "DO UPDATE SET value = excluded.value WHERE value != excluded.value",
+                    (namespace, key, json.dumps(value, ensure_ascii=False, separators=(",", ":"))),
+                )
