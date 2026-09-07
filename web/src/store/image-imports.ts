@@ -2,7 +2,8 @@
 
 import { httpRequest, request } from "@/lib/request";
 import type { StoredReferenceImage } from "@/store/image-conversations";
-import { getStoredAuthKey } from "@/store/auth";
+import { identityAuth as importAuth } from "@/lib/identity-request";
+export { IdentityChanged as ImportIdentityChanged } from "@/lib/identity-request";
 import type { AxiosProgressEvent } from "axios";
 
 export type ImportReference = {
@@ -41,16 +42,6 @@ export type ImageImports = {
   pending: ImportCleanup | null;
   updated_at: string | null;
 };
-
-export class ImportIdentityChanged extends Error {
-  constructor() { super("登录身份已变更，请刷新页面后继续"); }
-}
-
-async function importAuth(authKey: string) {
-  if (!authKey || await getStoredAuthKey() !== authKey) throw new ImportIdentityChanged();
-  // Bind the validated key even if another tab logs in between this check and dispatch.
-  return { headers: { Authorization: `Bearer ${authKey}` }, redirectOnUnauthorized: false };
-}
 
 export const fetchImageImports = async (authKey: string) => httpRequest<ImageImports>("/api/image-imports", await importAuth(authKey));
 export const correctImportCandidate = async (authKey: string, key: string, mutation: ImportMutation & { md_version: number }, changes: CandidateChanges) =>

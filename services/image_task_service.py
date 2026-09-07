@@ -213,6 +213,10 @@ class ImageTaskService:
                 "next_offset": offset + limit if offset + limit < total else None,
                 "previous_offset": max(0, offset - limit) if offset else None}
 
+    def conversation_metadata(self, identity: dict[str, object], conversation_id: str) -> dict[str, Any]:
+        with self._lock:
+            return self._conversation_metadata(self._owned_conversation(identity, conversation_id))
+
     def _conversation_metadata(self, item: dict[str, Any]) -> dict[str, Any]:
         stats = {"queued": 0, "running": 0}
         for turn in item["turns"]:
@@ -261,7 +265,10 @@ class ImageTaskService:
                 if task.get("data") and not navigation:
                     image.update(task["data"][0])
                 for source, target in (("error", "error"), ("progress", "progress"),
-                                       ("elapsed_secs", "elapsedSecs"), ("duration_ms", "durationMs")):
+                                       ("elapsed_secs", "elapsedSecs"), ("duration_ms", "durationMs"), ("updated_at", "updatedAt"),
+                                       ("error_code", "errorCode"), ("error_detail", "errorDetail"),
+                                       ("can_resume", "canResume"), ("retryable", "retryable"),
+                                       ("dispatch_state", "dispatchState"), ("waiting", "waiting")):
                     if task.get(source) is not None and not navigation:
                         image[target] = task[source]
                 images.append(image)
@@ -774,7 +781,7 @@ class ImageTaskService:
         }
         return self._submit(identity, client_task_id=client_task_id, mode="edit", payload=payload)
 
-    def list_tasks(self, identity: dict[str, object], task_ids: list[str]) -> dict[str, Any]:
+    def list_tasks(self, identity: dict[str, object], task_ids: list[str], versions: dict[str, str] | None = None) -> dict[str, Any]:
         owner = _owner_id(identity)
         requested_ids = [_clean(task_id) for task_id in task_ids if _clean(task_id)]
         with self._lock:
@@ -784,9 +791,9 @@ class ImageTaskService:
                 task = self._tasks.get(_task_key(owner, task_id))
                 if task is None:
                     missing_ids.append(task_id)
-                else:
+                elif not versions or versions.get(task_id) != task.get("updated_at"):
                     items.append(_public_task(task))
-            if not requested_ids:
+            if not requested_ids and versions is None:
                 items = [
                     _public_task(task)
                     for task in self._tasks.values()
@@ -845,19 +852,36 @@ class ImageTaskService:
         def lifecycle_callback(event: str, checkpoint: dict[str, Any]) -> None:
             if self._stopping.is_set():
                 raise TaskServiceStopped()
-            if event == "sending":
+            if event == "ready":
+                remaining = max(0, float(self._tasks[key].get("retry_not_before") or 0) - time.time())
+                if self._stopping.wait(remaining):
+                    raise TaskServiceStopped()
+            elif event == "sending":
                 image_storage_service.check_writable()
                 with self._lock:
                     if self._tasks[key].get("dispatch_state") != "pending":
                         raise RuntimeError("图片请求已经发送，不能重复消费")
                     self._update_task(key, dispatch_state="sent", status=TASK_STATUS_RUNNING, waiting=None,
-                                      sent_at=time.time(), upstream=checkpoint, started_ts=time.time())
+                                      sent_at=time.time(), upstream=checkpoint, started_ts=time.time(), retry_not_before=None)
             elif event == "conversation":
                 self._update_task(key, conversation_id=checkpoint["conversation_id"])
             elif event == "waiting":
                 self._update_task(key, status=TASK_STATUS_QUEUED, progress="waiting_account", waiting=checkpoint)
+            elif event == "retry_rejected":
+                with self._lock:
+                    if self._tasks[key].get("dispatch_state") not in {"pending", "rejected"}:
+                        raise RuntimeError("请求结果未知，不能重新发送")
+                    self._update_task(key, dispatch_state="pending", status=TASK_STATUS_QUEUED,
+                                      upstream=None, conversation_id="", sent_at=None)
             elif event == "rejected":
-                self._update_task(key, dispatch_state="rejected")
+                delay = str(checkpoint.get("retry_after") or "")
+                retry_at = time.time() + int(delay) if checkpoint.get("status_code") == 429 and delay.isdigit() and int(delay) > 0 else None
+                with self._lock:
+                    self._update_task(key, dispatch_state="rejected", retry_not_before=retry_at,
+                                      status=TASK_STATUS_QUEUED if retry_at else self._tasks[key]["status"],
+                                      waiting={"reason": "quota", "message": "上游限流，等待明确恢复时间",
+                                               "restore_at": beijing_iso(datetime.fromtimestamp(retry_at).astimezone())} if retry_at else None,
+                                      last_rejection={**checkpoint, "at": _now_iso(), "upstream": self._tasks[key].get("upstream")})
         # 创建进度回调，每个步骤完成后更新任务状态
         def progress_callback(step: str) -> None:
             if step == "image_stream_resolve_start":
@@ -866,6 +890,7 @@ class ImageTaskService:
         # 将进度回调添加到 payload 中（handler 会提取并传递给 ConversationRequest）
         try:
             payload = self._prepare_payload(payload, identity)
+            lifecycle_callback("ready", {})
             payload_with_progress = {**payload, "progress_callback": progress_callback, "lifecycle_callback": lifecycle_callback}
             image_storage_service.check_writable()
             self._update_task(key, error="")
@@ -893,6 +918,7 @@ class ImageTaskService:
             self._update_task(key, status=TASK_STATUS_SUCCESS, dispatch_state="complete", data=data, usage=usage,
                               error="", error_detail="", error_code="", retryable=False, can_resume=False,
                               waiting=None, duration_ms=duration_ms)
+            self._cleanup_completed_upstream(key)
             self._log_call(
                 identity,
                 mode,
@@ -923,6 +949,28 @@ class ImageTaskService:
                 error=error_message,
                 account_email=account_email,
             )
+
+    def _cleanup_completed_upstream(self, key: str) -> None:
+        if not (config.image_remove_conversation_always or config.image_remove_conversation_after_result):
+            return
+        backend = None
+        try:
+            from services.openai_backend_api import OpenAIBackendAPI, account_service
+            task = self._tasks[key]
+            upstream = task.get("upstream") or {}
+            if upstream.get("protocol") != "web" or not task.get("conversation_id"):
+                return
+            token = account_service.image_recovery_token(upstream.get("account_ref", ""))
+            if not token:
+                return
+            backend = OpenAIBackendAPI(access_token=token)
+            if upstream.get("base_url") == backend.base_url:
+                backend.delete_conversation(task["conversation_id"])
+        except Exception as exc:
+            print(redact(f"[image-task] completed upstream cleanup failed: {exc}"))
+        finally:
+            if backend is not None:
+                backend.close()
 
     def _store_task_images(self, data: list[dict[str, Any]], identity: dict[str, object], base_url: str) -> list[dict[str, Any]]:
         stored = []
@@ -1000,7 +1048,8 @@ class ImageTaskService:
         if request_preview:
             detail["request_text"] = request_preview
         if error:
-            detail["error"] = redact(error, [config.auth_key])
+            from services.openai_backend_api import account_service
+            detail["error"] = redact(error, [config.auth_key, *account_service.list_tokens()])
         if account_email:
             detail["account_email"] = account_email
         if urls:
@@ -1046,7 +1095,11 @@ class ImageTaskService:
         changed = False
         for task in self._tasks.values():
             if task.get("status") in UNFINISHED_STATUSES:
-                if task.get("dispatch_state") == "pending" and task.get("request"):
+                known_rejection = (task.get("dispatch_state") == "rejected" and
+                                   (task.get("last_rejection") or {}).get("status_code") == 429 and
+                                   isinstance(task.get("retry_not_before"), (int, float)) and task["retry_not_before"] > 0)
+                if (task.get("dispatch_state") == "pending" or known_rejection) and task.get("request"):
+                    task["dispatch_state"] = "pending"
                     task["status"] = TASK_STATUS_QUEUED
                     task["progress"] = "recovering_queue"
                 elif task.get("dispatch_state") == "rejected":
@@ -1174,6 +1227,7 @@ class ImageTaskService:
             self._update_task(key, status=TASK_STATUS_SUCCESS, dispatch_state="complete", data=data, error="",
                               error_detail="", error_code="", retryable=False, can_resume=False,
                               duration_ms=int((time.time() - started) * 1000))
+            self._cleanup_completed_upstream(key)
             self._log_call(
                 identity,
                 mode,

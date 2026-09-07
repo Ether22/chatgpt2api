@@ -41,7 +41,7 @@ class FakeImageTaskService:
             "updated_at": "2026-01-01 00:00:00",
         }
 
-    def list_tasks(self, _identity, ids):
+    def list_tasks(self, _identity, ids, versions=None):
         return {
             "items": [
                 {

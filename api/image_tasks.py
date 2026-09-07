@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -19,6 +20,18 @@ class ImageGenerationTaskRequest(BaseModel):
     model: str = "gpt-image-2"
     size: str | None = None
     quality: str = "auto"
+
+
+class TaskQueryRequest(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=200)
+    versions: dict[str, str] = Field(default_factory=dict, max_length=200)
+
+    @field_validator("ids")
+    @classmethod
+    def valid_ids(cls, value: list[str]) -> list[str]:
+        if any(not item.strip() or len(item) > 128 for item in value):
+            raise ValueError("task IDs must be nonblank and at most 128 characters")
+        return value
 
 
 class ResumePollRequest(BaseModel):
@@ -173,12 +186,16 @@ def create_router() -> APIRouter:
         return {"ok": True}
 
     @router.get("/api/image-tasks")
-    async def list_image_tasks(
-        ids: str = Query(default=""),
-        authorization: str | None = Header(default=None),
-    ):
-        identity = require_identity(authorization)
-        return await run_in_threadpool(image_task_service.list_tasks, identity, _parse_task_ids(ids))
+    async def list_image_tasks(ids: str = Query(default=""), authorization: str | None = Header(default=None)):
+        return await run_in_threadpool(image_task_service.list_tasks, require_identity(authorization), _parse_task_ids(ids))
+
+    @router.post("/api/image-tasks/query")
+    async def query_image_tasks(body: TaskQueryRequest, authorization: str | None = Header(default=None)):
+        return await run_in_threadpool(image_task_service.list_tasks, require_identity(authorization), body.ids, body.versions)
+
+    @router.get("/api/image-conversations/{conversation_id}/metadata")
+    async def conversation_metadata(conversation_id: str, authorization: str | None = Header(default=None)):
+        return await conversation_call(image_task_service.conversation_metadata, require_identity(authorization), conversation_id)
 
     @router.post("/api/image-tasks/generations")
     async def create_generation_task(

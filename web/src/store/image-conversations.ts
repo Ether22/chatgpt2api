@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import type { ImageModel } from "@/lib/api";
-import { httpRequest, request } from "@/lib/request";
+import { request } from "@/lib/request";
+
+import { identityAuth, identityRequest } from "@/lib/identity-request";
+import { getStoredAuthKey } from "@/store/auth";
 
 export type ImageConversationMode = "generate" | "edit";
 
@@ -22,13 +25,16 @@ export type DraftReferenceImage = StoredReferenceImage & {
   releasing?: boolean;
 };
 
-export async function uploadReferenceImage(file: File, requestId: string, onProgress: (percent: number) => void) {
+export async function uploadReferenceImage(authKey: string, file: File, requestId: string, onProgress: (percent: number) => void) {
   const body = new FormData();
   body.append("file", file);
   body.append("request_id", requestId);
-  return (await request.post<StoredReferenceImage>("/api/image-references", body, {
+  const saved = (await request.post<StoredReferenceImage>("/api/image-references", body, {
+    ...await identityAuth(authKey),
     onUploadProgress: (event) => onProgress(Math.round(100 * event.loaded / (event.total || file.size || 1))),
   })).data;
+  await identityAuth(authKey);
+  return saved;
 }
 
 const referenceOperations = new Map<string, Promise<unknown>>();
@@ -42,25 +48,32 @@ function referenceOperation<T>(id: string, operation: () => Promise<T>): Promise
   return pending;
 }
 
-export function cancelReferenceUpload(requestId: string) {
-  return httpRequest(`/api/image-references/uploads/${encodeURIComponent(requestId)}`, { method: "DELETE" });
+export function cancelReferenceUpload(authKey: string, requestId: string) {
+  return identityRequest(authKey, `/api/image-references/uploads/${encodeURIComponent(requestId)}`, { method: "DELETE" });
 }
 
-export function releaseReferenceImage(id: string) {
-  return referenceOperation(id, () => httpRequest(`/api/image-references/${encodeURIComponent(id)}`, { method: "DELETE" }));
+export function releaseReferenceImage(authKey: string, id: string) {
+  return referenceOperation(`${authKey}:${id}`, () => identityRequest(authKey, `/api/image-references/${encodeURIComponent(id)}`, { method: "DELETE" }));
 }
 
-export function retainReferenceImage(id: string) {
-  return referenceOperation(id, () => httpRequest<StoredReferenceImage>(`/api/image-references/${encodeURIComponent(id)}/retain`, { method: "POST" }));
+export function retainReferenceImage(authKey: string, id: string) {
+  return referenceOperation(`${authKey}:${id}`, () => identityRequest<StoredReferenceImage>(authKey, `/api/image-references/${encodeURIComponent(id)}/retain`, { method: "POST" }));
 }
 
-export function fetchReferenceImages() {
-  return httpRequest<{ items: DraftReferenceImage[] }>("/api/image-references");
+export function fetchReferenceImages(authKey: string) {
+  return identityRequest<{ items: DraftReferenceImage[] }>(authKey, "/api/image-references");
 }
 
 export type StoredImage = {
   id: string;
   taskId?: string;
+  updatedAt?: string;
+  errorCode?: string;
+  errorDetail?: string;
+  retryable?: boolean;
+  canResume?: boolean;
+  dispatchState?: string;
+  waiting?: { reason: string; message: string; restore_at?: string } | null;
   status?: "loading" | "success" | "error";
   taskStatus?: "queued" | "running";
   progress?: string;
@@ -129,39 +142,43 @@ export type ImageHistory = {
   stats: ImageConversationStats;
 };
 
-export function fetchImageHistory(offset = 0) {
-  return httpRequest<ImageHistory>(`/api/image-conversations?offset=${offset}&limit=30`);
+export function fetchImageHistory(authKey: string, offset = 0) {
+  return identityRequest<ImageHistory>(authKey, `/api/image-conversations?offset=${offset}&limit=30`);
 }
 
-export function fetchImageConversation(id: string, options: { offset?: number; limit?: number; turn_id?: string; image_id?: string } = {}) {
+export function fetchImageConversation(authKey: string, id: string, options: { offset?: number; limit?: number; turn_id?: string; image_id?: string } = {}) {
   const params = new URLSearchParams(Object.entries(options).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
-  return httpRequest<ImageConversation>(`/api/image-conversations/${encodeURIComponent(id)}?${params}`);
+  return identityRequest<ImageConversation>(authKey, `/api/image-conversations/${encodeURIComponent(id)}?${params}`);
 }
 
-export function fetchImageNavigation(id: string, offset = 0) {
-  return httpRequest<Pick<ImageConversation, "id" | "sourceEntries" | "pagination"> & {
+export function fetchImageConversationMetadata(authKey: string, id: string) {
+  return identityRequest<ImageConversation>(authKey, `/api/image-conversations/${encodeURIComponent(id)}/metadata`);
+}
+
+export function fetchImageNavigation(authKey: string, id: string, offset = 0) {
+  return identityRequest<Pick<ImageConversation, "id" | "sourceEntries" | "pagination"> & {
     turns: Array<Pick<ImageTurn, "id" | "sourceEntryId" | "createdAt" | "count" | "status" | "promptDeleted" | "resultsDeleted"> & { images: StoredImage[] }>;
-  }>(`/api/image-conversations/${encodeURIComponent(id)}?navigation=true&offset=${offset}&limit=10`);
+  }>(authKey, `/api/image-conversations/${encodeURIComponent(id)}?navigation=true&offset=${offset}&limit=10`);
 }
 
-export async function listImageConversations(): Promise<ImageConversation[]> {
-  return (await fetchImageHistory()).items;
+export async function listImageConversations(authKey: string): Promise<ImageConversation[]> {
+  return (await fetchImageHistory(authKey)).items;
 }
 
-export function createImageConversation(requestId: string) {
-  return httpRequest<ImageConversation>("/api/image-conversations", {
+export function createImageConversation(authKey: string, requestId: string) {
+  return identityRequest<ImageConversation>(authKey, "/api/image-conversations", {
     method: "POST", body: { request_id: requestId },
   });
 }
 
-export function selectImageConversation(id: string) {
-  return httpRequest("/api/image-conversations/current", {
+export function selectImageConversation(authKey: string, id: string) {
+  return identityRequest(authKey, "/api/image-conversations/current", {
     method: "PUT", body: { conversation_id: id },
   });
 }
 
-export function submitImageTurn(turn: ImageTurn, conversationId: string | null) {
-  return httpRequest<ImageConversation>("/api/image-conversations/turns", {
+export function submitImageTurn(authKey: string, turn: ImageTurn, conversationId: string | null) {
+  return identityRequest<ImageConversation>(authKey, "/api/image-conversations/turns", {
     method: "POST",
     body: {
       request_id: turn.id,
@@ -179,22 +196,22 @@ export function submitImageTurn(turn: ImageTurn, conversationId: string | null) 
   });
 }
 
-export function updateTurnVisibility(conversationId: string, turnId: string, flags: { promptDeleted?: boolean; resultsDeleted?: boolean; dismissedImageIds?: string[] }) {
-  return httpRequest<ImageConversation>(`/api/image-conversations/${encodeURIComponent(conversationId)}`, {
+export function updateTurnVisibility(authKey: string, conversationId: string, turnId: string, flags: { promptDeleted?: boolean; resultsDeleted?: boolean; dismissedImageIds?: string[] }) {
+  return identityRequest<ImageConversation>(authKey, `/api/image-conversations/${encodeURIComponent(conversationId)}`, {
     method: "PATCH", body: { turns: [{ id: turnId, ...flags }] },
   });
 }
 
-export async function renameImageConversation(id: string, title: string): Promise<void> {
-  await httpRequest(`/api/image-conversations/${encodeURIComponent(id)}`, { method: "PATCH", body: { title } });
+export async function renameImageConversation(authKey: string, id: string, title: string): Promise<void> {
+  await identityRequest(authKey, `/api/image-conversations/${encodeURIComponent(id)}`, { method: "PATCH", body: { title } });
 }
 
-export async function deleteImageConversation(id: string): Promise<void> {
-  await httpRequest(`/api/image-conversations/${encodeURIComponent(id)}`, { method: "DELETE" });
+export async function deleteImageConversation(authKey: string, id: string): Promise<void> {
+  await identityRequest(authKey, `/api/image-conversations/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export async function clearImageConversations(): Promise<void> {
-  await httpRequest("/api/image-conversations", { method: "DELETE" });
+export async function clearImageConversations(authKey: string): Promise<void> {
+  await identityRequest(authKey, "/api/image-conversations", { method: "DELETE" });
 }
 
 function managedImagePath(src: string) {
@@ -202,11 +219,14 @@ function managedImagePath(src: string) {
   return /^\/(images|image-thumbnails)\/managed\//i.test(path) ? path : null;
 }
 
-export async function fetchStoredImageBlob(src: string, signal?: AbortSignal): Promise<Blob> {
+export async function fetchStoredImageBlob(src: string, signal?: AbortSignal, authKey?: string): Promise<Blob> {
   const path = managedImagePath(src);
   if (path) {
     // Resolve against the configured API, never forward the identity key to a result URL's host.
-    return (await request.get<Blob>(path, { responseType: "blob", signal })).data;
+    const key = authKey ?? await getStoredAuthKey();
+    const blob = (await request.get<Blob>(path, { responseType: "blob", signal, ...await identityAuth(key) })).data;
+    await identityAuth(key);
+    return blob;
   }
   const response = await fetch(src, { signal });
   if (!response.ok) throw new Error(`读取图片失败 (${response.status})`);

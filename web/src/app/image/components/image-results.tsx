@@ -3,6 +3,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Clock3, Download, EyeOff, LoaderCircle, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ImageConversation, ImageTurnStatus, StoredImage, StoredReferenceImage } from "@/store/image-conversations";
@@ -224,7 +225,7 @@ export function ImageResults({
                     <span className="rounded-full bg-stone-100 px-3 py-1">{turn.count} 张</span>
                     <span className="rounded-full bg-stone-100 px-3 py-1">{getTurnStatusLabel(turn.status)}</span>
                     {turn.status === "queued" ? (
-                      <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">等待当前对话中的前序任务完成</span>
+                      <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">等待账号可用容量</span>
                     ) : null}
                   </div>
 
@@ -290,13 +291,13 @@ export function ImageResults({
                       }
 
                       if (image.status === "error") {
-                        const isTimeoutError = image.error?.includes("超时") && image.taskId;
+                        const isTimeoutError = image.canResume && image.taskId;
                         return (
                           <div key={image.id} className="min-w-0">
                             <div
                               className={cn(
-                                "overflow-hidden rounded-xl border border-rose-200 bg-rose-50",
-                                "aspect-square",
+                                "overflow-auto rounded-xl border border-rose-200 bg-rose-50",
+                                "min-h-56 sm:aspect-square",
                                 turn.ratio === "1:1" && "sm:aspect-square",
                                 turn.ratio === "16:9" && "sm:aspect-video",
                                 turn.ratio === "9:16" && "sm:aspect-[9/16]",
@@ -304,10 +305,15 @@ export function ImageResults({
                                 turn.ratio === "3:4" && "sm:aspect-[3/4]",
                               )}
                             >
-                            <div className="flex h-full min-h-16 flex-col items-center justify-center gap-1.5 px-2 py-2 text-center text-[11px] leading-4 text-rose-600 sm:gap-3 sm:px-6 sm:py-8 sm:text-sm sm:leading-6">
+                            <div className="flex h-full min-h-56 flex-col items-center justify-center gap-1.5 px-2 py-2 text-center text-[11px] leading-4 text-rose-600 sm:gap-3 sm:px-6 sm:py-8 sm:text-sm sm:leading-6">
                               <p className="font-medium">图片 {index + 1}/{turn.images.length}</p>
-                              <span className="line-clamp-2 sm:line-clamp-none">{image.error || "生成失败"}</span>
-                              <div className="flex items-center gap-2">
+                              <span className="shrink-0 line-clamp-2 sm:line-clamp-none">{image.error || "生成失败"}</span>
+                              <details className="w-full text-left">
+                                <summary className="cursor-pointer text-center">失败详情</summary>
+                                <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-all text-[10px]">{image.errorDetail || JSON.stringify({ task_id: image.taskId || image.id, error: image.error }, null, 2)}</pre>
+                                <button type="button" className="underline" onClick={() => void navigator.clipboard.writeText(image.errorDetail || JSON.stringify({ task_id: image.taskId || image.id, error: image.error }, null, 2)).then(() => toast.success("已复制失败详情"), () => toast.error("复制失败，请选中详情手动复制"))}>复制失败详情</button>
+                              </details>
+                              <div className="flex flex-wrap justify-center gap-2">
                                 {isTimeoutError && (
                                   <button
                                     type="button"
@@ -339,7 +345,7 @@ export function ImageResults({
                       }
 
                       const imageTaskStatus = image.taskStatus || (turn.status === "queued" ? "queued" : "running");
-                      const imageStatusLabel = imageTaskStatus === "queued" ? "排队中" : getProgressLabel(image.progress);
+                      const imageStatusLabel = image.waiting?.message ? `${image.waiting.message}${image.waiting.restore_at ? `（${new Date(image.waiting.restore_at).toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai" })}）` : ""}` : imageTaskStatus === "queued" ? "排队中" : getProgressLabel(image.progress);
                       const showElapsed = imageTaskStatus === "running" && image.elapsedSecs != null;
                       const elapsedDisplay = showElapsed
                         ? formatElapsed(

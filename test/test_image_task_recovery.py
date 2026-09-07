@@ -310,7 +310,8 @@ def test_real_post_rejection_updates_health_without_resending_or_removing_accoun
             response = post(url, **arguments)
             if url.endswith("/f/conversation"):
                 response = Reply({"error": "unauthorized" if status == 401 else "rate limited"}, status=status)
-                response.headers["Retry-After"] = "60"
+                if status == 401:
+                    response.headers["Retry-After"] = "60"
             return response
         client.post = send
         return client
@@ -323,3 +324,87 @@ def test_real_post_rejection_updates_health_without_resending_or_removing_accoun
     assert task["dispatch_state"] == "rejected" and task["retryable"] is True
     account = pool.list_accounts()[0]
     assert (account["status"], account["usage_mode"], account["hidden"], account["image_inflight"]) == (health, "normal", True, 0)
+
+
+@pytest.mark.parametrize("restart_after_rejection", [False, True])
+def test_explicit_429_waits_until_known_restore_then_cleans_only_durable_success(environment, tmp_path, monkeypatch, restart_after_rejection):
+    from services import openai_backend_api as backend
+    from services.protocol import conversation, openai_v1_image_generations
+    from services.account_service import AccountService
+    from services.config import config
+    from services.storage import image_rows
+    from services.storage.json_storage import JSONStorageBackend
+    from test.test_reference_protocol import ControlledHTTP, Reply
+    store = JSONStorageBackend(tmp_path / "limited.json")
+    store.save_accounts([{"access_token": "retained", "status": "正常", "quota": 100}])
+    pool = AccountService(store)
+    monkeypatch.setattr(backend, "account_service", pool)
+    monkeypatch.setattr(conversation, "account_service", pool)
+    monkeypatch.setitem(config.data, "image_remove_conversation_after_result", True)
+    monkeypatch.setitem(config.data, "image_settle_enabled", False)
+    remote, cleaned, sent_at = ControlledHTTP(), [], []
+    make_session = remote.session
+
+    def transport(**kwargs):
+        client = make_session(**kwargs)
+        post = client.post
+        def send(url, **arguments):
+            if url.endswith("/f/conversation"):
+                sent_at.append(time.time())
+            response = post(url, **arguments)
+            if url.endswith("/f/conversation") and len(remote.generations) == 1:
+                response = Reply({"error": "rate limited"}, status=429)
+                response.headers["Retry-After"] = "3"
+            return response
+        def remove(_url, **_kwargs):
+            rows = image_rows.load(environment["path"], "tasks")
+            assert all(row["status"] == "success" for row in rows.values())
+            cleaned.append(True)
+            return Reply()
+        client.post, client.patch = send, remove
+        return client
+
+    monkeypatch.setattr(backend.requests, "Session", transport)
+    environment["service"].generation_handler = openai_v1_image_generations.handle
+    checkpoint = threading.Event()
+    if restart_after_rejection:
+        original = environment["service"]
+        save = original._save_locked
+        def stop_at_rejected(**changes):
+            save(**changes)
+            if any(task.get("dispatch_state") == "rejected" for task in original._tasks.values()):
+                checkpoint.set()
+                assert original._stopping.wait(10)
+                from services.image_task_service import TaskServiceStopped
+                raise TaskServiceStopped()
+        monkeypatch.setattr(original, "_save_locked", stop_at_rejected)
+    response = submit(environment)
+    task_id = response.json()["turns"][0]["images"][0]["taskId"]
+    if restart_after_rejection:
+        assert checkpoint.wait(5)
+        original.shutdown(timeout=3)
+        durable = next(iter(image_rows.load(environment["path"], "tasks").values()))
+        assert durable["dispatch_state"] == "rejected"
+        assert durable["last_rejection"]["retry_after"] == "3"
+        assert pool.list_accounts()[0].get("restore_at") is None, "Crash precedes the pool's health update"
+        restored = ImageTaskService(environment["path"], generation_handler=openai_v1_image_generations.handle)
+        environment["service"] = restored
+        restored.start()
+        time.sleep(.15)
+        assert len(sent_at) == 1 and time.time() < durable["retry_not_before"]
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        task = environment["service"].list_tasks(environment["owner"], [task_id])["items"][0]
+        if task.get("waiting") and task["dispatch_state"] == "pending":
+            break
+        time.sleep(.01)
+    assert task["status"] == "queued" and task["dispatch_state"] == "pending"
+    assert task["waiting"]["reason"] == "quota" and task["waiting"]["restore_at"]
+    assert len(remote.generations) == 1 and not cleaned
+    wait_for_task(environment["service"], environment["owner"], task_id, "success", timeout=8)
+    environment["service"].shutdown(timeout=5)
+    assert len(remote.generations) == 2 and cleaned == [True]
+    final = next(iter(image_rows.load(environment["path"], "tasks").values()))
+    assert sent_at[1] >= sent_at[0] + 3
+    assert final["last_rejection"]["upstream"]["request_id"] != final["upstream"]["request_id"]
+    assert pool.list_accounts()[0]["image_inflight"] == 0

@@ -881,7 +881,8 @@ class OpenAIBackendAPI:
                 yield from self._iter_codex_response_events(raw)
         except urllib.error.HTTPError as error:
             if self.lifecycle_callback and error.code in {400, 401, 403, 404, 422, 429}:
-                self.lifecycle_callback("rejected", {"status_code": error.code})
+                self.image_request_rejected = True
+                self.lifecycle_callback("rejected", {"status_code": error.code, "retry_after": (error.headers or {}).get("Retry-After")})
             body_text = error.read().decode("utf-8", "replace")
             body: Any = body_text
             try:
@@ -1089,7 +1090,8 @@ class OpenAIBackendAPI:
             stream=True,
         )
         if self.lifecycle_callback and response.status_code in {400, 401, 403, 404, 422, 429}:
-            self.lifecycle_callback("rejected", {"status_code": response.status_code})
+            self.image_request_rejected = True
+            self.lifecycle_callback("rejected", {"status_code": response.status_code, "retry_after": response.headers.get("Retry-After")})
         ensure_ok(response, path)
         return response
 

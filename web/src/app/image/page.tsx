@@ -20,12 +20,14 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   fetchAccounts,
+  fetchImageTasks,
   fetchModels,
   resumeImagePoll,
   type Account,
   type ImageModel,
   type Model,
 } from "@/lib/api";
+import { identityAuth, IdentityChanged } from "@/lib/identity-request";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useSettingsStore } from "@/app/settings/store";
 import {
@@ -33,6 +35,7 @@ import {
   createImageConversation,
   fetchImageHistory,
   fetchImageConversation,
+  fetchImageConversationMetadata,
   fetchStoredImageBlob,
   selectImageConversation,
   submitImageTurn,
@@ -135,8 +138,8 @@ function normalizeStoredImageModel(value: string | null, availableModels: ImageM
   return availableModels[0] || "gpt-image-2";
 }
 
-async function fetchImageAsFile(url: string, fileName: string) {
-  const blob = await fetchStoredImageBlob(url);
+async function fetchImageAsFile(authKey: string, url: string, fileName: string) {
+  const blob = await fetchStoredImageBlob(url, undefined, authKey);
   return new File([blob], fileName, { type: blob.type || "image/png" });
 }
 
@@ -181,6 +184,22 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const imageTimeoutRetrySecs = Number(config?.image_timeout_retry_secs || 30);
 
   const [imagePrompt, setImagePrompt] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    const checkIdentity = () => void identityAuth(authKey).catch(() => {
+      if (cancelled) return;
+      cancelled = true;
+      loadCancelledRef.current = true;
+      setImagePrompt("");
+      for (const image of referenceImagesRef.current) if (image.url.startsWith("blob:")) URL.revokeObjectURL(image.url);
+      referenceImagesRef.current = [];
+      updateReferenceImages([]);
+      window.location.reload();
+    });
+    const timer = setInterval(checkIdentity, 1000);
+    window.addEventListener("focus", checkIdentity);
+    return () => { cancelled = true; clearInterval(timer); window.removeEventListener("focus", checkIdentity); };
+  }, [authKey]);
   const [imageCount, setImageCount] = useState("4");
   const [imageRatio, setImageRatio] = useState("auto");
   const [imageTier, setImageTier] = useState("1k");
@@ -196,6 +215,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const activeSubmissionReferences = useRef(new Map<string, number>());
   const deferredReleases = useRef(new Map<string, DraftReferenceImage>());
   const setReferenceImages = useCallback((value: DraftReferenceImage[] | ((previous: DraftReferenceImage[]) => DraftReferenceImage[])) => {
+    if (loadCancelledRef.current) return;
     const previous = referenceImagesRef.current;
     const next = typeof value === "function" ? value(previous) : value;
     referenceImagesRef.current = next;
@@ -210,25 +230,28 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
         deferredReleases.current.set(image.id, image);
         continue;
       }
-      void (image.file ? cancelReferenceUpload(image.id) : releaseReferenceImage(image.id)).catch((error) => {
+      void (image.file ? cancelReferenceUpload(authKey, image.id) : releaseReferenceImage(authKey, image.id)).catch((error) => {
+        if (loadCancelledRef.current || error instanceof IdentityChanged) return;
         toast.error(`释放参考图失败：${error.message}`);
         setReferenceImages((current) => current.some((item) => item.id === image.id) ? current
           : [...current, { ...image, url: image.file ? URL.createObjectURL(image.file) : image.url,
             uploading: false, releasing: true, error: "释放失败，请重试移除" }]);
       });
     }
-  }, [setReferenceImages]);
+  }, [authKey, setReferenceImages]);
   useEffect(() => {
     let cancelled = false;
-    void fetchReferenceImages().then(({ items }) => {
+    void fetchReferenceImages(authKey).then(({ items }) => {
       if (!cancelled) setReferenceImages((current) => [...current, ...items.filter((image) => !current.some((item) => item.id === image.id))]);
-    }).catch((error) => toast.error(`恢复参考图失败：${error.message}`));
+    }).catch((error) => { if (!cancelled && !(error instanceof IdentityChanged)) toast.error(`恢复参考图失败：${error.message}`); });
     return () => { cancelled = true; };
-  }, [setReferenceImages]);
+  }, [authKey, setReferenceImages]);
   useEffect(() => () => {
     for (const image of referenceImagesRef.current) {
       if (image.url.startsWith("blob:")) URL.revokeObjectURL(image.url);
     }
+    referenceImagesRef.current = [];
+    deferredReleases.current.clear();
   }, []);
   const [conversations, setConversations] = useState<ImageConversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -364,10 +387,10 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       setImageQuality(storedQuality || "auto");
 
       const readVersion = ++historyReadVersionRef.current;
-      const history = await fetchImageHistory();
+      const history = await fetchImageHistory(authKey);
       const nextSelectedConversationId = history.current_conversation_id ?? pickFallbackConversationId(history.items);
       const offset = nextSelectedConversationId ? pageOffsetsRef.current.get(nextSelectedConversationId) : undefined;
-      const detail = nextSelectedConversationId ? await fetchImageConversation(nextSelectedConversationId, { offset }) : null;
+      const detail = nextSelectedConversationId ? await fetchImageConversation(authKey, nextSelectedConversationId, { offset }) : null;
       const normalizedItems = detail ? [...history.items.filter((item) => item.id !== detail.id), detail] : history.items;
       if (loadCancelledRef.current || readVersion !== historyReadVersionRef.current) {
         return;
@@ -382,6 +405,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       pageOffsetRef.current = offset;
       setSelectedConversationId(nextSelectedConversationId);
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       const message = error instanceof Error ? error.message : "读取会话记录失败";
       toast.error(message);
     } finally {
@@ -390,6 +414,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       }
     }
   }, [
+    authKey,
     setImageRatio,
     setImageTier,
     setImageWidth,
@@ -617,10 +642,10 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
 
   const refreshHistory = useCallback(async (followLatest = true) => {
     const readVersion = ++historyReadVersionRef.current;
-    const history = await fetchImageHistory();
+    const history = await fetchImageHistory(authKey);
     const id = (followLatest ? history.current_conversation_id : selectedIdRef.current) ?? history.current_conversation_id;
     const offset = followLatest ? undefined : pageOffsetRef.current;
-    const detail = id ? await fetchImageConversation(id, { offset }) : null;
+    const detail = id ? await fetchImageConversation(authKey, id, { offset }) : null;
     if (!loadCancelledRef.current && readVersion === historyReadVersionRef.current) {
       const freshIds = new Set(history.items.map((item) => item.id));
       const firstPageChanged = history.pagination.total !== historyTotalRef.current ||
@@ -646,7 +671,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       if (firstPageChanged || history.pagination.next_offset === null) setHistoryNextOffset(history.pagination.next_offset);
     }
     return history;
-  }, []);
+  }, [authKey]);
 
   const loadConversationPage = useCallback(async (id: string, offset?: number, restorePosition = false) => {
     const readVersion = ++historyReadVersionRef.current;
@@ -655,7 +680,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     setLightboxOpen(false);
     setLightboxImages([]);
     try {
-      const detail = await fetchImageConversation(id, { offset });
+      const detail = await fetchImageConversation(authKey, id, { offset });
       if (loadCancelledRef.current || readVersion !== historyReadVersionRef.current) return;
       if (offset === undefined) pageOffsetsRef.current.delete(id);
       else pageOffsetsRef.current.set(id, offset);
@@ -672,11 +697,12 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       setConversations(conversationsRef.current);
       if (!restorePosition && resultsViewportRef.current) resultsViewportRef.current.scrollTop = 0;
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "读取结果失败");
     } finally {
       if (readVersion === historyReadVersionRef.current) setIsLoadingPage(false);
     }
-  }, []);
+  }, [authKey]);
 
   useEffect(() => {
     if (selectedConversationId && !conversationsRef.current.find((item) => item.id === selectedConversationId)?.pagination) {
@@ -689,13 +715,14 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     setIsLoadingMoreHistory(true);
     const version = historyReadVersionRef.current;
     try {
-      const history = await fetchImageHistory(historyNextOffset);
+      const history = await fetchImageHistory(authKey, historyNextOffset);
       if (loadCancelledRef.current || version !== historyReadVersionRef.current) return;
       const known = new Set(conversationsRef.current.map((item) => item.id));
       conversationsRef.current = sortImageConversations([...conversationsRef.current, ...history.items.filter((item) => !known.has(item.id))]);
       setConversations(conversationsRef.current);
       setHistoryNextOffset(history.pagination.next_offset);
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "读取历史失败");
     } finally {
       setIsLoadingMoreHistory(false);
@@ -708,15 +735,58 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        if (document.visibilityState === "visible" && !isLoadingPage) await refreshHistory(false);
+        if (document.visibilityState === "visible" && !isLoadingPage) {
+          const version = historyReadVersionRef.current;
+          const selected = conversationsRef.current.find((item) => item.id === selectedIdRef.current);
+          const active = selected?.turns.flatMap((turn) => turn.images) ?? [];
+          const [history, changes, metadata] = await Promise.all([
+            fetchImageHistory(authKey),
+            active.length ? fetchImageTasks(active.map((image) => image.id), authKey,
+              Object.fromEntries(active.map((image) => [image.id, image.updatedAt ?? ""]))) : Promise.resolve({ items: [] }),
+            selected ? fetchImageConversationMetadata(authKey, selected.id) : Promise.resolve(null),
+          ]);
+          if (cancelled || loadCancelledRef.current || version !== historyReadVersionRef.current) return;
+          if (metadata && metadata.updatedAt !== selected?.updatedAt || history.pagination.total !== historyTotalRef.current) {
+            await refreshHistory(false);
+          } else {
+            const changed = new Map(changes.items.map((task) => [task.id, task]));
+            const next = conversationsRef.current.map((conversation) => {
+              const summary = metadata?.id === conversation.id ? metadata : history.items.find((item) => item.id === conversation.id);
+              const turns = conversation.turns.map((turn) => {
+                const errors = new Set<string>();
+                const images = turn.images.map((image): StoredImage => {
+                  const task = changed.get(image.id);
+                  if (!task) return image;
+                  if (task.status === "error") errors.add(task.error_code || "image_task_failed");
+                  return { ...image, ...task.data?.[0], status: task.status === "queued" || task.status === "running" ? "loading" : task.status,
+                    taskStatus: task.status === "queued" || task.status === "running" ? task.status : undefined,
+                    updatedAt: task.updated_at, progress: task.progress, elapsedSecs: task.elapsed_secs, elapsedUpdatedAt: Date.now(),
+                    durationMs: task.duration_ms, error: task.error, errorCode: task.error_code, errorDetail: task.error_detail,
+                    canResume: task.can_resume, retryable: task.retryable, dispatchState: task.dispatch_state, waiting: task.waiting };
+                });
+                for (const code of errors) {
+                  const failed = images.filter((image) => image.status === "error" && (image.errorCode || "image_task_failed") === code);
+                  toast.error(`${failed.length} 张图片失败：${failed[0]?.error || "生成失败"}`, { id: `${turn.id}:${code}` });
+                }
+                return changed.size ? { ...turn, images, status: images.some((image) => image.status === "loading") ? "generating" as const : images.some((image) => image.status === "error") ? "error" as const : "success" as const } : turn;
+              });
+              return { ...conversation, ...(summary ? { stats: summary.stats } : {}), turns };
+            });
+            if (JSON.stringify(next) !== JSON.stringify(conversationsRef.current)) {
+              conversationsRef.current = next;
+              setConversations(next);
+            }
+            setActiveTaskCount(history.stats.queued + history.stats.running);
+          }
+        }
       } catch {
-        // Keep the last server state visible; a later read can recover without resubmitting work.
+        // A later read can recover without resubmitting accepted work.
       }
       if (!cancelled) timer = setTimeout(poll, 2000);
     };
     timer = setTimeout(poll, 2000);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [isLoadingHistory, isLoadingPage, refreshHistory]);
+  }, [authKey, isLoadingHistory, isLoadingPage, refreshHistory]);
 
   const clearComposerInputs = useCallback(() => {
     setImagePrompt("");
@@ -735,7 +805,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     const requestId = pendingDraftRef.current ?? createId();
     pendingDraftRef.current = requestId;
     try {
-      const conversation = await createImageConversation(requestId);
+      const conversation = await createImageConversation(authKey, requestId);
       await refreshHistory();
       setSelectedConversationId(conversation.id);
       if (pendingDraftRef.current === requestId) pendingDraftRef.current = null;
@@ -743,6 +813,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       resetComposer();
       textareaRef.current?.focus();
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "新建对话失败");
     }
   };
@@ -764,8 +835,9 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     setSelectedConversationId(id);
     if (conversationsRef.current.find((item) => item.id === id)?.pagination) void loadConversationPage(id, pageOffsetRef.current, true);
     try {
-      await selectImageConversation(id);
+      await selectImageConversation(authKey, id);
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "切换对话失败");
     }
   };
@@ -780,9 +852,10 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     }
 
     try {
-      await deleteImageConversation(id);
+      await deleteImageConversation(authKey, id);
       await refreshHistory(false);
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       const message = error instanceof Error ? error.message : "删除会话失败";
       toast.error(message);
       await refreshHistory(false);
@@ -791,16 +864,17 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
 
   const handleDeleteTurnPart = async (conversationId: string, turnId: string, part: "prompt" | "results") => {
     try {
-      await updateTurnVisibility(conversationId, turnId, part === "prompt" ? { promptDeleted: true } : { resultsDeleted: true });
+      await updateTurnVisibility(authKey, conversationId, turnId, part === "prompt" ? { promptDeleted: true } : { resultsDeleted: true });
       await refreshHistory(false);
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "更新记录失败");
     }
   };
 
   const handleClearHistory = async () => {
     try {
-      await clearImageConversations();
+      await clearImageConversations(authKey);
       ++historyReadVersionRef.current;
       pageOffsetsRef.current.clear();
       scrollPositionsRef.current.clear();
@@ -814,6 +888,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       resetComposer();
       toast.success("已清空历史记录");
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       const message = error instanceof Error ? error.message : "清空历史记录失败";
       toast.error(message);
     }
@@ -826,8 +901,9 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     conversationsRef.current = sortImageConversations(nextConversations);
     setConversations(conversationsRef.current);
     try {
-      await renameImageConversation(id, title);
+      await renameImageConversation(authKey, id, title);
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       const message = error instanceof Error ? error.message : "重命名失败";
       toast.error(message);
     }
@@ -875,19 +951,23 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     }
     setReferenceImages((current) => current.map((image) => image.id === draft.id ? { ...image, uploading: true, error: undefined } : image));
     try {
-      const saved = await uploadReferenceImage(draft.file, draft.id, (progress) => {
+      const saved = await uploadReferenceImage(authKey, draft.file, draft.id, (progress) => {
         setReferenceImages((current) => current.map((image) => image.id === draft.id && !image.releasing ? { ...image, progress } : image));
       });
       setReferenceImages((current) => current.map((image) => image.id === draft.id && !image.releasing ? saved : image));
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       const message = error instanceof Error ? error.message : "上传参考图失败";
       if (!referenceImagesRef.current.some((image) => image.id === draft.id && !image.releasing)) return;
       setReferenceImages((current) => current.map((image) => image.id === draft.id && !image.releasing ? { ...image, uploading: false, error: message } : image));
       toast.error(message);
     }
-  }, [setReferenceImages]);
+  }, [authKey, setReferenceImages]);
 
   const appendReferenceImages = useCallback(async (files: File[]) => {
+    if (loadCancelledRef.current) return;
+    try { await identityAuth(authKey); } catch { return; }
+    if (loadCancelledRef.current) return;
     const drafts = files.map((file) => ({ id: createId(), name: file.name, type: file.type,
       size: file.size, url: URL.createObjectURL(file), file, uploading: true }));
     setReferenceImages((current) => [...current, ...drafts]);
@@ -909,18 +989,19 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     try {
       setSelectedConversationId(conversationId);
       if ("name" in image) {
-        const retained = await retainReferenceImage(image.id);
+        const retained = await retainReferenceImage(authKey, image.id);
         setReferenceImages((current) => current.some((item) => item.id === retained.id)
           ? current.map((item) => item.id === retained.id ? retained : item) : [...current, retained]);
       } else {
         const source = image.b64_json ? `data:image/png;base64,${image.b64_json}` : image.url;
         if (!source) return;
-        await appendReferenceImages([await fetchImageAsFile(source, `conversation-${conversationId}-${Date.now()}.png`)]);
+        await appendReferenceImages([await fetchImageAsFile(authKey, source, `conversation-${conversationId}-${Date.now()}.png`)]);
       }
       setImagePrompt("");
       textareaRef.current?.focus();
       toast.success("已加入当前参考图，继续输入描述即可编辑");
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "读取结果图失败");
     }
   }, [appendReferenceImages, setReferenceImages]);
@@ -943,10 +1024,11 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     setImageQuality(turn.quality);
     setImageModel(turn.model);
     try {
-      const retained = await Promise.all(turn.referenceImages.map((image) => retainReferenceImage(image.id)));
+      const retained = await Promise.all(turn.referenceImages.map((image) => retainReferenceImage(authKey, image.id)));
       releaseInputs(referenceImagesRef.current.filter((image) => !retained.some((item) => item.id === image.id)));
       setReferenceImages(retained);
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "恢复参考图失败");
       return;
     }
@@ -974,15 +1056,16 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     const pending = pendingRegenerationsRef.current.get(key) ?? { ...source, id: createId(), count: count ?? source.count };
     pendingRegenerationsRef.current.set(key, pending);
     try {
-      await submitImageTurn(pending, conversationId);
+      await submitImageTurn(authKey, pending, conversationId);
       await refreshHistory();
       setSelectedConversationId(conversationId);
       if (pendingRegenerationsRef.current.get(key) === pending) pendingRegenerationsRef.current.delete(key);
       toast.success("已保存新轮次并开始处理");
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "提交失败");
     }
-  }, [refreshHistory]);
+  }, [authKey, refreshHistory]);
 
   const handleRetryImage = useCallback(async (conversationId: string, turnId: string, imageId: string) => {
     await handleRegenerateTurn(conversationId, turnId, 1, imageId);
@@ -990,10 +1073,11 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
 
   const handleTimeoutRetryContinue = useCallback(async (taskId: string) => {
     try {
-      await resumeImagePoll(taskId, imageTimeoutRetrySecs);
+      await resumeImagePoll(taskId, imageTimeoutRetrySecs, authKey);
       await refreshHistory();
       toast.info(`已继续等待 ${imageTimeoutRetrySecs} 秒`);
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "续轮询失败");
     }
   }, [refreshHistory, imageTimeoutRetrySecs]);
@@ -1002,12 +1086,13 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     const turn = conversationsRef.current.find((item) => item.id === conversationId)?.turns.find((turn) => turn.id === turnId);
     if (!turn) return;
     try {
-      await updateTurnVisibility(conversationId, turnId, { dismissedImageIds: turn.images.filter((image) => image.status === "error").map((image) => image.id) });
+      await updateTurnVisibility(authKey, conversationId, turnId, { dismissedImageIds: turn.images.filter((image) => image.status === "error").map((image) => image.id) });
       await refreshHistory();
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "更新记录失败");
     }
-  }, [refreshHistory]);
+  }, [authKey, refreshHistory]);
 
   const handleSubmit = async () => {
     if (parsedCount === null) {
@@ -1043,7 +1128,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       activeSubmissionReferences.current.set(image.id, (activeSubmissionReferences.current.get(image.id) ?? 0) + 1);
     }
     try {
-      const saved = await submitImageTurn(pending.turn, pending.conversationId);
+      const saved = await submitImageTurn(authKey, pending.turn, pending.conversationId);
       await refreshHistory();
       setSelectedConversationId(saved.id);
       shouldStickToBottomRef.current = true;
@@ -1055,6 +1140,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       releaseInputs(referenceImages);
       toast.success("已保存并提交生成");
     } catch (error) {
+      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "保存并提交失败");
     } finally {
       for (const image of pending.turn.referenceImages) {

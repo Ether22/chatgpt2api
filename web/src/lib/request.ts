@@ -50,7 +50,8 @@ request.interceptors.response.use(
     async (error: AxiosError<ErrorPayload>) => {
         const status = error.response?.status;
         const shouldRedirect = (error.config as RequestConfig | undefined)?.redirectOnUnauthorized !== false;
-        if (status === 401 && shouldRedirect && typeof window !== "undefined") {
+        if (status === 401 && shouldRedirect && typeof window !== "undefined" &&
+            error.config?.headers?.Authorization === `Bearer ${await getStoredAuthKey()}`) {
             // Avoid redirect loop — only redirect if not already on /login
             if (!window.location.pathname.startsWith("/login")) {
                 await clearStoredAuthSession();

@@ -1,3 +1,5 @@
+import { identityRequest } from "@/lib/identity-request";
+import { getStoredAuthKey } from "@/store/auth";
 import { httpRequest, request } from "@/lib/request";
 
 export type AccountType = string;
@@ -283,6 +285,12 @@ export type ImageResponse = {
 };
 
 export type ImageTask = {
+  error_code?: string;
+  error_detail?: string;
+  retryable?: boolean;
+  can_resume?: boolean;
+  dispatch_state?: string;
+  waiting?: { reason: string; message: string; restore_at?: string } | null;
   id: string;
   status: "queued" | "running" | "success" | "error";
   mode: "generate" | "edit";
@@ -504,17 +512,12 @@ export async function createImageEditTask(
   });
 }
 
-export async function fetchImageTasks(ids: string[]) {
-  const params = new URLSearchParams();
-  if (ids.length > 0) {
-    params.set("ids", ids.join(","));
-  }
-  params.set("_t", String(Date.now()));
-  return httpRequest<ImageTaskListResponse>(`/api/image-tasks?${params.toString()}`);
+export async function fetchImageTasks(ids: string[], authKey: string, versions: Record<string, string> = {}) {
+  return identityRequest<ImageTaskListResponse>(authKey, "/api/image-tasks/query", { method: "POST", body: { ids, versions } });
 }
 
-export async function resumeImagePoll(taskId: string, extraTimeoutSecs = 30) {
-  return httpRequest<ImageTask>(`/api/image-tasks/${encodeURIComponent(taskId)}/resume-poll`, {
+export async function resumeImagePoll(taskId: string, extraTimeoutSecs = 30, authKey?: string) {
+  return identityRequest<ImageTask>(authKey ?? await getStoredAuthKey(), `/api/image-tasks/${encodeURIComponent(taskId)}/resume-poll`, {
     method: "POST",
     body: { extra_timeout_secs: extraTimeoutSecs },
   });

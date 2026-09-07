@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import hashlib
 import hmac
 import io
@@ -7,6 +8,8 @@ import json
 import os
 import random
 import subprocess
+import sqlite3
+import tempfile
 import tarfile
 import threading
 from datetime import UTC, datetime
@@ -636,6 +639,15 @@ class BackupService:
             if include.get("image_tasks"):
                 self._add_file_to_archive(archive, DATA_DIR / "image_tasks.json", "data/image_tasks.json")
                 self._add_file_to_archive(archive, IMAGE_INDEX_FILE, "data/image_index.json")
+                for source in (DATA_DIR / "image_tasks.sqlite3", IMAGE_INDEX_FILE.with_suffix(".sqlite3")):
+                    if source.is_file():
+                        # SQLite's backup API includes committed WAL rows in a consistent snapshot.
+                        with tempfile.TemporaryDirectory() as temporary:
+                            snapshot = Path(temporary) / source.name
+                            with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as database, closing(sqlite3.connect(snapshot)) as target:
+                                database.backup(target)
+                            self._add_file_to_archive(archive, snapshot, f"data/{source.name}")
+                self._add_directory_to_archive(archive, DATA_DIR / "image_imports", "data/image_imports")
             if include.get("accounts_snapshot"):
                 self._add_bytes_to_archive(
                     archive,

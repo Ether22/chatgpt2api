@@ -1322,6 +1322,8 @@ def _generate_single_image(
 
     while True:
         try:
+            if request.lifecycle_callback:
+                request.lifecycle_callback("ready", {})
             if request.progress_callback:
                 request.progress_callback("getting_account")
             plan_type, _ = split_image_model(request.model)
@@ -1492,6 +1494,10 @@ def _generate_single_image(
                 account_service.remove_invalid_token(token, "image_stream")
             if isinstance(exc, UpstreamHTTPError) and exc.status_code == 429:
                 account_service.mark_rate_limited(token, exc.retry_after)
+                if (request.lifecycle_callback and not emitted_for_token and exc.retry_after and exc.retry_after > 0
+                        and (not getattr(backend, "image_request_sent", False) or getattr(backend, "image_request_rejected", False))):
+                    request.lifecycle_callback("retry_rejected", {})
+                    continue
             if getattr(backend, "image_request_sent", False):
                 raise ImageGenerationError(last_error, account_email=account_email,
                                            conversation_id=getattr(exc, "conversation_id", "")) from exc
