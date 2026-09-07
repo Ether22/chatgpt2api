@@ -25,7 +25,7 @@
 | 01 | Prompt 折叠、图片顺序与数量记忆 | 无 | 01a07cd9-3e06-7ee2-9772-dc38724e088f | codex/image-task-01 | gpt-6-astra / medium | 已集成，UI验收通过 | 78daecd、b5a48d5 | 2bf78b6、db4ff6a；组合 tsc/build 通过，存储复验问题交03 |
 | 02 | OAuth 弹窗底部操作可达 | 无 | 01a07cd9-5bba-7003-ac8b-728c6f60fbad | codex/image-task-02 | gpt-6-astra / medium | 已集成并验证 | 67ab6b6、3276251 | 27b65ca、bdb0273；类型检查与独立浏览器复验通过 |
 | 03 | 普通生图在服务器保存并跨浏览器恢复 | 无 | 01a07cf8-f611-78b2-8990-6886c4de4e9e | codex/image-task-03 | gpt-6-astra / high | 已集成并验证 | 01e973a、fd04fc9、2f54c6f | a1f4096、8c9b7d0、b35f8ba；完整离线183通过+原5失败，tsc/build及100图/断线复验通过 |
-| 04 | 普通参考图生成与独立快照 | 3 | 待创建 | codex/image-task-04 | gpt-6-astra / high | 待调度 | — | — |
+| 04 | 普通参考图生成与独立快照 | 3 | client-new-thread:08872f34-4561-40db-889c-7c8cd431211e（待实际ID） | codex/image-task-04 | gpt-6-astra / high | 已派发 | — | — |
 | 05 | 同会话排队、并发、恢复与失败详情 | 4 | 待创建 | codex/image-task-05 | gpt-6-astra / high | 待调度 | — | — |
 | 06 | 共享 MD 与参考图导入区 | 4 | 待创建 | codex/image-task-06 | gpt-6-astra / high | 待调度 | — | — |
 | 07 | MD 结构解析、匹配预览与纠错 | 6 | 待创建 | codex/image-task-07 | gpt-6-astra / high | 待调度 | — | — |
@@ -34,7 +34,7 @@
 | 10 | 单张结果的真实删除与引用保护 | 4 | 待创建 | codex/image-task-10 | gpt-6-astra / high | 待调度 | — | — |
 | 11 | 范围删除、迟到清理与批量性能 | 5, 10 | 待创建 | codex/image-task-11 | gpt-6-astra / high | 待调度 | — | — |
 | 12 | 查看器下方操作与本轮直接下载 | 8, 10 | 待创建 | codex/image-task-12 | gpt-6-astra / medium | 待调度 | — | — |
-| 13 | 服务器分页与大型图库按需浏览 | 3 | 待创建 | codex/image-task-13 | gpt-6-astra / high | 待调度 | — | — |
+| 13 | 服务器分页与大型图库按需浏览 | 3 | client-new-thread:c6a1d6f6-c98f-4108-8d9d-30eafe5536ba（待实际ID） | codex/image-task-13 | gpt-6-astra / high | 已派发 | — | — |
 | 14 | 所有结果的右侧定位导航与窄屏抽屉 | 9, 13 | 待创建 | codex/image-task-14 | gpt-6-astra / high | 待调度 | — | — |
 | 15 | 监控、禁用与可消费额度 | 无 | 01a07cd9-5e81-7a41-9890-e40f01e0855a | codex/image-task-15 | gpt-6-astra / high | 已集成并验证 | 43e3834、9727a25 | 61a34d5、1e6888a；40项账号/路由/能力/导出及 tsc 通过 |
 | 16 | 账号隐藏与组内拖拽排序 | 15 | 01a07cf9-063a-7df3-b3ca-c0526209f6ff | codex/image-task-16 | gpt-6-astra / medium | 已集成并验证 | 6b9f716、2c6b2e9、9d57af1 | 5f03ee3、c1b1c59、a8cfe61；主对话44项组合回归及tsc通过 |
@@ -89,3 +89,4 @@
 - 03最终Standards0、Spec初审P1已修复复审关闭：新建/重跑保留未确认请求ID，POST丢响应或随后GET失败仍只建一次目标/消费一次。三提交已依次集成，config.py与17独立区域自动合并后复核。
 - 主对话03组合验收：完整离线188项，183通过、同5既有失败、4子场景通过；独立TypeScript与11页生产构建通过。43021服务复跑完整03浏览器脚本，1/4/100全部成功（100张合成结果约5.4秒，非真实上游吞吐结论）；四宽度、数量偏好/折叠、跨浏览器当前会话、原图下载、图库授权缩略图、A退出/B登录清理历史和Blob、普通参考入口均通过。四项额外断线场景重跑全过。此前root01观察的Windows替换写入失败与长路径404均已在组合后复验闭环。证据在隔离工作树data/03-evidence，专用脚本data/integration-03-browser-*.cjs；43836/31936服务已核对命令并停止。当前完成6/18，18仍仅阶段A完成。
 - 04/13下一批范围：04处理普通上传/文件引用、不可变有序快照、提交参考字段和输入UI；13处理GET有限分页、图库读路径、历史按需加载与轻量定位。共享文件按独立稳定函数划分，04不重写GET分页，13不改submit_turn引用/上传/释放和未来05运行状态机；双方先回报文件类别/引用与GET契约，主对话持续协调，禁止抢改未稳定逻辑。
+- 04、13已实际创建独立任务/worktree，模型均gpt-6-astra/high，派发与审查固定点9b68e012976ee31263c6ea8481b10ccd14f56895。端口分别43140/43141、43230/43231；要求复用18A时间工具及已确认测试边界，可复制已验证node_modules到各自独立目录以减少重复安装。实际任务ID和工作树路径等待启动回报，不能把clientThreadId作为运行任务ID使用。
