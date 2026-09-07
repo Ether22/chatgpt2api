@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "scenarios": [
+    "unmount",
+    "other-tab"
+  ],
+  "wrongIdentityRequests": [],
+  "errors": []
+}

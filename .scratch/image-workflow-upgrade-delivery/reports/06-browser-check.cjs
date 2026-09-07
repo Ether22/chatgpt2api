@@ -86,11 +86,15 @@ async function drag(page, name, files) {
     await eventually(async () => (await (await first.request.get(`${origin}/api/image-references`, { headers })).json()).items.length === 1);
     const ordinary = (await (await first.request.get(`${origin}/api/image-references`, { headers })).json()).items[0];
     await open(page);
-    await md(page, 'first.md', '# First\nPrompt A');
+    const mdPicker = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: '点击或拖入一个 MD 文件', exact: true }).click();
+    await (await mdPicker).setFiles({ name: 'first.md', mimeType: 'text/markdown', buffer: Buffer.from('# First\nPrompt A') });
     await eventually(async () => (await state(first)).md?.content.includes('Prompt A'));
     delayFile = 'one.png';
     const start = Date.now();
-    await add(page, [{ name: 'one.png', mimeType: 'image/png', buffer: png }, { name: 'wrong.png', mimeType: 'image/gif', buffer: gif }]);
+    const referencePicker = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: '点击或拖入参考图，支持分批追加', exact: true }).click();
+    await (await referencePicker).setFiles([{ name: 'one.png', mimeType: 'image/png', buffer: png }, { name: 'wrong.png', mimeType: 'image/gif', buffer: gif }]);
     await page.getByText('上传中 0%', { exact: true }).first().waitFor();
     metrics.selectionFeedbackMs = Date.now() - start;
     await page.screenshot({ path: path.join(output, 'upload-progress.png') });
@@ -164,6 +168,17 @@ async function drag(page, name, files) {
     assert.equal(await page.getByRole('list', { name: '导入参考图列表' }).locator('li').count(), 0);
     delayFile = ''; delayReservation = false;
 
+    delayFile = 'remove.png';
+    const removingUpload = page.waitForRequest(req => req.method() === 'PUT' && req.url().includes('/api/image-imports/references/') && req.postDataBuffer().includes(Buffer.from('filename="remove.png"')));
+    await add(page, [{ name: 'remove.png', mimeType: 'image/png', buffer: png }]);
+    await removingUpload;
+    await page.getByRole('button', { name: '移除导入参考图 remove.png', exact: true }).click();
+    await eventually(async () => (await state(first)).references.length === 0);
+    await sleep(1800);
+    assert.equal((await state(first)).references.length, 0);
+    assert.equal(await page.getByRole('list', { name: '导入参考图列表' }).locator('li').count(), 0);
+    delayFile = '';
+
     loseFile = 'lost.png';
     await add(page, [{ name: 'lost.png', mimeType: 'image/png', buffer: png }]);
     await page.getByRole('button', { name: '重试上传', exact: true }).waitFor();
@@ -194,14 +209,31 @@ async function drag(page, name, files) {
     await page.getByRole('button', { name: '移除导入参考图 long-reference-47.png', exact: true }).scrollIntoViewIfNeeded();
     assert(await page.getByRole('button', { name: '移除导入参考图 long-reference-47.png', exact: true }).isVisible());
     await page.screenshot({ path: path.join(output, 'narrow-long-list.png') });
+    await page.setViewportSize({ width: 320, height: 360 });
+    await eventually(async () => { const b = await dialog.boundingBox(); return b.x >= 0 && b.y >= 0 && b.x + b.width <= 321 && b.y + b.height <= 361; }, 'low height dialog');
+    for (const name of ['刷新素材', '清除上传内容', '完成']) {
+      const b = await page.getByRole('button', { name, exact: true }).boundingBox();
+      assert(b.y >= 0 && b.y + b.height <= 360, `${name} must be reachable`);
+    }
+    await page.getByRole('button', { name: '移除导入参考图 long-reference-47.png', exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(output, 'low-height.png') });
+    await page.setViewportSize({ width: 390, height: 600 });
     await page.getByRole('button', { name: '完成', exact: true }).click();
     await open(page);
     assert.equal((await state(first)).references.length, 48);
     // Ordinary generation completion also leaves imports untouched.
     await page.getByRole('button', { name: '完成', exact: true }).click();
     await page.locator('textarea').fill('ordinary generation retains shared materials');
+    const consumedBefore = (await (await first.request.get(`${origin}/ticket06-consumption`)).json()).count;
+    const submitted = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/api/image-conversations/turns'));
     await page.getByRole('button', { name: '编辑图片', exact: true }).click();
-    await eventually(async () => (await (await first.request.get(`${origin}/ticket06-consumption`)).json()).count >= 4);
+    const conversation = await (await submitted).json();
+    const turn = conversation.turns.at(-1);
+    await eventually(async () => {
+      const detail = await (await first.request.get(`${origin}/api/image-conversations/${conversation.id}`, { headers })).json();
+      return detail.turns.find(item => item.id === turn.id)?.images.every(image => image.status === 'success');
+    }, 'ordinary generation completes');
+    assert.equal((await (await first.request.get(`${origin}/ticket06-consumption`)).json()).count, consumedBefore + 4);
     assert.equal((await state(first)).references.length, 48);
     assert.equal(errors.length, 0, errors.join('\n'));
     await fs.writeFile(path.join(output, 'browser-result.json'), JSON.stringify({ passed: true, metrics, errors, requests: requests.length, uploadRequests: requests.filter(r => r.method === 'PUT' && r.path.includes('/references/')).length }, null, 2));

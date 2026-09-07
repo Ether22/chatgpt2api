@@ -5,12 +5,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { formatBeijingDateTime } from "@/lib/business-time";
-import { cleanupImageImports, fetchImageImports, reserveImportReference, uploadImportFile, type ImageImports, type ImportCleanup, type ImportMutation } from "@/store/image-imports";
+import { cleanupImageImports, fetchImageImports, ImportIdentityChanged, reserveImportReference, uploadImportFile, type ImageImports, type ImportCleanup, type ImportMutation } from "@/store/image-imports";
 import { ReferenceThumbnail } from "./reference-thumbnail";
 
 type Upload = { file: File; mutation: ImportMutation; url: string; progress: number; busy: boolean; error?: string; cancelled?: boolean };
 
-export function ImageImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boolean; onOpenChange: (open: boolean) => void; authKey: string }) {
   const [materials, setMaterials] = useState<ImageImports | null>(null);
   const current = useRef<ImageImports | null>(null);
   const [uploads, setUploads] = useState<Record<string, Upload>>({});
@@ -26,15 +26,33 @@ export function ImageImportDialog({ open, onOpenChange }: { open: boolean; onOpe
   const transfers = useRef(Array.from({ length: 4 }, () => Promise.resolve()));
   const nextTransfer = useRef(0);
   const mounted = useRef(true);
+  const identityChanged = useRef(false);
+  const errorMessage = useCallback((reason: unknown) => {
+    if (reason instanceof ImportIdentityChanged) {
+      identityChanged.current = true;
+      current.current = null;
+      for (const item of Object.values(uploadsRef.current)) URL.revokeObjectURL(item.url);
+      uploadsRef.current = {};
+      setMaterials(null);
+      setUploads({});
+      setMdUpload(null);
+      setFailedCleanup(null);
+      setPreview(null);
+      setError(reason.message);
+    }
+    return (reason as Error).message;
+  }, []);
   const accept = useCallback((next: ImageImports) => {
-    if (mounted.current && (!current.current || next.revision >= current.current.revision)) {
+    if (mounted.current && !identityChanged.current && (!current.current || next.revision >= current.current.revision)) {
       current.current = next;
       setMaterials(next);
     }
   }, []);
-  const refresh = useCallback(async () => accept(await fetchImageImports()), [accept]);
+  const refresh = useCallback(async () => accept(await fetchImageImports(authKey)), [accept, authKey]);
   function enqueue(operation: () => Promise<void>) {
-    const next = queue.current.catch(() => {}).then(operation);
+    const next = queue.current.catch(() => {}).then(async () => {
+      if (mounted.current && !identityChanged.current) await operation();
+    });
     queue.current = next;
     void next.catch(() => {});
     return next;
@@ -56,19 +74,19 @@ export function ImageImportDialog({ open, onOpenChange }: { open: boolean; onOpe
     };
   }, []);
   useEffect(() => {
-    if (open) void refresh().catch((reason: Error) => setError(reason.message));
-  }, [open, refresh]);
+    if (open) void refresh().catch((reason: Error) => setError(errorMessage(reason)));
+  }, [open, refresh, errorMessage]);
 
   async function sendReference(item: Upload) {
     const id = item.mutation.request_id;
-    if (!uploadsRef.current[id] || uploadsRef.current[id].cancelled) return;
+    if (!mounted.current || identityChanged.current || !uploadsRef.current[id] || uploadsRef.current[id].cancelled) return;
     updateUpload(id, { busy: true, error: undefined });
     try {
-      const result = await uploadImportFile(item.file, "reference", item.mutation, (progress) => updateUpload(id, { progress }));
+      const result = await uploadImportFile(authKey, item.file, "reference", item.mutation, (progress) => updateUpload(id, { progress }));
       accept(result);
       if (!uploadsRef.current[id]?.cancelled) updateUpload(id, null);
     } catch (reason) {
-      if (!uploadsRef.current[id]?.cancelled) updateUpload(id, { busy: false, error: (reason as Error).message });
+      if (!uploadsRef.current[id]?.cancelled) updateUpload(id, { busy: false, error: errorMessage(reason) });
     }
   }
   function scheduleReference(item: Upload) {
@@ -85,11 +103,11 @@ export function ImageImportDialog({ open, onOpenChange }: { open: boolean; onOpe
       if (uploadsRef.current[id]?.cancelled) return;
       try {
         item.mutation.version = current.current!.version;
-        accept(await reserveImportReference(item.file, item.mutation));
+        accept(await reserveImportReference(authKey, item.file, item.mutation));
         // Registration is ordered; file transfers may finish while further files are registered.
         scheduleReference(item);
       } catch (reason) {
-        updateUpload(id, { busy: false, error: (reason as Error).message });
+        updateUpload(id, { busy: false, error: errorMessage(reason) });
       }
     });
   }
@@ -97,10 +115,10 @@ export function ImageImportDialog({ open, onOpenChange }: { open: boolean; onOpe
     updateUpload(item.mutation.request_id, { busy: true, error: undefined });
     void enqueue(async () => {
       try {
-        accept(await reserveImportReference(item.file, item.mutation));
+        accept(await reserveImportReference(authKey, item.file, item.mutation));
         scheduleReference(item);
       } catch (reason) {
-        updateUpload(item.mutation.request_id, { busy: false, error: (reason as Error).message });
+        updateUpload(item.mutation.request_id, { busy: false, error: errorMessage(reason) });
       }
     });
   }
@@ -115,10 +133,11 @@ export function ImageImportDialog({ open, onOpenChange }: { open: boolean; onOpe
     void enqueue(async () => {
       try {
         if (fresh) item.mutation.version = current.current!.version;
-        accept(await uploadImportFile(item.file, "md", item.mutation, (progress) => setMdUpload({ ...item, progress, busy: true })));
+        accept(await uploadImportFile(authKey, item.file, "md", item.mutation, (progress) => setMdUpload({ ...item, progress, busy: true })));
         setMdUpload(null);
       } catch (reason) {
-        setMdUpload({ ...item, busy: false, error: (reason as Error).message });
+        const message = errorMessage(reason);
+        if (!identityChanged.current) setMdUpload({ ...item, busy: false, error: message });
       }
     });
   }
@@ -130,14 +149,14 @@ export function ImageImportDialog({ open, onOpenChange }: { open: boolean; onOpe
     void enqueue(async () => {
       const operation = retry ?? { request_id: crypto.randomUUID(), version: current.current!.version, upload_ids: ids, clear };
       try {
-        accept(await cleanupImageImports(operation));
+        accept(await cleanupImageImports(authKey, operation));
         for (const id of ids) updateUpload(id, null);
         if (clear) setMdUpload(null);
         setFailedCleanup(null);
       } catch (reason) {
-        setError((reason as Error).message);
-        setFailedCleanup(operation);
-        await refresh().catch(() => {});
+        setError(errorMessage(reason));
+        if (!identityChanged.current) setFailedCleanup(operation);
+        await refresh().catch(errorMessage);
       } finally { setBusy(false); }
     });
   }
@@ -158,7 +177,7 @@ export function ImageImportDialog({ open, onOpenChange }: { open: boolean; onOpe
       <div className="min-h-0 overflow-y-auto overscroll-contain">
         {error && <p role="alert" className="mb-3 break-words text-sm text-rose-600">{error}</p>}
         {busy && <p role="status" className="mb-3 text-sm">正在清理当前素材…</p>}
-        {!materials && <p role="status">正在读取当前素材…</p>}
+        {!materials && !identityChanged.current && <p role="status">正在读取当前素材…</p>}
         <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
           <section className="min-w-0 rounded-2xl border p-3">
             <h3 className="mb-2 font-medium">MD 文件</h3>
@@ -204,7 +223,7 @@ export function ImageImportDialog({ open, onOpenChange }: { open: boolean; onOpe
       </div>
       <DialogFooter className="shrink-0 flex-row flex-wrap items-center justify-end gap-2 border-t pt-3">
         <span className="basis-full text-xs text-muted-foreground sm:mr-auto sm:basis-auto">{materials?.updated_at ? `更新于 ${formatBeijingDateTime(materials.updated_at)}` : "尚未导入素材"}</span>
-        <Button variant="outline" disabled={busy} onClick={() => { setError(""); setFailedCleanup(null); void refresh().catch((reason: Error) => setError(reason.message)); }}>刷新素材</Button>
+        <Button variant="outline" disabled={busy} onClick={() => { setError(""); setFailedCleanup(null); void refresh().catch((reason: Error) => setError(errorMessage(reason))); }}>刷新素材</Button>
         {pending && <Button variant="outline" disabled={busy} onClick={() => cleanup(pending.clear, pending.upload_ids[0], pending)}>重试清理</Button>}
         <Button variant="outline" disabled={blocked} onClick={() => cleanup(true)}>清除上传内容</Button>
         <Button onClick={() => onOpenChange(false)}>完成</Button>

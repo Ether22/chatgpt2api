@@ -152,7 +152,7 @@ function sortImageConversations(conversations: ImageConversation[]) {
   return [...conversations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
+function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: string }) {
   const didLoadQuotaRef = useRef(false);
   const conversationsRef = useRef<ImageConversation[]>([]);
   const imageDimensionsRef = useRef(new Map<string, { width: number; height: number }>());
@@ -1072,7 +1072,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <>
-      <ImageImportDialog open={isImportsOpen} onOpenChange={setIsImportsOpen} />
+      <ImageImportDialog open={isImportsOpen} onOpenChange={setIsImportsOpen} authKey={authKey} />
       <section className="mx-auto grid h-[calc(100dvh-6.5rem)] min-h-0 w-full max-w-[1380px] grid-cols-1 gap-2 overflow-hidden px-0 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] sm:h-[calc(100dvh-5.25rem)] sm:gap-3 sm:px-3 sm:pb-6 lg:grid-cols-[240px_minmax(0,1fr)]">
         <div className="hidden h-full min-h-0 border-r border-stone-200/70 pr-3 lg:block">
           <ImageSidebar
@@ -1280,5 +1280,5 @@ export default function ImagePage() {
     );
   }
 
-  return <ImagePageContent isAdmin={session.role === "admin"} />;
+  return <ImagePageContent key={session.subjectId} isAdmin={session.role === "admin"} authKey={session.key} />;
 }

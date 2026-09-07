@@ -36,6 +36,7 @@ class ImageImportService:
         return {"version": 0, "revision": 0, "barrier": 0, "md": None, "references": [], "receipts": {}, "pending": None, "updated_at": None}
 
     def _write(self, identity, state):
+        # ponytail: O(n) current-metadata rewrite; use incremental rows for very large import sets.
         state["revision"] += 1
         state["updated_at"] = beijing_iso()
         write_json_atomic(self._path(identity), state)

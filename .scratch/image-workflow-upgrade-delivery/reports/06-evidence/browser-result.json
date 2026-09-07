@@ -1,11 +1,11 @@
 {
   "passed": true,
   "metrics": {
-    "selectionFeedbackMs": 88,
-    "bulkSelectionFeedbackMs": 50,
-    "fortyEightSyntheticUploadsMs": 2199
+    "selectionFeedbackMs": 62,
+    "bulkSelectionFeedbackMs": 67,
+    "fortyEightSyntheticUploadsMs": 2244
   },
   "errors": [],
-  "requests": 127,
-  "uploadRequests": 53
+  "requests": 130,
+  "uploadRequests": 54
 }

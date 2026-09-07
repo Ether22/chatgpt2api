@@ -2,6 +2,8 @@
 
 import { httpRequest, request } from "@/lib/request";
 import type { StoredReferenceImage } from "@/store/image-conversations";
+import { getStoredAuthKey } from "@/store/auth";
+import type { AxiosProgressEvent } from "axios";
 
 export type ImportReference = {
   request_id: string;
@@ -21,27 +23,39 @@ export type ImageImports = {
   updated_at: string | null;
 };
 
-export const fetchImageImports = () => httpRequest<ImageImports>("/api/image-imports");
-export const reserveImportReference = (file: File, mutation: ImportMutation) =>
+export class ImportIdentityChanged extends Error {
+  constructor() { super("登录身份已变更，请刷新页面后继续"); }
+}
+
+async function importAuth(authKey: string) {
+  if (!authKey || await getStoredAuthKey() !== authKey) throw new ImportIdentityChanged();
+  // Bind the validated key even if another tab logs in between this check and dispatch.
+  return { headers: { Authorization: `Bearer ${authKey}` }, redirectOnUnauthorized: false };
+}
+
+export const fetchImageImports = async (authKey: string) => httpRequest<ImageImports>("/api/image-imports", await importAuth(authKey));
+export const reserveImportReference = async (authKey: string, file: File, mutation: ImportMutation) =>
   httpRequest<ImageImports>("/api/image-imports/references", {
-    method: "POST", body: { ...mutation, name: file.name, size: file.size },
+    ...await importAuth(authKey), method: "POST", body: { ...mutation, name: file.name, size: file.size },
   });
 
-export async function uploadImportFile(file: File, kind: "md" | "reference", mutation: ImportMutation, progress: (value: number) => void) {
+export async function uploadImportFile(authKey: string, file: File, kind: "md" | "reference", mutation: ImportMutation, progress: (value: number) => void) {
   const body = new FormData();
   body.append("file", file);
   if (kind === "md") {
     body.append("request_id", mutation.request_id);
     body.append("version", String(mutation.version));
   }
-  return (await request.put<ImageImports>(kind === "md" ? "/api/image-imports/md" : `/api/image-imports/references/${encodeURIComponent(mutation.request_id)}`, body, {
-    onUploadProgress: (event) => progress(Math.round(100 * event.loaded / (event.total || file.size || 1))),
-  })).data;
+  const config = {
+    ...await importAuth(authKey),
+    onUploadProgress: (event: AxiosProgressEvent) => progress(Math.round(100 * event.loaded / (event.total || file.size || 1))),
+  };
+  return (await request.put<ImageImports>(kind === "md" ? "/api/image-imports/md" : `/api/image-imports/references/${encodeURIComponent(mutation.request_id)}`, body, config)).data;
 }
 
-export function cleanupImageImports(cleanup: ImportCleanup) {
+export async function cleanupImageImports(authKey: string, cleanup: ImportCleanup) {
   const { clear, upload_ids, ...mutation } = cleanup;
   return httpRequest<ImageImports>(clear ? "/api/image-imports" : `/api/image-imports/references/${encodeURIComponent(upload_ids[0])}`, {
-    method: "DELETE", body: clear ? { ...mutation, upload_ids } : mutation,
+    ...await importAuth(authKey), method: "DELETE", body: clear ? { ...mutation, upload_ids } : mutation,
   });
 }

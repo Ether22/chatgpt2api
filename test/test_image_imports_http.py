@@ -36,9 +36,9 @@ def test_references_append_merge_but_same_name_conflicts_and_clear_protects_snap
     assert first.status_code == 200, first.text
     reference = first.json()["references"][0]["reference"]
     assert upload(env).json()["references"][0]["reference"] == reference
-    assert upload(env, "ref-two", "second.png").status_code == 200
+    second = upload(env, "ref-two", "second.png").json()["references"][1]["reference"]
     assert env["client"].post(f'/api/image-references/{reference["id"]}/retain', headers=env["headers"]).status_code == 200
-    turn = submit(env, referenceImages=[{"id": reference["id"]}]).json()
+    turn = submit(env, referenceImages=[{"id": second["id"]}, {"id": reference["id"]}]).json()
     clear = {"request_id": "clear-one", "version": 2, "upload_ids": ["not-arrived"]}
     result = env["client"].request("DELETE", "/api/image-imports", headers=env["headers"], json=clear)
     assert result.status_code == 200, result.text
@@ -47,8 +47,9 @@ def test_references_append_merge_but_same_name_conflicts_and_clear_protects_snap
     assert reserve(env, "not-arrived", "late.png", 3).status_code == 409
     assert upload(env).status_code == 404
     assert env["client"].get(reference["url"], headers=env["headers"]).content == image_bytes()
+    assert env["client"].get(second["url"], headers=env["headers"]).content == image_bytes()
     assert env["client"].get("/api/image-references", headers=env["headers"]).json()["items"] == [reference]
-    assert env["client"].get(f'/api/image-conversations/{turn["id"]}', headers=env["headers"]).json()["turns"][0]["referenceImages"] == [reference]
+    assert env["client"].get(f'/api/image-conversations/{turn["id"]}', headers=env["headers"]).json()["turns"][0]["referenceImages"] == [second, reference]
     assert env["client"].request("DELETE", "/api/image-imports", headers=env["headers"], json=clear).json()["version"] == 3
 
 
