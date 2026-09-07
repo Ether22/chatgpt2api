@@ -79,8 +79,9 @@ function saveScrollPositions(positions: Map<string, number>) {
   }
 }
 
-function clampImageCount(value: string) {
-  return String(Math.min(100, Math.max(1, Math.floor(Number(value) || 1))));
+function parseImageCount(value: string) {
+  const count = Number(value);
+  return /^\d+$/.test(value) && Number.isInteger(count) && count >= 1 && count <= 100 ? count : null;
 }
 function parseImageSize(size: string) {
   const match = size.match(/^(\d+)x(\d+)$/);
@@ -463,7 +464,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const imageTimeoutRetrySecs = Number(config?.image_timeout_retry_secs || 30);
 
   const [imagePrompt, setImagePrompt] = useState("");
-  const [imageCount, setImageCount] = useState("3");
+  const [imageCount, setImageCount] = useState("4");
   const [imageRatio, setImageRatio] = useState("auto");
   const [imageTier, setImageTier] = useState("1k");
   const [imageWidth, setImageWidth] = useState("1024");
@@ -495,7 +496,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     taskError: string;
   } | null>(null);
 
-  const parsedCount = useMemo(() => Number(clampImageCount(imageCount)), [imageCount]);
+  const parsedCount = parseImageCount(imageCount);
   const selectedConversation = useMemo(
     () => conversations.find((item) => item.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId],
@@ -610,14 +611,11 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
         typeof window !== "undefined" ? window.localStorage.getItem(IMAGE_TIER_STORAGE_KEY) : null;
       const storedQuality =
         typeof window !== "undefined" ? window.localStorage.getItem(IMAGE_QUALITY_STORAGE_KEY) : null;
-      const storedCount =
-        typeof window !== "undefined" ? window.localStorage.getItem(IMAGE_COUNT_STORAGE_KEY) : null;
       setImageRatio(storedRatio || "1:1");
       setImageTier(storedTier || "1k");
       setImageWidth("1024");
       setImageHeight("1024");
       setImageQuality(storedQuality || "auto");
-      setImageCount(storedCount ? clampImageCount(storedCount) : "1");
 
       const items = await listImageConversations();
       const normalizedItems = await recoverConversationHistory(items);
@@ -648,7 +646,6 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     setImageWidth,
     setImageHeight,
     setImageQuality,
-    setImageCount,
     setConversations,
     setSelectedConversationId,
     setIsLoadingHistory,
@@ -862,10 +859,26 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   }, [imageRatio, imageTier, imageQuality, imageModel]);
 
   useEffect(() => {
-    if (typeof window !== "undefined" && parsedCount > 0) {
-      window.localStorage.setItem(IMAGE_COUNT_STORAGE_KEY, String(parsedCount));
+    try {
+      const storedCount = window.localStorage.getItem(IMAGE_COUNT_STORAGE_KEY);
+      if (storedCount !== null && parseImageCount(storedCount) !== null) {
+        setImageCount(storedCount);
+      }
+    } catch {
+      // Preferences are optional when browser storage is unavailable.
     }
-  }, [parsedCount]);
+  }, []);
+
+  const handleImageCountChange = useCallback((value: string) => {
+    setImageCount(value);
+    if (parseImageCount(value) !== null) {
+      try {
+        window.localStorage.setItem(IMAGE_COUNT_STORAGE_KEY, value);
+      } catch {
+        // Keep the current selection usable even when it cannot be persisted.
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (selectedConversationId && !conversations.some((conversation) => conversation.id === selectedConversationId)) {
@@ -1141,7 +1154,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
     setSelectedConversationId(conversationId);
     setImagePrompt(turn.prompt);
-    setImageCount(String(Math.max(1, turn.count || turn.images.length || 1)));
+    handleImageCountChange(String(Math.max(1, turn.count || turn.images.length || 1)));
     setImageRatio(turn.ratio);
     setImageTier(turn.tier);
     const parsedSize = parseImageSize(turn.size);
@@ -1158,7 +1171,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     }
     textareaRef.current?.focus();
     toast.success("已复用这条提示词配置");
-  }, []);
+  }, [handleImageCountChange]);
 
   const openLightbox = useCallback((images: ImageLightboxItem[], index: number) => {
     if (images.length === 0) {
@@ -1545,6 +1558,10 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   }, [conversations, runConversationQueue]);
 
   const handleSubmit = async () => {
+    if (parsedCount === null) {
+      toast.error("生成数量必须为 1–100 的纯数字整数");
+      return;
+    }
     const prompt = imagePrompt.trim();
     if (!prompt) {
       toast.error("请输入提示词");
@@ -1722,6 +1739,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
           <ImageComposer
             prompt={imagePrompt}
             imageCount={imageCount}
+            isImageCountValid={parsedCount !== null}
             imageRatio={imageRatio}
             imageTier={imageTier}
             imageWidth={imageWidth}
@@ -1735,7 +1753,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             textareaRef={textareaRef}
             fileInputRef={fileInputRef}
             onPromptChange={setImagePrompt}
-            onImageCountChange={(value) => setImageCount(value ? clampImageCount(value) : "")}
+            onImageCountChange={handleImageCountChange}
             onImageRatioChange={setImageRatio}
             onImageTierChange={setImageTier}
             onImageWidthChange={setImageWidth}

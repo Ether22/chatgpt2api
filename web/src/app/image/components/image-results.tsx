@@ -179,7 +179,7 @@ export function ImageResults({
                     <span>{getTurnStatusLabel(turn.status)}</span>
                     <span>{formatConversationTime(turn.createdAt)}</span>
                   </div>
-                  <div className="text-right">{turn.prompt}</div>
+                  <CollapsiblePrompt prompt={turn.prompt} id={`prompt-${turn.id}`} />
                   <div className="mt-2 flex flex-wrap justify-end gap-1.5">
                     <button
                       type="button"
@@ -245,7 +245,7 @@ export function ImageResults({
                     ) : null}
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 sm:block sm:columns-2 sm:gap-4 sm:space-y-4 xl:columns-3">
+                  <div className="grid grid-cols-3 items-start gap-2 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
                     {turn.images.map((image, index) => {
                       const imageSrc = image.status === "success" ? getStoredImageSrc(image) : "";
                       if (image.status === "success" && imageSrc) {
@@ -257,7 +257,7 @@ export function ImageResults({
                         return (
                           <div
                             key={image.id}
-                            className="break-inside-avoid"
+                            className="min-w-0"
                           >
                             <LazyImage
                               src={imageSrc}
@@ -308,7 +308,7 @@ export function ImageResults({
                       if (image.status === "error") {
                         const isTimeoutError = image.error?.includes("超时") && image.taskId;
                         return (
-                          <div key={image.id} className="break-inside-avoid">
+                          <div key={image.id} className="min-w-0">
                             <div
                               className={cn(
                                 "overflow-hidden rounded-xl border border-rose-200 bg-rose-50",
@@ -365,7 +365,7 @@ export function ImageResults({
                           )
                         : null;
                       return (
-                        <div key={image.id} className="break-inside-avoid">
+                        <div key={image.id} className="min-w-0">
                           <div
                             className={cn(
                               "overflow-hidden rounded-xl border border-stone-200/80 bg-stone-100/80 relative",
@@ -438,6 +438,44 @@ export function ImageResults({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function CollapsiblePrompt({ prompt, id }: { prompt: string; id: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [isLong, setIsLong] = useState(false);
+  const textRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const element = textRef.current;
+    if (!element) return;
+    const measure = () => {
+      const lineHeight = Number.parseFloat(window.getComputedStyle(element).lineHeight);
+      setIsLong(element.scrollHeight > lineHeight * 2 + 1);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [prompt]);
+
+  return (
+    <div className="text-right">
+      <div ref={textRef} id={id} className={cn("whitespace-pre-wrap break-words", !expanded && "line-clamp-2")}>
+        {prompt}
+      </div>
+      {isLong ? (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={id}
+          onClick={() => setExpanded((value) => !value)}
+          className="mt-1 rounded px-1 text-xs text-stone-500 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-stone-500"
+        >
+          {expanded ? "收起 Prompt" : "展开 Prompt"}
+        </button>
+      ) : null}
     </div>
   );
 }

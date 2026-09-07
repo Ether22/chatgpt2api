@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 type ImageComposerProps = {
   prompt: string;
   imageCount: string;
+  isImageCountValid: boolean;
   imageRatio: string;
   imageTier: string;
   imageWidth: string;
@@ -78,11 +79,11 @@ const aspectOptions = [
   { ratio: "9:16", tier: "4k", width: "2160", height: "3840", label: "9:16(4k)", icon: RectangleVertical },
   { ratio: "auto", tier: "auto", width: "1024", height: "1024", label: "auto", icon: null },
 ];
-const countOptions = Array.from({ length: 10 }, (_, index) => String(index + 1));
 
 export function ImageComposer({
   prompt,
   imageCount,
+  isImageCountValid,
   imageRatio,
   imageTier,
   imageWidth,
@@ -125,7 +126,7 @@ export function ImageComposer({
   );
   const qualityLabel = qualityOptions.find((option) => option.value === imageQuality)?.label || "自动";
   const ratioLabel = imageRatio === "auto" ? "auto" : `${imageRatio}(${imageTier})`;
-  const imageSizeLabel = `${qualityLabel} · ${ratioLabel} · ${imageCount || 1} 张`;
+  const imageSizeLabel = `${qualityLabel} · ${ratioLabel} · ${imageCount || "—"} 张`;
   const selectedModelLabel = modelOptions.find((option) => option.value === imageModel)?.label || imageModel;
   const isCodexModel = imageModel.toLowerCase().includes("codex");
 
@@ -487,35 +488,22 @@ export function ImageComposer({
                           </div>
                         </div>
                         <div className="border-t border-stone-100 pt-3">
-                          <div className="mb-2 text-sm font-medium text-stone-900">生成数量</div>
-                          <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
-                            {countOptions.map((option) => {
-                              const active = imageCount === option;
-                              return (
-                                <button
-                                  key={option}
-                                  type="button"
-                                  className={cn(
-                                    "h-9 cursor-pointer rounded-full border border-stone-200 bg-white text-sm text-stone-800 transition hover:border-stone-300 hover:bg-stone-50",
-                                    active && "border-stone-950 bg-white font-medium text-stone-950",
-                                  )}
-                                  onClick={() => onImageCountChange(option)}
-                                >
-                                  {option} 张
-                                </button>
-                              );
-                            })}
-                            <Input
-                              type="number"
-                              inputMode="numeric"
-                              min="1"
-                              max="100"
-                              step="1"
-                              value={imageCount}
-                              onChange={(event) => onImageCountChange(event.target.value)}
-                              className="h-9 rounded-full border-stone-200 bg-white px-3 text-center text-sm font-medium text-stone-800 shadow-none focus-visible:ring-0"
-                            />
-                          </div>
+                          <label htmlFor="image-count" className="mb-2 block text-sm font-medium text-stone-900">生成数量</label>
+                          <Input
+                            id="image-count"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]+"
+                            required
+                            aria-invalid={!isImageCountValid}
+                            aria-describedby="image-count-hint"
+                            value={imageCount}
+                            onChange={(event) => onImageCountChange(event.target.value)}
+                            className="h-9 w-24 rounded-xl border-stone-200 bg-white px-3 text-center text-sm font-medium text-stone-800 shadow-none"
+                          />
+                          <p id="image-count-hint" className={cn("mt-2 text-xs", isImageCountValid ? "text-stone-500" : "text-rose-600")}>
+                            请输入 1–100 的纯数字整数
+                          </p>
                         </div>
                       </div>
                     ) : null}
@@ -526,7 +514,7 @@ export function ImageComposer({
                 <button
                   type="button"
                   onClick={() => void onSubmit()}
-                  disabled={!prompt.trim()}
+                  disabled={!prompt.trim() || !isImageCountValid}
                   className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-stone-950 text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300 sm:size-11"
                   aria-label={referenceImages.length > 0 ? "编辑图片" : "生成图片"}
                 >
