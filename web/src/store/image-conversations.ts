@@ -93,6 +93,7 @@ export type ImageTurnStatus = "queued" | "generating" | "success" | "error";
 export type ImageTurn = {
   id: string;
   sourceEntryId?: string;
+  sourceOrdinal?: number;
   sourceTurnId?: string;
   rerun?: boolean;
   md?: {
@@ -150,7 +151,7 @@ export type ImageConversation = {
   createdAt: string;
   updatedAt: string;
   turns: ImageTurn[];
-  sourceEntries?: Array<{ id: string; name: string }>;
+  sourceEntries?: Array<{ id: string; name: string; documentId?: string }>;
   turnCount?: number;
   stats?: ImageConversationStats;
   pagination?: ImagePagination;
@@ -202,10 +203,12 @@ export function fetchExistingImageConversation(authKey: string, id: string, offs
   return fetchExistingConversation(authKey, `/api/image-conversations/${encodeURIComponent(id)}${offset === undefined ? "" : `?offset=${offset}`}`);
 }
 
+export type ImageNavigationPage = Pick<ImageConversation, "id" | "sourceEntries" | "pagination"> & {
+  turns: Array<Pick<ImageTurn, "id" | "sourceEntryId" | "sourceOrdinal" | "createdAt" | "count" | "status" | "promptDeleted" | "resultsDeleted"> & { images: Pick<StoredImage, "id" | "ordinal" | "status">[] }>;
+};
+
 export function fetchImageNavigation(authKey: string, id: string, offset = 0) {
-  return identityRequest<Pick<ImageConversation, "id" | "sourceEntries" | "pagination"> & {
-    turns: Array<Pick<ImageTurn, "id" | "sourceEntryId" | "createdAt" | "count" | "status" | "promptDeleted" | "resultsDeleted"> & { images: StoredImage[] }>;
-  }>(authKey, `/api/image-conversations/${encodeURIComponent(id)}?navigation=true&offset=${offset}&limit=10`);
+  return identityRequest<ImageNavigationPage>(authKey, `/api/image-conversations/${encodeURIComponent(id)}?navigation=true&offset=${offset}&limit=10`);
 }
 
 export async function listImageConversations(authKey: string): Promise<ImageConversation[]> {

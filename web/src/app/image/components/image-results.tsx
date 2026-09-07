@@ -146,7 +146,7 @@ export function ImageResults({
         });
 
         return (
-          <div key={turn.id} data-turn-id={turn.id} className="flex flex-col gap-3 sm:gap-4">
+          <div key={turn.id} data-turn-id={turn.id} data-result-anchor tabIndex={-1} className="flex flex-col gap-3 outline-none sm:gap-4">
             {!turn.promptDeleted ? (
               <div className="flex justify-end">
                 <div className="max-w-[90%] px-1 py-1 text-[14px] leading-6 text-stone-900 sm:max-w-[82%] sm:text-[15px] sm:leading-7">
@@ -236,7 +236,7 @@ export function ImageResults({
                       <Button size="sm" variant="outline" onClick={() => void onRetryDeleteImage(selectedConversation.id, turn.id, cleanup.id, cleanup.ordinal)}>重试清理结果 {cleanup.ordinal}</Button>
                     </div>
                   ))}
-                  <div className="grid grid-cols-3 items-start gap-2 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
+                  <div className="grid grid-cols-3 items-start gap-2 sm:grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] sm:gap-4">
                     {turn.images.map((image, index) => {
                       const ordinal = image.ordinal ?? index + 1;
                       const imageSrc = image.status === "success" ? getStoredImageSrc(image) : "";
@@ -249,6 +249,7 @@ export function ImageResults({
                         return (
                           <div
                             key={image.id}
+                            data-image-id={image.id} data-result-anchor tabIndex={-1}
                             className="min-w-0"
                           >
                             <LazyImage
@@ -310,7 +311,7 @@ export function ImageResults({
                       if (image.status === "error") {
                         const isTimeoutError = image.canResume && image.taskId;
                         return (
-                          <div key={image.id} className="min-w-0">
+                          <div key={image.id} data-image-id={image.id} data-result-anchor tabIndex={-1} className="min-w-0">
                             <div
                               className={cn(
                                 "overflow-auto rounded-xl border border-rose-200 bg-rose-50",
@@ -372,7 +373,7 @@ export function ImageResults({
                           )
                         : null;
                       return (
-                        <div key={image.id} className="min-w-0">
+                        <div key={image.id} data-image-id={image.id} data-result-anchor tabIndex={-1} className="min-w-0">
                           <div
                             className={cn(
                               "overflow-hidden rounded-xl border border-stone-200/80 bg-stone-100/80 relative",

@@ -260,6 +260,12 @@ class ImageTaskService:
         result = self._conversation_metadata(item)
         page = self._page(len(item["turns"]), offset, limit)
         result["pagination"] = page
+        source_counts = {}
+        source_ordinals = {}
+        for saved in item["turns"]:
+            source = saved["sourceEntryId"]
+            source_counts[source] = source_counts.get(source, 0) + 1
+            source_ordinals[saved["id"]] = source_counts[source]
         selected = item["turns"][page["offset"]:page["offset"] + limit]
         if navigation:
             selected = [turn for turn in selected if not (turn.get("promptDeleted") and turn.get("resultsDeleted"))]
@@ -268,6 +274,7 @@ class ImageTaskService:
         for saved in selected:
             turn = ({key: saved[key] for key in ("id", "sourceEntryId", "createdAt", "count")} if navigation else
                     {key: copy.deepcopy(value) for key, value in saved.items() if key not in {"task_ids", "request_id"}})
+            turn["sourceOrdinal"] = source_ordinals[saved["id"]]
             if navigation:
                 turn.update(promptDeleted=bool(saved.get("promptDeleted")), resultsDeleted=bool(saved.get("resultsDeleted")))
             images = []

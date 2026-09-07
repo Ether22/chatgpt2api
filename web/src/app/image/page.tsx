@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, History, LoaderCircle, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, History, ListTree, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ImageComposer } from "@/app/image/components/image-composer";
@@ -9,6 +9,7 @@ import { ImageCleanups } from "@/app/image/components/image-cleanups";
 import { ImageImportDialog } from "@/app/image/components/image-import-dialog";
 import { ImageResults, resultFilename, getStoredImageSrc, type ImageLightboxItem } from "@/app/image/components/image-results";
 import { ImageSidebar } from "@/app/image/components/image-sidebar";
+import { ImageNavigation, type ResultTarget } from "@/app/image/components/image-navigation";
 import { ImageLightbox } from "@/components/image-lightbox";
 import {
   Dialog,
@@ -172,6 +173,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const scrollPositionsRef = useRef<Map<string, number>>(loadScrollPositions());
   const isRestoringScrollRef = useRef(false);
   const scrollRestoreGenerationRef = useRef(0);
+  const pendingTargetRef = useRef<ResultTarget | null>(null);
 
   const config = useSettingsStore((state) => state.config);
   const imageTimeoutRetrySecs = Number(config?.image_timeout_retry_secs || 30);
@@ -202,6 +204,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const [imageModel, setImageModel] = useState<ImageModel>("gpt-image-2");
   const [imageModels, setImageModels] = useState<ImageModel[]>(["gpt-image-2"]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isNavigationOpen, setIsNavigationOpen] = useState(false);
   const [isImportsOpen, setIsImportsOpen] = useState(false);
   const [referenceImages, updateReferenceImages] = useState<DraftReferenceImage[]>([]);
   const referenceImagesRef = useRef<DraftReferenceImage[]>([]);
@@ -562,8 +565,27 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     }
   }, [selectedConversation?.id, selectedConversation?.pagination?.offset]);
 
+  useLayoutEffect(() => {
+    const target = pendingTargetRef.current;
+    const root = resultsViewportRef.current;
+    if (!target || !root) return;
+    const element = [...root.querySelectorAll<HTMLElement>(target.image_id ? "[data-image-id]" : "[data-turn-id]")]
+      .find((node) => target.image_id ? node.dataset.imageId === target.image_id : node.dataset.turnId === target.turn_id);
+    if (!element) return;
+    scrollRestoreGenerationRef.current += 1;
+    isRestoringScrollRef.current = false;
+    root.style.visibility = "";
+    root.scrollTop += element.getBoundingClientRect().top - root.getBoundingClientRect().top;
+    element.focus({ preventScroll: true });
+    shouldStickToBottomRef.current = false;
+  }, [selectedConversation]);
+
   // 恢复滚动位置或跟随最新内容
   useEffect(() => {
+    if (pendingTargetRef.current) {
+      pendingTargetRef.current = null;
+      return;
+    }
     if (!selectedConversation?.pagination) {
       return;
     }
@@ -609,13 +631,16 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       getResultsDistanceFromBottom(element) <= SCROLL_TO_LATEST_THRESHOLD;
 
     if (shouldFollowLatest) {
-      requestAnimationFrame(() => scrollResultsToLatest("smooth"));
+      const generation = scrollRestoreGenerationRef.current;
+      requestAnimationFrame(() => {
+        if (generation === scrollRestoreGenerationRef.current) scrollResultsToLatest("smooth");
+      });
       return;
     }
 
     const btn = scrollToLatestBtnRef.current;
     if (btn) btn.style.display = "";
-  }, [selectedConversation?.id, selectedConversation?.updatedAt, selectedConversation?.turns.length, selectedConversation?.pagination?.offset, scrollResultsToLatest]);
+  }, [selectedConversation?.id, selectedConversation?.updatedAt, selectedConversation?.turns.length, selectedConversation?.pagination?.offset, selectedConversation?.target, scrollResultsToLatest]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -698,15 +723,22 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     return history;
   }, [authKey]);
 
-  const loadConversationPage = useCallback(async (id: string, offset?: number, restorePosition = false) => {
+  const loadConversationPage = useCallback(async (id: string, offset?: number, restorePosition = false, target?: ResultTarget) => {
     const readVersion = ++historyReadVersionRef.current;
+    pendingTargetRef.current = null;
+    scrollRestoreGenerationRef.current += 1;
     pageOffsetRef.current = offset;
     setIsLoadingPage(true);
     setLightboxOpen(false);
     setLightboxImages([]);
     try {
-      const detail = await fetchImageConversation(authKey, id, { offset });
+      const detail = await fetchImageConversation(authKey, id, { offset, ...target });
       if (loadCancelledRef.current || deletionRequestsRef.current || readVersion !== historyReadVersionRef.current) return;
+      if (target) {
+        offset = detail.pagination?.offset;
+        pageOffsetRef.current = offset;
+        pendingTargetRef.current = target;
+      }
       if (offset === undefined) pageOffsetsRef.current.delete(id);
       else pageOffsetsRef.current.set(id, offset);
       saveScrollPositions(pageOffsetsRef.current, PAGE_OFFSETS_STORAGE_KEY);
@@ -722,7 +754,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       setConversations(conversationsRef.current);
       if (!restorePosition && resultsViewportRef.current) resultsViewportRef.current.scrollTop = 0;
     } catch (error) {
-      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
+      if (loadCancelledRef.current || readVersion !== historyReadVersionRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "读取结果失败");
     } finally {
       if (readVersion === historyReadVersionRef.current) setIsLoadingPage(false);
@@ -1280,7 +1312,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
           await refreshHistory(follow);
           if (follow && !loadCancelledRef.current) setSelectedConversationId(id);
         }} />
-      <section className="mx-auto grid h-[calc(100dvh-6.5rem)] min-h-0 w-full max-w-[1380px] grid-cols-1 gap-2 overflow-hidden px-0 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] sm:h-[calc(100dvh-5.25rem)] sm:gap-3 sm:px-3 sm:pb-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <section className="mx-auto grid h-[calc(100dvh-6.5rem)] min-h-0 w-full max-w-[1600px] grid-cols-1 gap-2 overflow-hidden px-0 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] sm:h-[calc(100dvh-5.25rem)] sm:gap-3 sm:px-3 sm:pb-6 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_240px]">
         <div className="hidden h-full min-h-0 border-r border-stone-200/70 pr-3 lg:block">
           <ImageSidebar
             conversations={conversations}
@@ -1332,7 +1364,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
           </DialogContent>
         </Dialog>
 
-        <div className="flex min-h-0 flex-col gap-2 sm:gap-4">
+        <div className="image-workspace flex min-h-0 flex-col gap-2 sm:gap-4">
           <ImageCleanups authKey={authKey} />
           <div className="flex items-center justify-between gap-2 px-1 lg:hidden">
             <Button
@@ -1363,6 +1395,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
 
           {selectedConversation?.pagination && selectedConversation.pagination.total > 0 && (
             <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-stone-500" aria-label="结果分页">
+              <Button variant="outline" size="sm" className="xl:hidden" onClick={() => setIsNavigationOpen(true)}><ListTree className="size-4" />定位</Button>
               <Button variant="ghost" size="sm" disabled={isLoadingPage || selectedConversation.pagination.previous_offset === null}
                 onClick={() => void loadConversationPage(selectedConversation.id, selectedConversation.pagination!.previous_offset!)}>较早结果</Button>
               <span>第 {selectedConversation.pagination.offset + 1}–{Math.min(selectedConversation.pagination.total, selectedConversation.pagination.offset + selectedConversation.pagination.limit)} / {selectedConversation.pagination.total} 轮</span>
@@ -1373,7 +1406,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
               {isLoadingPage && <LoaderCircle className="size-4 animate-spin" />}
             </div>
           )}
-          <div className="relative min-h-0 flex-1">
+          <div className="image-result-panel relative min-h-0 flex-1">
             <div
               ref={resultsViewportRef}
               onScroll={handleResultsScroll}
@@ -1450,6 +1483,9 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
             onRetryReferenceImage={(index) => void uploadDraftReference(referenceImagesRef.current[index])}
           />
         </div>
+        <ImageNavigation authKey={authKey} conversation={selectedConversation} viewport={resultsViewportRef}
+          open={isNavigationOpen} onOpenChange={setIsNavigationOpen}
+          onLocate={async (target) => { if (selectedConversationId) await loadConversationPage(selectedConversationId, undefined, false, target); }} />
       </section>
 
       <ImageLightbox

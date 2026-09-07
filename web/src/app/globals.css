@@ -229,3 +229,9 @@
     animation: none;
     mix-blend-mode: normal;
 }
+
+@media (max-height: 600px) {
+  .image-workspace { overflow-y: auto; overscroll-behavior: contain; }
+  .image-workspace > * { flex-shrink: 0; }
+  .image-workspace .image-result-panel { flex: none; height: max(240px, 60dvh); }
+}
