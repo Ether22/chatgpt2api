@@ -24,7 +24,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 01 | Prompt 折叠、图片顺序与数量记忆 | 无 | 01a07cd9-3e06-7ee2-9772-dc38724e088f | codex/image-task-01 | gpt-6-astra / medium | 已集成，UI验收通过 | 78daecd、b5a48d5 | 2bf78b6、db4ff6a；组合 tsc/build 通过，存储复验问题交03 |
 | 02 | OAuth 弹窗底部操作可达 | 无 | 01a07cd9-5bba-7003-ac8b-728c6f60fbad | codex/image-task-02 | gpt-6-astra / medium | 已集成并验证 | 67ab6b6、3276251 | 27b65ca、bdb0273；类型检查与独立浏览器复验通过 |
-| 03 | 普通生图在服务器保存并跨浏览器恢复 | 无 | 待创建 | codex/image-task-03 | gpt-6-astra / high | 待调度 | — | — |
+| 03 | 普通生图在服务器保存并跨浏览器恢复 | 无 | 01a07cf8-f611-78b2-8990-6886c4de4e9e | codex/image-task-03 | gpt-6-astra / high | 实施中 | — | — |
 | 04 | 普通参考图生成与独立快照 | 3 | 待创建 | codex/image-task-04 | gpt-6-astra / high | 待调度 | — | — |
 | 05 | 同会话排队、并发、恢复与失败详情 | 4 | 待创建 | codex/image-task-05 | gpt-6-astra / high | 待调度 | — | — |
 | 06 | 共享 MD 与参考图导入区 | 4 | 待创建 | codex/image-task-06 | gpt-6-astra / high | 待调度 | — | — |
@@ -37,7 +37,7 @@
 | 13 | 服务器分页与大型图库按需浏览 | 3 | 待创建 | codex/image-task-13 | gpt-6-astra / high | 待调度 | — | — |
 | 14 | 所有结果的右侧定位导航与窄屏抽屉 | 9, 13 | 待创建 | codex/image-task-14 | gpt-6-astra / high | 待调度 | — | — |
 | 15 | 监控、禁用与可消费额度 | 无 | 01a07cd9-5e81-7a41-9890-e40f01e0855a | codex/image-task-15 | gpt-6-astra / high | 已集成并验证 | 43e3834、9727a25 | 61a34d5、1e6888a；40项账号/路由/能力/导出及 tsc 通过 |
-| 16 | 账号隐藏与组内拖拽排序 | 15 | 待创建 | codex/image-task-16 | gpt-6-astra / medium | 待调度 | — | — |
+| 16 | 账号隐藏与组内拖拽排序 | 15 | 01a07cf9-063a-7df3-b3ca-c0526209f6ff | codex/image-task-16 | gpt-6-astra / medium | 实施中 | — | — |
 | 17 | 账号只保留不物理删除 | 无 | 待创建 | codex/image-task-17 | gpt-6-astra / high | 待调度 | — | — |
 | 18 | 业务 API、界面、日志及文件日期统一北京时间 | 无 | 待创建 | codex/image-task-18 | gpt-6-astra / high | 待调度 | — | — |
 
@@ -68,3 +68,5 @@
 - 15：共享空账号守卫及文本失效重试旁路两项均已有失败复现、修复与复审；最终本票10项/整套143通过+原5失败。主对话逐个集成后，40项账号模式、文本路由、模型能力、账号导出测试通过，TypeScript通过，截图已复核。
 - 首批三项实施提交均已集成；五项旧测试与上述Windows存储复验问题继续由04/05/03解决，未宣称整体验收完成。
 - 第二批范围检查：03负责生图会话/轮次、图片身份与保留、现有image-conversations存储入口及生图界面；16负责账号隐藏/组内顺序及账号API/服务/界面。16保留 web/src/lib/api.ts，03的会话HTTP读写收在现有会话存储模块或必要的域模块，复用httpRequest，不修改账号文件或该公共API文件。15文本重试已集成，03可在其上工作。若实际需要跨越保留范围，先主对话协调；17继续等待16释放账号代码，18最后独立处理。
+- 第二批已实际调用创建工具：03 gpt-6-astra/high，16 gpt-6-astra/medium，均使用独立worktree与最新集成工作树起点 d20ae3360ec5852a7d1160356669e2a8d8f63857。03另明确接收Windows任务索引失败诊断与保存屏障回归；16前置15已集成并通过主对话40项相关检查和tsc。此批只并行两项，避免为凑满三个而改同一文件。
+- 第二批工作树已确认：03 C:/Users/ForestHill/.codex/worktrees/01e3/chatgpt2api；16 C:/Users/ForestHill/.codex/worktrees/9924/chatgpt2api，均已有独立分支且从d20ae33创建，已回报保留文件约束。
