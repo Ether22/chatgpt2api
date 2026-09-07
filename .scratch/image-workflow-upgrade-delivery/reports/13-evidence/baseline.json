@@ -1,0 +1,26 @@
+{
+  "history": {
+    "ms": 52.58,
+    "bytes": 912635
+  },
+  "detail": {
+    "ms": 25.13,
+    "bytes": 456292
+  },
+  "gallery_cold": {
+    "ms": 9616.66,
+    "bytes": 4969654
+  },
+  "gallery_warm": {
+    "ms": 9462.33,
+    "bytes": 4969654
+  },
+  "select_save": {
+    "ms": 106.88,
+    "snapshot_bytes": 2274049
+  },
+  "image_save": {
+    "ms": 200.15,
+    "index_bytes": 1920651
+  }
+}

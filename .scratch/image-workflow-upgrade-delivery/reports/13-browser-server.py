@@ -1,0 +1,50 @@
+"""Production UI + real temporary 3,200-result dataset; no external consumption."""
+import importlib.util
+import os
+import sys
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
+os.environ["CHATGPT2API_AUTH_KEY"] = "ticket13-bootstrap-only"
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+import uvicorn
+from api import accounts, ai, image_tasks, support, system
+from services import config as config_module
+from services.account_service import AccountService
+from services.auth_service import AuthService
+from services.storage.json_storage import JSONStorageBackend
+
+spec = importlib.util.spec_from_file_location("benchmark", Path(__file__).with_name("13-benchmark.py"))
+benchmark = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(benchmark)
+
+if __name__ == "__main__":
+    parent = ROOT / "data" / "ticket13"
+    parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=parent) as temporary:
+        directory = Path(temporary)
+        config_module.DATA_DIR = directory
+        storage = JSONStorageBackend(directory / "accounts.json")
+        auth = AuthService(storage)
+        owner = None
+        for name in ("A", "B"):
+            identity, _ = auth.create_key(role="admin", name=f"Synthetic {name}")
+            auth.update_key(identity["id"], {"key": f"ticket13-{name}"})
+            if name == "A":
+                owner = identity["id"]
+        support.auth_service = auth
+        accounts.auth_service = auth
+        accounts.account_service = AccountService(storage)
+        image_tasks.image_task_service = benchmark.seed(directory, owner, dense=os.environ.get("TICKET13_DENSE") == "1")
+        app = FastAPI()
+        app.include_router(system.create_router("ticket13-test"))
+        app.include_router(accounts.create_router())
+        app.include_router(ai.create_router())
+        app.include_router(image_tasks.create_router())
+        app.mount("/", StaticFiles(directory=ROOT / "web" / "out", html=True), name="web")
+        with patch("services.openai_backend_api.OpenAIBackendAPI.list_models", return_value={"data": [{"id": "gpt-image-2"}]}):
+            uvicorn.run(app, host="127.0.0.1", port=43230)

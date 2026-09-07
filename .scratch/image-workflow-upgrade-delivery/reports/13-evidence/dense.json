@@ -1,0 +1,69 @@
+{
+  "history": {
+    "ms": 11.38,
+    "bytes": 539,
+    "directory_scans": 0,
+    "file_stats": 0,
+    "image_reads": 0,
+    "json_reads": 0,
+    "atomic_writes": 0,
+    "written_bytes": 0
+  },
+  "detail": {
+    "ms": 9.56,
+    "bytes": 45134,
+    "directory_scans": 0,
+    "file_stats": 0,
+    "image_reads": 0,
+    "json_reads": 0,
+    "atomic_writes": 0,
+    "written_bytes": 0
+  },
+  "gallery_cold": {
+    "ms": 303.92,
+    "bytes": 18134,
+    "directory_scans": 0,
+    "file_stats": 3,
+    "image_reads": 0,
+    "json_reads": 2,
+    "atomic_writes": 0,
+    "written_bytes": 0
+  },
+  "gallery_warm": {
+    "ms": 334.88,
+    "bytes": 18132,
+    "directory_scans": 0,
+    "file_stats": 3,
+    "image_reads": 0,
+    "json_reads": 2,
+    "atomic_writes": 0,
+    "written_bytes": 0
+  },
+  "dense_5_turns": {
+    "ms": 17.19,
+    "bytes": 112391,
+    "images": 500
+  },
+  "dense_10_turns": {
+    "ms": 28.48,
+    "bytes": 224498,
+    "images": 1000
+  },
+  "legacy_scan_diagnostic": {
+    "ms": 8999.31,
+    "directory_scans": 5,
+    "file_stats": 12824,
+    "image_reads": 0,
+    "json_reads": 1,
+    "atomic_writes": 0,
+    "written_bytes": 0
+  },
+  "select_save": {
+    "ms": 105.44,
+    "snapshot_bytes": 2073121
+  },
+  "image_save": {
+    "ms": 174.97,
+    "index_bytes": 1925771
+  }
+}
