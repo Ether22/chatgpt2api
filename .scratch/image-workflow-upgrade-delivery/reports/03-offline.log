@@ -1,0 +1,157 @@
+........................................................................ [ 42%]
+............................................F........................... [ 85%]
+...............FF..FF....                                                [100%]
+================================== FAILURES ===================================
+___ MultiImageResultTests.test_poll_waits_for_generated_asset_ids_to_settle ___
+
+self = <test.test_multi_image_results.MultiImageResultTests testMethod=test_poll_waits_for_generated_asset_ids_to_settle>
+
+    def test_poll_waits_for_generated_asset_ids_to_settle(self) -> None:
+        backend = FakeBackend([
+            _conversation(["file-one"]),
+            _conversation(["file-one", "file-two"], ["sed-one"]),
+            _conversation(["file-one", "file-two"], ["sed-one"]),
+        ])
+    
+        with (
+            mock.patch.dict(config.data, {"image_poll_initial_wait_secs": 0, "image_poll_interval_secs": 0.5}),
+            mock.patch("services.openai_backend_api.time.sleep", lambda _seconds: None),
+        ):
+            file_ids, sediment_ids = backend._poll_image_results("conv-1", timeout_secs=10)
+    
+>       self.assertEqual(file_ids, ["file-one", "file-two"])
+E       AssertionError: Lists differ: ['file-one'] != ['file-one', 'file-two']
+E       
+E       Second list contains 1 additional elements.
+E       First extra element 1:
+E       'file-two'
+E       
+E       - ['file-one']
+E       + ['file-one', 'file-two']
+
+test\test_multi_image_results.py:127: AssertionError
+---------------------------- Captured stderr call -----------------------------
+[INFO] {"event": "image_poll_start", "conversation_id": "conv-1", "timeout_secs": 10, "initial_wait_secs": 0.0, "interval_secs": 0.5, "initial_file_ids": [], "initial_sediment_ids": []}
+[DEBUG] {"event": "image_poll_task_check_failed", "conversation_id": "conv-1", "attempt": 1, "error": "'FakeBackend' object has no attribute 'session'"}
+[DEBUG] {"event": "image_poll_check", "conversation_id": "conv-1", "attempt": 1, "file_ids": ["file-one"], "sediment_ids": []}
+[INFO] {"event": "image_poll_hit_no_settle", "conversation_id": "conv-1", "file_ids": ["file-one"], "sediment_ids": []}
+------------------------------ Captured log call ------------------------------
+INFO     chatgpt2api:log.py:99 {"event": "image_poll_start", "conversation_id": "conv-1", "timeout_secs": 10, "initial_wait_secs": 0.0, "interval_secs": 0.5, "initial_file_ids": [], "initial_sediment_ids": []}
+DEBUG    chatgpt2api:log.py:95 {"event": "image_poll_task_check_failed", "conversation_id": "conv-1", "attempt": 1, "error": "'FakeBackend' object has no attribute 'session'"}
+DEBUG    chatgpt2api:log.py:95 {"event": "image_poll_check", "conversation_id": "conv-1", "attempt": 1, "file_ids": ["file-one"], "sediment_ids": []}
+INFO     chatgpt2api:log.py:99 {"event": "image_poll_hit_no_settle", "conversation_id": "conv-1", "file_ids": ["file-one"], "sediment_ids": []}
+________ ImageEditsJsonApiTests.test_image_edit_accepts_json_image_url ________
+
+self = <test.test_v1_images_edits_json.ImageEditsJsonApiTests testMethod=test_image_edit_accepts_json_image_url>
+
+    def test_image_edit_accepts_json_image_url(self):
+        response = self.client.post(
+            "/v1/images/edits",
+            headers=AUTH_HEADERS,
+            json={
+                "model": "gpt-image-2",
+                "prompt": "��ͼƬ�ĳ�ҹ�����",
+                "n": 1,
+                "size": "1024x1536",
+                "response_format": "b64_json",
+                "images": [{"image_url": PNG_DATA_URL}],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = self.calls[0]
+>       self.assertEqual(payload["images"], [(b"fake-png", "image_1.png", "image/png")])
+E       AssertionError: Lists differ: [(b'fake-png', 'image_url.png', 'image/png')] != [(b'fake-png', 'image_1.png', 'image/png')]
+E       
+E       First differing element 0:
+E       (b'fake-png', 'image_url.png', 'image/png')
+E       (b'fake-png', 'image_1.png', 'image/png')
+E       
+E       - [(b'fake-png', 'image_url.png', 'image/png')]
+E       ?                       ^^^
+E       
+E       + [(b'fake-png', 'image_1.png', 'image/png')]
+E       ?                       ^
+
+test\test_v1_images_edits_json.py:68: AssertionError
+_ ImageEditsJsonApiTests.test_image_edit_accepts_json_multiple_images_and_b64_json _
+
+self = <test.test_v1_images_edits_json.ImageEditsJsonApiTests testMethod=test_image_edit_accepts_json_multiple_images_and_b64_json>
+
+    def test_image_edit_accepts_json_multiple_images_and_b64_json(self):
+        response = self.client.post(
+            "/v1/images/edits",
+            headers=AUTH_HEADERS,
+            json={
+                "prompt": "������ͼ�ϳɺ���",
+                "images": [
+                    PNG_DATA_URL,
+                    {"b64_json": base64.b64encode(b"raw-jpeg").decode("ascii"), "mime_type": "image/jpeg", "filename": "two.jpg"},
+                    {"image_url": {"url": JPEG_DATA_URL}},
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+>       self.assertEqual(self.calls[0]["images"], [
+            (b"fake-png", "image_1.png", "image/png"),
+            (b"raw-jpeg", "two.jpg", "image/jpeg"),
+            (b"fake-jpeg", "image_3.jpg", "image/jpeg"),
+        ])
+E       AssertionError: Lists differ: [(b'fake-png', 'image_url.png', 'image/png'), (b'raw-jpeg', 'tw[64 chars]eg')] != [(b'fake-png', 'image_1.png', 'image/png'), (b'raw-jpeg', 'two.[60 chars]eg')]
+E       
+E       First differing element 0:
+E       (b'fake-png', 'image_url.png', 'image/png')
+E       (b'fake-png', 'image_1.png', 'image/png')
+E       
+E       - [(b'fake-png', 'image_url.png', 'image/png'),
+E       ?                       ^^^
+E       
+E       + [(b'fake-png', 'image_1.png', 'image/png'),
+E       ?                       ^
+E       
+E          (b'raw-jpeg', 'two.jpg', 'image/jpeg'),
+E       -  (b'fake-jpeg', 'image_url.jpg', 'image/jpeg')]
+E       ?                        ^^^
+E       
+E       +  (b'fake-jpeg', 'image_3.jpg', 'image/jpeg')]
+E       ?                        ^
+
+test\test_v1_images_edits_json.py:85: AssertionError
+______ ImageEditsJsonApiTests.test_image_edit_rejects_json_without_image ______
+
+self = <test.test_v1_images_edits_json.ImageEditsJsonApiTests testMethod=test_image_edit_rejects_json_without_image>
+
+    def test_image_edit_rejects_json_without_image(self):
+        response = self.client.post("/v1/images/edits", headers=AUTH_HEADERS, json={"prompt": "ȱ��ͼƬ"})
+        self.assertEqual(response.status_code, 400, response.text)
+>       self.assertIn("image file is required", response.text)
+E       AssertionError: 'image file is required' not found in '{"detail":{"error":"image file or image_url is required"}}'
+
+test\test_v1_images_edits_json.py:112: AssertionError
+_______ ImageEditsJsonApiTests.test_image_edit_rejects_remote_json_url ________
+
+self = <test.test_v1_images_edits_json.ImageEditsJsonApiTests testMethod=test_image_edit_rejects_remote_json_url>
+
+    def test_image_edit_rejects_remote_json_url(self):
+        response = self.client.post(
+            "/v1/images/edits",
+            headers=AUTH_HEADERS,
+            json={"prompt": "������Զ����ͼ", "images": [{"image_url": "https://example.com/a.png"}]},
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+>       self.assertIn("remote image URLs are not supported", response.text)
+E       AssertionError: 'remote image URLs are not supported' not found in '{"detail":{"error":"image_url fetch failed: Failed to perform, curl: (7) Failed to connect to example.com port 443 after 11 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details."}}'
+
+test\test_v1_images_edits_json.py:121: AssertionError
+============================== warnings summary ===============================
+services\storage\database_storage.py:12
+  C:\Users\ForestHill\.codex\worktrees\01e3\chatgpt2api\services\storage\database_storage.py:12: MovedIn20Warning: The ``declarative_base()`` function is now available as sqlalchemy.orm.declarative_base(). (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    Base = declarative_base()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED test/test_multi_image_results.py::MultiImageResultTests::test_poll_waits_for_generated_asset_ids_to_settle
+FAILED test/test_v1_images_edits_json.py::ImageEditsJsonApiTests::test_image_edit_accepts_json_image_url
+FAILED test/test_v1_images_edits_json.py::ImageEditsJsonApiTests::test_image_edit_accepts_json_multiple_images_and_b64_json
+FAILED test/test_v1_images_edits_json.py::ImageEditsJsonApiTests::test_image_edit_rejects_json_without_image
+FAILED test/test_v1_images_edits_json.py::ImageEditsJsonApiTests::test_image_edit_rejects_remote_json_url
+5 failed, 164 passed, 1 warning in 17.61s

@@ -1,0 +1,4 @@
+PASS create/lost-post: one accepted operation after retry
+PASS regenerate/lost-post: one accepted operation after retry
+PASS create/failed-get: one accepted operation after retry
+PASS regenerate/failed-get: one accepted operation after retry
