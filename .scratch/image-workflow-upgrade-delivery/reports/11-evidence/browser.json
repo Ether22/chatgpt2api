@@ -1,20 +1,22 @@
 {
-  "turn_ui_ms": 56,
+  "turn_ui_ms": 75,
   "old_response_suppressed": true,
-  "remote_ui_ms": 74,
-  "bulk_ui_ms": 142,
-  "bulk_http_ms": 1132,
-  "bulk_total_ms": 20480,
+  "remote_ui_ms": 72,
+  "bulk_ui_ms": 108,
+  "bulk_http_ms": 1308,
+  "bulk_total_ms": 17537,
   "bulk_backend": {
     "active": true,
     "holder_builds": 2,
     "directory_scans": 0,
     "persist_rows": 16002,
-    "persist_json_bytes": 9754310,
+    "persist_json_bytes": 9754305,
     "deleted_rows": 3201,
-    "started_at": 551314.5092483,
-    "cleanup_ms": 19348,
-    "finished_at": 551335.3223158
+    "tag_writes": 50,
+    "tag_written_bytes": 10916284,
+    "started_at": 551747.8005099,
+    "cleanup_ms": 16158.9,
+    "finished_at": 551765.5876187
   },
   "bulk_files_gone": 3200,
   "page_errors": []
