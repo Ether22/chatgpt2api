@@ -282,6 +282,32 @@ export async function fetchStoredImageBlob(src: string, signal?: AbortSignal, au
   return response.blob();
 }
 
+export async function downloadStoredImage(src: string, filename: string, signal?: AbortSignal, authKey?: string) {
+  const key = authKey ?? await getStoredAuthKey();
+  const blob = await fetchStoredImageBlob(src, signal, key);
+  // Result URLs may end in .png even when the upstream returned JPEG or GIF.
+  const header = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const signature = String.fromCharCode(...header);
+  const extension = signature.startsWith("\x89PNG\r\n\x1a\n") ? "png"
+    : header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff ? "jpg"
+    : signature.startsWith("GIF87a") || signature.startsWith("GIF89a") ? "gif"
+    : signature.startsWith("RIFF") && signature.slice(8) === "WEBP" ? "webp" : undefined;
+  await identityAuth(key);
+  signal?.throwIfAborted();
+  if (!extension) throw new Error("无法识别原图格式，未下载");
+  const name = `${filename.replace(/\.[^.]+$/, "")}.${extension}`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Allow the browser to take ownership before releasing the original bytes.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return name;
+}
+
 export function useImageSource(src: string | undefined) {
   const [loaded, setLoaded] = useState<{ source: string; url: string } | null>(null);
   const managed = src && typeof window !== "undefined" ? managedImagePath(src) : null;

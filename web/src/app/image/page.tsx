@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { ImageComposer } from "@/app/image/components/image-composer";
 import { ImageCleanups } from "@/app/image/components/image-cleanups";
 import { ImageImportDialog } from "@/app/image/components/image-import-dialog";
-import { ImageResults, type ImageLightboxItem } from "@/app/image/components/image-results";
+import { ImageResults, resultFilename, getStoredImageSrc, type ImageLightboxItem } from "@/app/image/components/image-results";
 import { ImageSidebar } from "@/app/image/components/image-sidebar";
 import { ImageLightbox } from "@/components/image-lightbox";
 import {
@@ -1454,6 +1454,10 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
 
       <ImageLightbox
         images={lightboxImages}
+        roundImages={lightboxImages[lightboxIndex]?.turnId ? selectedConversation?.turns
+          .filter(turn => turn.id === lightboxImages[lightboxIndex].turnId && !turn.resultsDeleted)
+          .flatMap(turn => turn.images.flatMap((image, index) => image.status === "success" && getStoredImageSrc(image)
+            ? [{ id: image.id, src: getStoredImageSrc(image), filename: resultFilename(turn, image, index) }] : [])) : undefined}
         currentIndex={lightboxIndex}
         open={lightboxOpen}
         onOpenChange={(open) => {

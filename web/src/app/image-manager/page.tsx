@@ -113,6 +113,7 @@ function ImageManagerContent() {
   const lightboxImages = filteredItems.map((item) => ({
     id: item.name,
     src: item.url,
+    filename: item.name,
     sizeLabel: formatSize(item.size),
     dimensions: item.width && item.height ? `${item.width} x ${item.height}` : undefined,
   }));

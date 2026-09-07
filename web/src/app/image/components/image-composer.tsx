@@ -124,7 +124,7 @@ export function ImageComposer({
   const sizeMenuRef = useRef<HTMLDivElement>(null);
   const sizeMenuBtnRef = useRef<HTMLButtonElement>(null);
   const lightboxImages = useMemo(
-    () => referenceImages.map((image) => ({ id: image.id, src: image.url, filename: image.name })),
+    () => referenceImages.filter(image => image.url).map((image) => ({ id: image.id, src: image.url, filename: image.name })),
     [referenceImages],
   );
   const modelOptions = useMemo(
@@ -234,7 +234,8 @@ export function ImageComposer({
                 <button
                   type="button"
                   onClick={() => {
-                    setLightboxIndex(index);
+                    if (!image.url) return;
+                    setLightboxIndex(lightboxImages.findIndex(item => item.id === image.id));
                     setLightboxOpen(true);
                   }}
                   className="group size-14 overflow-hidden rounded-2xl border border-stone-200 bg-stone-50 transition hover:border-stone-300 sm:size-16"

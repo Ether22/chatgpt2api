@@ -29,7 +29,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey, conversationId,
   const pendingBatch = useRef<SelectedMdBatch | null>(null);
   const [submissionMessage, setSubmissionMessage] = useState("");
   const [failedCleanup, setFailedCleanup] = useState<ImportCleanup | null>(null);
-  const [preview, setPreview] = useState<{ id: string; src: string; filename: string } | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
   const mdInput = useRef<HTMLInputElement>(null);
   const referenceInput = useRef<HTMLInputElement>(null);
   const queue = useRef(Promise.resolve());
@@ -229,6 +229,8 @@ export function ImageImportDialog({ open, onOpenChange, authKey, conversationId,
     ...Object.entries(uploads).filter(([id]) => !materials?.references.some((item) => item.request_id === id))
       .map(([id, upload]) => ({ request_id: id, name: upload.file.name, size: upload.file.size, reference: null, error: undefined, upload })),
   ];
+  const previewRow = rows.find(item => item.request_id === preview);
+  const previewSource = previewRow?.reference?.url ?? previewRow?.upload?.url;
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[min(94vw,960px)] flex-col gap-4 overflow-hidden p-4 sm:p-6">
       <DialogHeader className="shrink-0 pr-6">
@@ -270,7 +272,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey, conversationId,
                 const source = item.reference?.url ?? item.upload?.url;
                 const message = item.upload?.cancelled ? "正在移除或等待重试清理" : item.upload?.busy ? `上传中 ${item.upload.progress}%` : item.upload?.error ?? item.error;
                 return <li key={item.request_id} className="flex min-w-0 items-start gap-2">
-                  {source && <button type="button" className="shrink-0" aria-label={`预览导入参考图 ${item.name}`} onClick={() => setPreview({ id: item.request_id, src: source, filename: item.name })}><ReferenceThumbnail src={source} alt={item.name} className="size-12 rounded-lg object-cover" /></button>}
+                  {source && <button type="button" className="shrink-0" aria-label={`预览导入参考图 ${item.name}`} onClick={() => setPreview(item.request_id)}><ReferenceThumbnail src={source} alt={item.name} className="size-12 rounded-lg object-cover" /></button>}
                   <div className="min-w-0 flex-1 text-xs"><p className="break-all">{item.name}</p><p>{(item.size / 1024).toFixed(1)} KB</p>
                     {message && <p role="status" className="break-words">{message}</p>}
                     {item.upload?.busy && !item.upload.cancelled && <progress className="w-full" aria-label={`${item.name} 上传进度`} max={100} value={item.upload.progress} />}
@@ -310,7 +312,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey, conversationId,
         {pendingBatch.current && !submitting && <Button variant="outline" onClick={() => { pendingBatch.current = null; setSubmissionMessage("已解除重试；若服务器已接受，原批次仍会继续，可在会话历史查看。"); }}>准备新的提交</Button>}
         <Button onClick={() => onOpenChange(false)}>完成</Button>
       </DialogFooter>
-      {preview && <ImageLightbox open={!!preview} onOpenChange={(value) => { if (!value) setPreview(null); }} images={[preview]} currentIndex={0} onIndexChange={() => {}} />}
+      {previewRow && previewSource && <ImageLightbox open={!!preview} onOpenChange={(value) => { if (!value) setPreview(null); }} images={[{ id: previewRow.request_id, src: previewSource, filename: previewRow.name }]} currentIndex={0} onIndexChange={() => {}} />}
     </DialogContent>
   </Dialog>;
 }

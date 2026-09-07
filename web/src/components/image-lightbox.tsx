@@ -6,7 +6,9 @@ import { ChevronLeft, ChevronRight, Download, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
-import { fetchStoredImageBlob, useImageSource } from "@/store/image-conversations";
+import { downloadStoredImage, useImageSource } from "@/store/image-conversations";
+import { getStoredAuthKey } from "@/store/auth";
+import { IdentityChanged } from "@/lib/identity-request";
 
 type LightboxImage = {
   id: string;
@@ -14,6 +16,7 @@ type LightboxImage = {
   sizeLabel?: string;
   dimensions?: string;
   filename?: string;
+  ordinal?: number;
 };
 
 type ImageLightboxProps = {
@@ -23,6 +26,7 @@ type ImageLightboxProps = {
   onOpenChange: (open: boolean) => void;
   onIndexChange: (index: number) => void;
   onDelete?: () => void;
+  roundImages?: LightboxImage[];
 };
 
 type ImageTransform = {
@@ -98,17 +102,28 @@ export function ImageLightbox({
   onOpenChange,
   onIndexChange,
   onDelete,
+  roundImages,
 }: ImageLightboxProps) {
+  const contentRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef(0);
   const pendingTransformRef = useRef<ImageTransform | null>(null);
   const rafRef = useRef<number | null>(null);
   const [transform, setTransform] = useState<ImageTransform>({ scale: 1, x: 0, y: 0 });
   const [isGesturing, setIsGesturing] = useState(false);
+  const [dimensions, setDimensions] = useState<{ id: string; value: string } | null>(null);
+  const [downloads, setDownloads] = useState<{ image: LightboxImage; name?: string; error?: string }[]>([]);
+  const [downloading, setDownloading] = useState(false);
+  const downloadController = useRef<AbortController | null>(null);
   const current = images[currentIndex];
   const imageSource = useImageSource(open ? current?.src : undefined);
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < images.length - 1;
+
+  useEffect(() => {
+    if (!open) { setDownloads([]); setDownloading(false); }
+    return () => { downloadController.current?.abort(); };
+  }, [open]);
 
   const cancelScheduledTransform = useCallback(() => {
     if (rafRef.current != null) {
@@ -175,6 +190,7 @@ export function ImageLightbox({
     if (!open) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || Array.from(document.querySelectorAll('[role="dialog"]')).at(-1) !== contentRef.current) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         goPrev();
@@ -191,21 +207,36 @@ export function ImageLightbox({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, goPrev, goNext, onDelete]);
 
-  const handleDownload = useCallback(async () => {
-    if (!current) return;
+  const handleDownload = useCallback(async (targets: LightboxImage[], batch = false) => {
+    if (downloadController.current && !downloadController.current.signal.aborted) return;
+    const controller = new AbortController();
+    downloadController.current = controller;
+    setDownloading(true);
+    if (batch) setDownloads(targets.map(image => ({ image })));
     try {
-      const blob = await fetchStoredImageBlob(current.src);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      const extension = ({ "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/png": "png" } as Record<string, string>)[blob.type] || "png";
-      link.download = current.filename ? `${current.filename.replace(/\.[^.]+$/, "")}.${extension}` : `image-${current.id}.png`;
-      link.click();
-      URL.revokeObjectURL(url);
+      const authKey = await getStoredAuthKey();
+      for (const image of targets) {
+        if (controller.signal.aborted) break;
+        try {
+          const name = await downloadStoredImage(image.src, image.filename || `image-${image.id}`, controller.signal, authKey);
+          if (!controller.signal.aborted) setDownloads(items => items.map(item => item.image.id === image.id ? { image, name } : item));
+        } catch (error) {
+          if (controller.signal.aborted) break;
+          const message = error instanceof Error ? error.message : "下载失败";
+          setDownloads(items => items.map(item => item.image.id === image.id ? { image, error: message } : item));
+          if (!batch) toast.error(message);
+          if (error instanceof IdentityChanged) break;
+        }
+        // ponytail: pace native downloads below Chrome's burst limit; manual retry covers browser policy differences.
+        if (batch) await new Promise(resolve => setTimeout(resolve, 200));
+      }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "下载失败");
+      if (!controller.signal.aborted) toast.error(error instanceof Error ? error.message : "下载失败");
+    } finally {
+      if (downloadController.current === controller) downloadController.current = null;
+      if (!controller.signal.aborted) setDownloading(false);
     }
-  }, [current]);
+  }, []);
 
   const toggleZoom = useCallback(() => {
     setTransform((currentTransform) =>
@@ -363,38 +394,16 @@ export function ImageLightbox({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
-          className="fixed inset-0 z-50 flex items-center justify-center outline-none"
+          ref={contentRef}
+          aria-describedby={undefined}
+          onClick={(event) => event.stopPropagation()}
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center outline-none"
           onPointerDownOutside={(e) => e.preventDefault()}
         >
           <DialogPrimitive.Title className="sr-only">
             图片预览
           </DialogPrimitive.Title>
 
-          <div className="absolute top-[calc(env(safe-area-inset-top)+1rem)] right-4 z-10 flex items-center gap-2">
-            {current.sizeLabel || current.dimensions ? (
-              <span className="rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white/90">
-                {[current.sizeLabel, current.dimensions].filter(Boolean).join(" · ")}
-              </span>
-            ) : null}
-            {images.length > 1 && (
-              <span className="rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white/90">
-                {currentIndex + 1} / {images.length}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={handleDownload}
-              className="inline-flex size-9 items-center justify-center rounded-full bg-black/50 text-white/90 transition hover:bg-black/70"
-              aria-label="下载图片"
-            >
-              <Download className="size-4" />
-            </button>
-            <DialogPrimitive.Close className="inline-flex size-9 items-center justify-center rounded-full bg-black/50 text-white/90 transition hover:bg-black/70">
-              <X className="size-4" />
-              <span className="sr-only">关闭</span>
-            </DialogPrimitive.Close>
-            {onDelete ? <button type="button" onClick={onDelete} aria-label="删除当前生成结果" className="inline-flex size-9 items-center justify-center rounded-full bg-black/50 text-white/90 hover:bg-black/70"><Trash2 className="size-4" /></button> : null}
-          </div>
 
           {hasPrev && transform.scale <= minScale && (
             <button
@@ -408,7 +417,7 @@ export function ImageLightbox({
           )}
 
           <div
-            className="flex h-full w-full touch-none items-center justify-center overflow-hidden"
+            className="relative flex min-h-0 w-full flex-1 touch-none items-center justify-center overflow-hidden"
             onClick={() => onOpenChange(false)}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
@@ -418,8 +427,9 @@ export function ImageLightbox({
             <img
               src={imageSource}
               alt=""
+              onLoad={(event) => setDimensions({ id: current.id, value: `${event.currentTarget.naturalWidth} x ${event.currentTarget.naturalHeight}` })}
               className={cn(
-                "max-h-[90vh] max-w-[90vw] rounded-lg object-contain will-change-transform",
+                "max-h-full max-w-[90vw] rounded-lg object-contain will-change-transform",
                 isGesturing ? "" : "transition-transform duration-150 ease-out",
                 transform.scale > minScale ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-in",
               )}
@@ -445,6 +455,25 @@ export function ImageLightbox({
               <ChevronRight className="size-5" />
             </button>
           )}
+          <div className="z-10 max-h-[55dvh] w-full shrink-0 overflow-y-auto overscroll-contain bg-black/80 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white">
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <span className="text-xs">{dimensions?.id === current.id ? dimensions.value : current.dimensions} · 图片 {current.ordinal ?? currentIndex + 1}（{currentIndex + 1}/{images.length}）</span>
+              <button type="button" disabled={downloading} onClick={() => void handleDownload([current])} className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 disabled:opacity-50 focus-visible:outline-2" aria-label="下载图片"><Download className="size-4" />下载</button>
+              {roundImages && <button type="button" disabled={downloading || !roundImages.length} onClick={() => void handleDownload(roundImages, true)} className="min-h-9 rounded-full bg-white/10 px-3 text-sm disabled:opacity-50 focus-visible:outline-2" aria-label="下载本轮成功图片">下载本轮（{roundImages.length}）</button>}
+              {onDelete && <button type="button" onClick={onDelete} aria-label="删除当前生成结果" className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 focus-visible:outline-2"><Trash2 className="size-4" />删除</button>}
+              <DialogPrimitive.Close className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 focus-visible:outline-2"><X className="size-4" />关闭</DialogPrimitive.Close>
+            </div>
+            {downloads.length > 0 && <div className="mx-auto mt-2 max-w-xl text-xs">
+              <p role="status">已请求 {downloads.filter(item => item.name).length}/{downloads.length} 张{downloading ? "，正在逐张下载…" : ""}；失败 {downloads.filter(item => item.error).length} 张。</p>
+              <p>请检查浏览器下载记录；如多文件下载被拦截，请允许后逐张点击下方按钮继续下载。</p>
+              <details><summary className="cursor-pointer py-2">下载明细与逐张重试</summary>
+                {downloads.map(item => <div key={item.image.id} className="flex items-center gap-2 py-1">
+                  <span className="min-w-0 flex-1 break-all">{item.name || item.image.filename || item.image.id} · {item.error || (item.name ? "已请求下载" : "待下载")}</span>
+                  <button type="button" disabled={downloading} onClick={() => void handleDownload([item.image])} className="min-h-9 shrink-0 rounded bg-white/10 px-2 disabled:opacity-50">{item.error ? "重试" : "再次下载"}</button>
+                </div>)}
+              </details>
+            </div>}
+          </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

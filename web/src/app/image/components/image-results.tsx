@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ImageConversation, ImageTurn, ImageTurnStatus, StoredImage, StoredReferenceImage } from "@/store/image-conversations";
-import { fetchStoredImageBlob, useImageSource } from "@/store/image-conversations";
+import { downloadStoredImage, useImageSource } from "@/store/image-conversations";
 import { ReferenceThumbnail } from "./reference-thumbnail";
 
 export type ImageLightboxItem = {
@@ -38,48 +38,19 @@ type ImageResultsProps = {
   formatConversationTime: (value: string) => string;
 };
 
-function getStoredImageSrc(image: StoredImage) {
+export function getStoredImageSrc(image: StoredImage) {
   return image.url || (image.b64_json ? `data:image/png;base64,${image.b64_json}` : "");
 }
 
-function resultFilename(turn: ImageTurn, image: StoredImage, index: number) {
+export function resultFilename(turn: ImageTurn, image: StoredImage, index: number) {
   const ordinal = image.ordinal ?? index + 1;
-  if (!turn.md) return `image-${ordinal}.png`;
-  const { document_id, name, output_name } = turn.md;
   const clean = (value: string) => value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/[. ]+$/, "");
+  if (!turn.md) return `${clean(turn.prompt.replace(/\s+/g, " ").trim()).slice(0, 60) || "image"}_${ordinal}.png`;
+  const { document_id, name, output_name } = turn.md;
   const identifier = clean(document_id).slice(0, 30);
   const output = clean(output_name?.replace(/\.[^.]+$/, "") || "").slice(0, 100);
   const suffix = `_${ordinal}${output ? `_${output}` : ""}.png`;
   return `${identifier}_${clean(name).slice(0, 180 - identifier.length - 1 - suffix.length)}${suffix}`;
-}
-
-async function downloadStoredImage(image: StoredImage, index: number, turn: ImageTurn) {
-  let blob: Blob | null = null;
-  try {
-    if (image.b64_json) {
-      const binary = atob(image.b64_json);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      blob = new Blob([bytes], { type: "image/png" });
-    } else if (image.url) {
-      // 确保 URL 是绝对路径
-      blob = await fetchStoredImageBlob(image.url);
-    } else {
-      return;
-    }
-  } catch (err) {
-    console.error("Failed to download image:", err);
-    return;
-  }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  const extension = ({ "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/png": "png" } as Record<string, string>)[blob.type] || "png";
-  a.download = resultFilename(turn, image, index).replace(/\.[^.]+$/, `.${extension}`);
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 export function ImageResults({
@@ -324,7 +295,7 @@ export function ImageResults({
                                   variant="outline"
                                   size="sm"
                                   className="h-7 w-7 rounded-full border-stone-200 bg-white px-0 text-[10px] text-stone-700 hover:bg-stone-50 sm:h-8 sm:w-fit sm:px-3 sm:text-xs"
-                                  onClick={() => void downloadStoredImage(image, index, turn)}
+                                  onClick={() => void downloadStoredImage(getStoredImageSrc(image), resultFilename(turn, image, index)).catch(error => toast.error(error instanceof Error ? error.message : "下载失败"))}
                                   aria-label="下载"
                                 >
                                   <Download className="size-3 sm:size-4" />
