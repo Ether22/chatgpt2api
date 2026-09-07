@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "metrics": {
+    "selectionFeedbackMs": 88,
+    "bulkSelectionFeedbackMs": 50,
+    "fortyEightSyntheticUploadsMs": 2199
+  },
+  "errors": [],
+  "requests": 127,
+  "uploadRequests": 53
+}

@@ -5,6 +5,7 @@ import { ArrowDown, History, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ImageComposer } from "@/app/image/components/image-composer";
+import { ImageImportDialog } from "@/app/image/components/image-import-dialog";
 import { ImageResults, type ImageLightboxItem } from "@/app/image/components/image-results";
 import { ImageSidebar } from "@/app/image/components/image-sidebar";
 import { ImageLightbox } from "@/components/image-lightbox";
@@ -189,6 +190,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const [imageModel, setImageModel] = useState<ImageModel>("gpt-image-2");
   const [imageModels, setImageModels] = useState<ImageModel[]>(["gpt-image-2"]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isImportsOpen, setIsImportsOpen] = useState(false);
   const [referenceImages, updateReferenceImages] = useState<DraftReferenceImage[]>([]);
   const referenceImagesRef = useRef<DraftReferenceImage[]>([]);
   const activeSubmissionReferences = useRef(new Map<string, number>());
@@ -1070,6 +1072,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <>
+      <ImageImportDialog open={isImportsOpen} onOpenChange={setIsImportsOpen} />
       <section className="mx-auto grid h-[calc(100dvh-6.5rem)] min-h-0 w-full max-w-[1380px] grid-cols-1 gap-2 overflow-hidden px-0 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] sm:h-[calc(100dvh-5.25rem)] sm:gap-3 sm:px-3 sm:pb-6 lg:grid-cols-[240px_minmax(0,1fr)]">
         <div className="hidden h-full min-h-0 border-r border-stone-200/70 pr-3 lg:block">
           <ImageSidebar
@@ -1224,6 +1227,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             onImageModelChange={setImageModel}
             onSubmit={handleSubmit}
             onPickReferenceImage={() => fileInputRef.current?.click()}
+            onOpenImports={() => setIsImportsOpen(true)}
             onReferenceImageChange={handleReferenceImageChange}
             onRemoveReferenceImage={handleRemoveReferenceImage}
             onRetryReferenceImage={(index) => void uploadDraftReference(referenceImagesRef.current[index])}

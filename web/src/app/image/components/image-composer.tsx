@@ -40,6 +40,7 @@ type ImageComposerProps = {
   onImageModelChange: (value: ImageModel) => void;
   onSubmit: () => void | Promise<void>;
   onPickReferenceImage: () => void;
+  onOpenImports: () => void;
   onReferenceImageChange: (files: File[]) => void | Promise<void>;
   onRemoveReferenceImage: (index: number) => void;
 };
@@ -110,6 +111,7 @@ export function ImageComposer({
   onImageModelChange,
   onSubmit,
   onPickReferenceImage,
+  onOpenImports,
   onReferenceImageChange,
   onRemoveReferenceImage,
   onRetryReferenceImage,
@@ -325,6 +327,7 @@ export function ImageComposer({
                     <ImagePlus className="size-3.5 sm:size-4" />
                     <span className="hidden sm:inline">{referenceImages.length > 0 ? "添加参考图" : "上传"}</span>
                   </Button>
+                  <Button type="button" variant="outline" onClick={onOpenImports} className="h-9 shrink-0 rounded-full px-3 text-xs sm:h-10 sm:text-sm">上传 MD 和参考图</Button>
                   <div className="shrink-0 rounded-full bg-stone-100 px-2 py-1 text-[10px] font-medium text-stone-600 sm:px-3 sm:py-2 sm:text-xs">
                     <span className="hidden sm:inline">剩余额度 </span>{availableQuota}
                   </div>
