@@ -30,6 +30,21 @@ class CandidateCorrection(ImportMutation):
     changes: dict = Field(min_length=1, max_length=7)
 
 
+class BatchEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=1, max_length=128)
+    count: int | None = Field(default=None, ge=1, le=100, strict=True)
+
+
+class SelectedBatch(ImportMutation):
+    md_version: int = Field(ge=0, strict=True)
+    conversation_id: str | None = Field(default=None, max_length=128)
+    model: str = Field(min_length=1, max_length=128)
+    quality: str = Field(default="auto", pattern=r"^(auto|low|medium|high)$")
+    count: int = Field(default=4, ge=1, le=100, strict=True)
+    entries: list[BatchEntry] = Field(min_length=1, max_length=1000)
+
+
 async def import_call(method, *args):
     try:
         return await run_in_threadpool(method, *args)
@@ -49,6 +64,11 @@ def create_router():
     @router.get("/api/image-imports")
     async def get_imports(authorization: str | None = Header(default=None)):
         return await import_call(image_import_service.get, require_identity(authorization))
+
+    @router.post("/api/image-imports/batches")
+    async def submit_batch(body: SelectedBatch, request: Request, authorization: str | None = Header(default=None)):
+        return await import_call(image_import_service.submit_batch, require_identity(authorization),
+                                 body.model_dump(), resolve_image_base_url(request))
 
     @router.post("/api/image-imports/references")
     async def reserve_reference(body: ReferenceReservation, authorization: str | None = Header(default=None)):

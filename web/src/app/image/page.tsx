@@ -1191,7 +1191,14 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
 
   return (
     <>
-      <ImageImportDialog open={isImportsOpen} onOpenChange={setIsImportsOpen} authKey={authKey} />
+      <ImageImportDialog open={isImportsOpen} onOpenChange={setIsImportsOpen} authKey={authKey}
+        conversationId={selectedConversationId} model={imageModel} quality={imageQuality}
+        count={imageCount} onCountChange={handleImageCountChange}
+        onAccepted={async (id, submittedFrom) => {
+          const follow = selectedIdRef.current === submittedFrom;
+          await refreshHistory(follow);
+          if (follow && !loadCancelledRef.current) setSelectedConversationId(id);
+        }} />
       <section className="mx-auto grid h-[calc(100dvh-6.5rem)] min-h-0 w-full max-w-[1380px] grid-cols-1 gap-2 overflow-hidden px-0 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] sm:h-[calc(100dvh-5.25rem)] sm:gap-3 sm:px-3 sm:pb-6 lg:grid-cols-[240px_minmax(0,1fr)]">
         <div className="hidden h-full min-h-0 border-r border-stone-200/70 pr-3 lg:block">
           <ImageSidebar

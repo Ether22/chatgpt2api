@@ -1,8 +1,8 @@
 "use client";
 
 import { httpRequest, request } from "@/lib/request";
-import type { StoredReferenceImage } from "@/store/image-conversations";
-import { identityAuth as importAuth } from "@/lib/identity-request";
+import type { ImageConversation, StoredReferenceImage } from "@/store/image-conversations";
+import { identityAuth as importAuth, identityRequest } from "@/lib/identity-request";
 export { IdentityChanged as ImportIdentityChanged } from "@/lib/identity-request";
 import type { AxiosProgressEvent } from "axios";
 
@@ -32,6 +32,16 @@ export type ImportCandidate = {
   matches: { name: string; status: "ready" | "pending" | "error"; upload_id: string | null; reference: StoredReferenceImage | null }[];
 };
 export type CandidateChanges = Partial<ImportCandidateConfig & { skipped: boolean }>;
+export type SelectedMdBatch = ImportMutation & {
+  md_version: number;
+  conversation_id: string | null;
+  model: string;
+  quality: string;
+  count: number;
+  entries: { key: string; count?: number }[];
+};
+export const submitSelectedMdBatch = (authKey: string, body: SelectedMdBatch) =>
+  identityRequest<ImageConversation>(authKey, "/api/image-imports/batches", { method: "POST", body });
 export type ImageImports = {
   version: number;
   revision: number;

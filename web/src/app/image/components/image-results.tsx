@@ -6,7 +6,7 @@ import { Clock3, Download, EyeOff, LoaderCircle, RotateCcw, Sparkles, Trash2 } f
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ImageConversation, ImageTurnStatus, StoredImage, StoredReferenceImage } from "@/store/image-conversations";
+import type { ImageConversation, ImageTurn, ImageTurnStatus, StoredImage, StoredReferenceImage } from "@/store/image-conversations";
 import { fetchStoredImageBlob, useImageSource } from "@/store/image-conversations";
 import { ReferenceThumbnail } from "./reference-thumbnail";
 
@@ -42,7 +42,16 @@ function getStoredImageSrc(image: StoredImage) {
   return image.url || (image.b64_json ? `data:image/png;base64,${image.b64_json}` : "");
 }
 
-async function downloadStoredImage(image: StoredImage, index: number) {
+function resultFilename(turn: ImageTurn, image: StoredImage, index: number) {
+  const ordinal = image.ordinal ?? index + 1;
+  if (!turn.md) return `image-${ordinal}.png`;
+  const { document_id, name, output_name } = turn.md;
+  const stem = [document_id, name, ordinal, output_name?.replace(/\.[^.]+$/, "")].filter(Boolean).join("_")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/[. ]+$/, "").slice(0, 180);
+  return `${stem}.png`;
+}
+
+async function downloadStoredImage(image: StoredImage, index: number, turn: ImageTurn) {
   let blob: Blob | null = null;
   try {
     if (image.b64_json) {
@@ -63,7 +72,8 @@ async function downloadStoredImage(image: StoredImage, index: number) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `image-${image.ordinal ?? index + 1}.png`;
+  const extension = ({ "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/png": "png" } as Record<string, string>)[blob.type] || "png";
+  a.download = resultFilename(turn, image, index).replace(/\.[^.]+$/, `.${extension}`);
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -138,7 +148,8 @@ export function ImageResults({
   return (
     <div className="mx-auto flex w-full max-w-[980px] flex-col gap-5 sm:gap-8">
       {selectedConversation.turns.map((turn, turnIndex) => {
-        const referenceLightboxImages = turn.referenceImages.map((image, index) => ({
+        const readyReferences = turn.referenceImages.filter(image => image.url);
+        const referenceLightboxImages = readyReferences.map((image, index) => ({
           id: `${turn.id}-reference-${index}`,
           src: image.url,
           filename: image.name,
@@ -152,7 +163,7 @@ export function ImageResults({
                   src,
                   sizeLabel: image.b64_json ? formatBase64ImageSize(image.b64_json) : undefined,
                   dimensions: dimensionsLabel(image.id),
-                  filename: `image-${image.ordinal ?? index + 1}.png`,
+                  filename: resultFilename(turn, image, index),
                   ordinal: image.ordinal ?? index + 1,
                   conversationId: selectedConversation.id,
                   turnId: turn.id,
@@ -173,6 +184,7 @@ export function ImageResults({
                     </span>
                     <span>{getTurnStatusLabel(turn.status)}</span>
                     <span>{formatConversationTime(turn.createdAt)}</span>
+                    {turn.md && <span>{turn.md.document_id} · {turn.md.name} · {turn.md.document_name}</span>}
                   </div>
                   <CollapsiblePrompt prompt={turn.prompt} id={`prompt-${turn.id}`} />
                   <div className="mt-2 flex flex-wrap justify-end gap-1.5">
@@ -199,11 +211,11 @@ export function ImageResults({
             {!turn.resultsDeleted ? (
               <div className="flex justify-start">
                 <div className="w-full p-1">
-                  {turn.referenceImages.length > 0 ? (
+                  {readyReferences.length > 0 ? (
                     <div className="mb-4 flex flex-col items-end">
                       <div className="mb-3 text-xs font-medium text-stone-500">本轮参考图</div>
                       <div className="flex flex-wrap justify-end gap-3">
-                        {turn.referenceImages.map((image, index) => (
+                        {readyReferences.map((image, index) => (
                           <div key={`${turn.id}-${image.name}-${index}`} className="flex flex-col items-end gap-2">
                             <button
                               type="button"
@@ -305,7 +317,7 @@ export function ImageResults({
                                   variant="outline"
                                   size="sm"
                                   className="h-7 w-7 rounded-full border-stone-200 bg-white px-0 text-[10px] text-stone-700 hover:bg-stone-50 sm:h-8 sm:w-fit sm:px-3 sm:text-xs"
-                                  onClick={() => void downloadStoredImage(image, index)}
+                                  onClick={() => void downloadStoredImage(image, index, turn)}
                                   aria-label="下载"
                                 >
                                   <Download className="size-3 sm:size-4" />

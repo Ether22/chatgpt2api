@@ -8,9 +8,10 @@ import threading
 from pathlib import Path
 
 from services.config import DATA_DIR
-from services.image_storage_service import write_json_atomic
+from services.image_storage_service import image_storage_service, write_json_atomic
 from services.image_task_service import image_task_service
 from services.image_import_parser import parse_markdown, validate_candidates
+from services.content_filter import check_request
 from utils.business_time import beijing_iso
 
 
@@ -145,6 +146,39 @@ class ImageImportService:
                     raise ValueError(f"条目 {candidate['config']['document_id']} 已跳过、有错误或参考图尚未就绪")
                 selected.append(candidate)
             return {"version": public["version"], "revision": public["revision"], "md_version": md_version, "candidates": selected}
+
+    def submit_batch(self, identity, body, base_url=""):
+        fingerprint = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        with self._lock:
+            replay = self.references.replay_batch(identity, body["request_id"], fingerprint)
+            if replay is not None:
+                return replay
+            snapshot = self.validated_candidates(identity, body["version"], body["md_version"],
+                                                  [entry["key"] for entry in body["entries"]], allow_pending=True)
+        for candidate in snapshot["candidates"]:
+            check_request(candidate["config"]["prompt"])
+        image_storage_service.check_writable(verify_destinations=True)
+        # This lock also guards clear/replace: validation through durable reference pin
+        # is one acceptance boundary, even though current metadata is a separate store.
+        with self._lock:
+            replay = self.references.replay_batch(identity, body["request_id"], fingerprint)
+            if replay is not None:
+                return replay
+            snapshot = self.validated_candidates(identity, body["version"], body["md_version"],
+                                                  [entry["key"] for entry in body["entries"]], allow_pending=True)
+            state = self._read(identity)
+            uploads = {item["request_id"]: item for item in state["references"]}
+            submissions = []
+            for entry, candidate in zip(body["entries"], snapshot["candidates"]):
+                cfg = candidate["config"]
+                submissions.append({"request_id": body["request_id"], "conversation_id": body["conversation_id"],
+                    "prompt": cfg["prompt"], "model": body["model"], "quality": body["quality"],
+                    "size": cfg["size"], "count": entry["count"] if entry["count"] is not None else body["count"],
+                    "ratio": ":".join(cfg["size"].split("x")), "tier": "custom", "referenceImages": [],
+                    "md": {**cfg, "document_name": state["md"]["name"], "md_version": body["md_version"],
+                           "candidate_key": candidate["key"], "upload_ids": [match["upload_id"] for match in candidate["matches"]]},
+                    "uploads": [uploads[match["upload_id"]] for match in candidate["matches"]]})
+            return self.references.submit_md_batch(identity, submissions, fingerprint, base_url)
 
     def replace_md(self, identity, request_id, version, name, data):
         self._filename(name)

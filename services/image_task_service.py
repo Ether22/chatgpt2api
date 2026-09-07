@@ -490,17 +490,20 @@ class ImageTaskService:
             reference = next((item for item in self._references.values()
                               if item["owner_id"] == owner and item["request_id"] == request_id and item["upload_scope"] == scope), None)
             if reference:
-                if reference.get("deleted") or reference.get("upload_cancelled") or reference["digest"] != digest or reference["name"] != name:
+                if (reference.get("deleted") or reference.get("upload_cancelled") or reference.get("digest", digest) != digest
+                        or reference["name"] != name or reference["size"] != len(data)):
                     raise ValueError("上传request_id已使用，请为新文件使用新标识")
-                if not reference["input_scopes"]:
+                if not reference["input_scopes"] and not reference["turn_ids"]:
                     raise ValueError("该上传正在清理，请使用新request_id")
-            else:
+            if reference is None or reference.get("state") == "reserved":
+                previous = copy.deepcopy(reference)
                 with image_storage_service.owner_scope(owner):
                     path = image_storage_service.make_reference_path(mime_type)
-                reference_id = uuid.uuid4().hex
-                reference = {"id": reference_id, "owner_id": owner, "request_id": request_id,
+                reference_id = reference["id"] if reference else uuid.uuid4().hex
+                reference = {**(reference or {}), "id": reference_id, "owner_id": owner, "request_id": request_id,
                              "name": name, "type": mime_type, "url": f"/images/{path}", "size": len(data),
-                             "path": path, "digest": digest, "input_scopes": [scope], "upload_scope": scope, "turn_ids": [],
+                             "path": path, "digest": digest, "input_scopes": [scope], "upload_scope": scope,
+                             "turn_ids": reference["turn_ids"] if reference else [],
                              "created_at": beijing_iso(), "state": "pending",
                              "storage_mode": image_storage_service.mode(),
                              "storage_target": self._reference_storage_target()}
@@ -509,7 +512,10 @@ class ImageTaskService:
                     # Record the intended file before either destination can receive bytes.
                     self._save_locked(references=[reference_id])
                 except Exception:
-                    del self._references[reference_id]
+                    if previous is None:
+                        del self._references[reference_id]
+                    else:
+                        self._references[reference_id] = previous
                     raise
         with self._reference_lock(reference["id"]):
             with self._lock:
@@ -517,7 +523,7 @@ class ImageTaskService:
                 if reference.get("deleted") or reference.get("upload_cancelled"):
                     raise ValueError("该上传已取消，请使用新request_id")
                 if reference["state"] == "ready":
-                    if scope not in reference["input_scopes"]:
+                    if scope not in reference["input_scopes"] and not reference["turn_ids"]:
                         return self.retain_reference(identity, reference["id"], scope=scope)
                     return self._public_reference(reference)
             self._check_reference_destination(reference)
@@ -610,7 +616,9 @@ class ImageTaskService:
                               if item["owner_id"] == owner and item["request_id"] == request_id and item["upload_scope"] == scope), None)
             if reference:
                 previous = reference.get("upload_cancelled")
-                reference["upload_cancelled"] = True
+                # An accepted turn holds bytes already stored/being stored. A reservation
+                # without received bytes cannot be completed after current imports clear.
+                reference["upload_cancelled"] = not (reference["turn_ids"] and reference.get("state") in {"pending", "ready"})
                 try:
                     self._save_locked(references=[reference["id"]])
                 except Exception:
@@ -663,10 +671,10 @@ class ImageTaskService:
         if reference.get("deleted"):
             return {"retained": False}
         with self._lock:
-            retained = any(reference["path"] in self._result_paths(task) for task in self._tasks.values()
+            retained = any(reference.get("path") in self._result_paths(task) for task in self._tasks.values()
                            if not task.get("result_deleted"))
         # The same existing task/reference records govern both release directions.
-        if not retained:
+        if not retained and reference.get("path"):
             self._check_reference_destination(reference)
             image_storage_service.delete(reference["path"], reference_storage_mode=reference["storage_mode"])
         with self._lock:
@@ -679,80 +687,137 @@ class ImageTaskService:
         return {"retained": retained}
 
     def submit_turn(self, identity: dict[str, object], submission: dict[str, Any], base_url: str = "") -> dict[str, Any]:
-        owner = _owner_id(identity)
-        request_id = submission["request_id"]
-        payload = {key: submission.get(key) for key in ("prompt", "model", "size", "quality")}
-        payload.update(n=1, response_format="url", base_url=base_url)
-        references = submission.get("referenceImages", [])
-        payload["reference_ids"] = [image["id"] for image in references]
-        mode = "edit" if references else "generate"
+        return self._submit_turns(identity, [submission], base_url)
+
+    def replay_batch(self, identity, request_id, fingerprint):
         with self._lock:
-            for existing in self._conversations.values():
-                if existing["owner_id"] == owner and any(turn["request_id"] == request_id for turn in existing["turns"]):
-                    return self.get_conversation(identity, existing["id"])
-        image_storage_service.check_writable(verify_destinations=True)
+            for conversation in self._conversations.values():
+                if conversation["owner_id"] == _owner_id(identity) and request_id in conversation.get("batches", {}):
+                    if conversation["batches"][request_id] != fingerprint:
+                        raise ValueError("批量 request_id 已用于其他配置")
+                    return self.get_conversation(identity, conversation["id"])
+        return None
+
+    def submit_md_batch(self, identity, submissions, fingerprint, base_url=""):
+        return self._submit_turns(identity, submissions, base_url, fingerprint)
+
+    def _submit_turns(self, identity, submissions, base_url, batch_fingerprint=None):
+        owner = _owner_id(identity)
+        first = submissions[0]
+        request_id = first["request_id"]
+        with self._lock:
+            replay = self._replay_submission(identity, request_id, batch_fingerprint)
+            if replay is not None:
+                return replay
+        if batch_fingerprint is None:
+            image_storage_service.check_writable(verify_destinations=True)
         with self._lock:
             # One identity's concurrent first submissions resolve the target under the same save lock.
-            for existing in self._conversations.values():
-                if existing["owner_id"] == owner and any(turn["request_id"] == request_id for turn in existing["turns"]):
-                    return self.get_conversation(identity, existing["id"])
-            reference_records = [self._owned_reference(identity, image["id"]) for image in references]
-            payload["_preparation"] = Future()
+            replay = self._replay_submission(identity, request_id, batch_fingerprint)
+            if replay is not None:
+                return replay
             previous_current = self._current.get(owner)
-            conversation_id = submission.get("conversation_id") or previous_current
+            conversation_id = first.get("conversation_id") or previous_current
             conversation = (self._owned_conversation(identity, conversation_id) if conversation_id
-                            else self._new_conversation(owner, submission["prompt"][:24]))
+                            else self._new_conversation(owner, first["prompt"][:24]))
             previous_conversation = copy.deepcopy(conversation) if conversation_id else None
-            source_id = submission.get("source_entry_id")
-            if source_id and not any(source["id"] == source_id for source in conversation["sourceEntries"]):
-                if not conversation_id:
-                    del self._conversations[conversation["id"]]
-                    self._restore_current(owner, previous_current)
-                raise ValueError("source entry not found in this conversation")
-            source_id = source_id or uuid.uuid4().hex
-            if not submission.get("source_entry_id"):
-                conversation["sourceEntries"].append({"id": source_id, "name": submission["prompt"][:24]})
-            turn_id = uuid.uuid4().hex
-            now = _now_iso()
-            task_ids = [f"{turn_id}-{index}" for index in range(submission["count"])]
-            turn = {key: copy.deepcopy(submission[key]) for key in
-                    ("prompt", "model", "size", "quality", "count", "ratio", "tier", "referenceImages")}
-            turn.update(id=turn_id, sourceEntryId=source_id, mode=mode, createdAt=now,
-                        task_ids=task_ids, request_id=request_id)
-            turn["referenceImages"] = [self._public_reference(reference) for reference in reference_records]
-            for reference in reference_records:
-                if turn_id not in reference["turn_ids"]:
-                    reference["turn_ids"].append(turn_id)
-            conversation["turns"].append(turn)
-            conversation["updatedAt"] = now
-            if len(conversation["turns"]) == 1:
-                conversation["title"] = submission["prompt"][:24]
-            for task_id in task_ids:
-                self._tasks[_task_key(owner, task_id)] = {
-                    **self._new_task(owner, task_id, mode, payload, identity),
-                    "image_conversation_id": conversation["id"], "turn_id": turn_id, "source_entry_id": source_id,
-                    "prompt": submission["prompt"],
-                }
-            self._current[owner] = conversation["id"]
+            previous_references = {}
+            starts = []
             try:
-                self._save_locked(tasks=[_task_key(owner, task_id) for task_id in task_ids],
-                                  conversations=[conversation["id"]], current=[owner],
-                                  references=[reference["id"] for reference in reference_records])
+                for submission in submissions:
+                    records = self._submission_references(identity, submission, previous_references)
+                    payload = {key: submission.get(key) for key in ("prompt", "model", "size", "quality")}
+                    payload.update(n=1, response_format="url", base_url=base_url,
+                                   reference_ids=[record["id"] for record in records], _preparation=Future())
+                    mode = "edit" if records else "generate"
+                    source_id = submission.get("source_entry_id")
+                    md = submission.get("md")
+                    if md:
+                        source_id = next((source["id"] for source in conversation["sourceEntries"]
+                                          if source.get("documentId") == md["document_id"]), None)
+                    if source_id and not any(source["id"] == source_id for source in conversation["sourceEntries"]):
+                        raise ValueError("source entry not found in this conversation")
+                    if not source_id:
+                        source_id = uuid.uuid4().hex
+                        conversation["sourceEntries"].append({"id": source_id, "name": md["name"] if md else submission["prompt"][:24],
+                                                              **({"documentId": md["document_id"]} if md else {})})
+                    turn_id, now = uuid.uuid4().hex, _now_iso()
+                    payload.update(snapshot_turn_id=turn_id, snapshot_conversation_id=conversation["id"])
+                    task_ids = [f"{turn_id}-{index}" for index in range(submission["count"])]
+                    turn = {key: copy.deepcopy(submission[key]) for key in
+                            ("prompt", "model", "size", "quality", "count", "ratio", "tier")}
+                    turn.update(id=turn_id, sourceEntryId=source_id, mode=mode, createdAt=now,
+                                task_ids=task_ids, request_id=request_id,
+                                referenceImages=[self._public_reference(record) for record in records])
+                    if md:
+                        turn["md"] = copy.deepcopy(md)
+                    for record in records:
+                        if turn_id not in record["turn_ids"]:
+                            record["turn_ids"].append(turn_id)
+                    conversation["turns"].append(turn)
+                    conversation["updatedAt"] = now
+                    if len(conversation["turns"]) == 1:
+                        conversation["title"] = md["name"] if md else submission["prompt"][:24]
+                    for task_id in task_ids:
+                        key = _task_key(owner, task_id)
+                        self._tasks[key] = {**self._new_task(owner, task_id, mode, payload, identity),
+                            "image_conversation_id": conversation["id"], "turn_id": turn_id, "source_entry_id": source_id}
+                        if any(record["state"] != "ready" for record in records):
+                            self._tasks[key].update(progress="waiting_reference", waiting={"reason": "reference", "message": "等待本条参考图上传；关闭页面后仍保留任务"})
+                        starts.append((key, mode, payload))
+                if batch_fingerprint:
+                    conversation.setdefault("batches", {})[request_id] = batch_fingerprint
+                self._current[owner] = conversation["id"]
+                self._save_locked(tasks=[key for key, _, _ in starts], conversations=[conversation["id"]],
+                                  current=[owner], references=previous_references)
             except Exception:
-                for reference in reference_records:
-                    if turn_id in reference["turn_ids"]:
-                        reference["turn_ids"].remove(turn_id)
-                for task_id in task_ids:
-                    self._tasks.pop(_task_key(owner, task_id), None)
+                for reference_id, previous in previous_references.items():
+                    if previous is None:
+                        self._references.pop(reference_id, None)
+                    else:
+                        self._references[reference_id] = previous
+                for key, _, _ in starts:
+                    self._tasks.pop(key, None)
                 if previous_conversation is None:
                     del self._conversations[conversation["id"]]
                 else:
                     self._conversations[conversation["id"]] = previous_conversation
                 self._restore_current(owner, previous_current)
                 raise
-        for task_id in task_ids:
-            self._start_task(_task_key(owner, task_id), mode, payload, identity)
+        for key, mode, payload in starts:
+            self._start_task(key, mode, payload, identity)
         return self.get_conversation(identity, conversation["id"])
+
+    def _replay_submission(self, identity, request_id, batch_fingerprint):
+        if batch_fingerprint:
+            return self.replay_batch(identity, request_id, batch_fingerprint)
+        for existing in self._conversations.values():
+            if existing["owner_id"] == _owner_id(identity) and any(turn["request_id"] == request_id for turn in existing["turns"]):
+                return self.get_conversation(identity, existing["id"])
+        return None
+
+    def _submission_references(self, identity, submission, previous):
+        records = []
+        for upload in submission.get("uploads", []):
+            record = next((item for item in self._references.values() if item["owner_id"] == _owner_id(identity)
+                           and item["upload_scope"] == "imports" and item["request_id"] == upload["request_id"]), None)
+            if record is None:
+                reference_id = uuid.uuid4().hex
+                previous[reference_id] = None
+                record = {"id": reference_id, "owner_id": _owner_id(identity), "request_id": upload["request_id"],
+                          "upload_scope": "imports", "input_scopes": ["imports"], "turn_ids": [],
+                          "name": upload["name"], "size": upload["size"], "type": "", "url": "",
+                          "state": "reserved", "created_at": _now_iso()}
+                self._references[reference_id] = record
+            if record.get("deleted") or record.get("upload_cancelled") or "imports" not in record["input_scopes"]:
+                raise ValueError("该参考图上传已被清理，请刷新素材")
+            records.append(record)
+        if "md" not in submission:
+            records = [self._owned_reference(identity, image["id"]) for image in submission.get("referenceImages", [])]
+        for record in records:
+            if record["id"] not in previous:
+                previous[record["id"]] = copy.deepcopy(record)
+        return records
 
     def _new_task(self, owner: str, task_id: str, mode: str, payload: dict[str, Any],
                   identity: dict[str, object]) -> dict[str, Any]:
@@ -763,7 +828,7 @@ class ImageTaskService:
                 "created_at": now, "updated_at": now, "created_ts": time.time(), "dispatch_state": "pending",
                 "identity": {key: identity[key] for key in ("id", "name", "role") if key in identity},
                 "request": {key: payload[key] for key in ("prompt", "model", "size", "quality", "n",
-                            "response_format", "base_url", "reference_ids", "inputs_id") if key in payload}}
+                            "response_format", "base_url", "reference_ids", "inputs_id", "snapshot_turn_id", "snapshot_conversation_id") if key in payload}}
 
     def _start_task(self, key: str, mode: str, payload: dict[str, Any] | None, identity: dict[str, object]) -> None:
         def run():
@@ -800,6 +865,7 @@ class ImageTaskService:
             try:
                 prepared = {key: value for key, value in payload.items() if key != "_preparation"}
                 if prepared.get("reference_ids"):
+                    self._wait_for_references(identity, prepared)
                     prepared["images"] = [self.read_reference(identity, reference_id) for reference_id in prepared["reference_ids"]]
                 if prepared.get("inputs_id") and not prepared.get("images"):
                     inputs = image_rows.get(self.path, "inputs", prepared["inputs_id"])
@@ -816,6 +882,39 @@ class ImageTaskService:
                 future.set_exception(exc)
                 raise
         return future.result()
+
+    def _wait_for_references(self, identity, payload):
+        reference_ids = payload["reference_ids"]
+        while True:
+            with self._lock:
+                conversation_id = payload.get("snapshot_conversation_id")
+                if conversation_id:
+                    conversation = self._owned_conversation(identity, conversation_id)
+                    turn = next((turn for turn in conversation["turns"] if turn["id"] == payload["snapshot_turn_id"]), None)
+                    if turn is None or turn.get("resultsDeleted"):
+                        raise ValueError("本轮已删除，未发送生成请求")
+                records = [self._references.get(reference_id) for reference_id in reference_ids]
+                if any(not record or record["owner_id"] != _owner_id(identity) or record.get("deleted")
+                       or record.get("upload_cancelled") for record in records):
+                    raise ValueError("本轮等待的原始参考图上传已取消，未发送生成请求；请重新提交")
+                if all(record["state"] == "ready" for record in records):
+                    # Freeze the completed reference metadata before any consumption.
+                    if conversation_id:
+                        snapshot = [self._public_reference(record) for record in records]
+                        if turn["referenceImages"] != snapshot:
+                            previous = turn["referenceImages"]
+                            previous_updated = conversation["updatedAt"]
+                            turn["referenceImages"] = snapshot
+                            conversation["updatedAt"] = _now_iso()
+                            try:
+                                self._save_locked(conversations=[conversation_id])
+                            except Exception:
+                                turn["referenceImages"] = previous
+                                conversation["updatedAt"] = previous_updated
+                                raise
+                    return
+            if self._stopping.wait(.2):
+                raise TaskServiceStopped()
 
     def submit_generation(
         self,

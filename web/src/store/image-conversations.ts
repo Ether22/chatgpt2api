@@ -93,6 +93,10 @@ export type ImageTurnStatus = "queued" | "generating" | "success" | "error";
 export type ImageTurn = {
   id: string;
   sourceEntryId?: string;
+  md?: {
+    document_id: string; name: string; document_name: string; output_name: string | null;
+    reference_names: string[]; upload_ids: string[]; md_version: number; candidate_key: string;
+  };
   prompt: string;
   model: ImageModel;
   mode: ImageConversationMode;

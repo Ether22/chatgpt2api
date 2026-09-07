@@ -5,12 +5,17 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { formatBeijingDateTime } from "@/lib/business-time";
-import { cleanupImageImports, correctImportCandidate, fetchImageImports, ImportIdentityChanged, reserveImportReference, uploadImportFile, type CandidateChanges, type ImportCandidate, type ImageImports, type ImportCleanup, type ImportMutation } from "@/store/image-imports";
+import { cleanupImageImports, correctImportCandidate, fetchImageImports, ImportIdentityChanged, reserveImportReference, submitSelectedMdBatch, uploadImportFile, type CandidateChanges, type ImportCandidate, type ImageImports, type ImportCleanup, type ImportMutation, type SelectedMdBatch } from "@/store/image-imports";
 import { ReferenceThumbnail } from "./reference-thumbnail";
 
 type Upload = { file: File; mutation: ImportMutation; url: string; progress: number; busy: boolean; error?: string; cancelled?: boolean };
 
-export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boolean; onOpenChange: (open: boolean) => void; authKey: string }) {
+export function ImageImportDialog({ open, onOpenChange, authKey, conversationId, model, quality, count, onCountChange, onAccepted }: {
+  open: boolean; onOpenChange: (open: boolean) => void; authKey: string;
+  conversationId: string | null; model: string; quality: string; count: string;
+  onCountChange: (value: string) => void;
+  onAccepted: (conversationId: string, submittedFrom: string | null) => Promise<void>;
+}) {
   const [materials, setMaterials] = useState<ImageImports | null>(null);
   const current = useRef<ImageImports | null>(null);
   const [uploads, setUploads] = useState<Record<string, Upload>>({});
@@ -18,6 +23,11 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
   const [mdUpload, setMdUpload] = useState<Upload | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [counts, setCounts] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const pendingBatch = useRef<SelectedMdBatch | null>(null);
+  const [submissionMessage, setSubmissionMessage] = useState("");
   const [failedCleanup, setFailedCleanup] = useState<ImportCleanup | null>(null);
   const [preview, setPreview] = useState<{ id: string; src: string; filename: string } | null>(null);
   const mdInput = useRef<HTMLInputElement>(null);
@@ -68,6 +78,12 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
   }
   useEffect(() => {
     mounted.current = true;
+    try {
+      const values = JSON.parse(localStorage.getItem("chatgpt2api:md_counts") || "{}");
+      if (values && typeof values === "object") setCounts(Object.fromEntries(Object.entries(values).filter(([, value]) => typeof value === "string")) as Record<string, string>);
+      const choices = JSON.parse(localStorage.getItem("chatgpt2api:md_selection") || "{}");
+      if (choices && typeof choices === "object") setSelected(Object.fromEntries(Object.entries(choices).filter(([, value]) => typeof value === "boolean")) as Record<string, boolean>);
+    } catch { /* preferences are optional */ }
     return () => {
       mounted.current = false;
       for (const item of Object.values(uploadsRef.current)) URL.revokeObjectURL(item.url);
@@ -173,6 +189,39 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
     });
   }
 
+  const validCount = (value: string) => /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 100;
+  const selectedCandidates = (materials?.candidates ?? []).filter(item => !item.skipped && item.status !== "error" && selected[item.config.document_id] !== false);
+  const countsValid = validCount(count) && selectedCandidates.every(item => !counts[item.config.document_id] || validCount(counts[item.config.document_id]));
+  function changeOverride(documentId: string, value: string) {
+    const next = { ...counts, [documentId]: value };
+    setCounts(next);
+    try { localStorage.setItem("chatgpt2api:md_counts", JSON.stringify(next)); } catch { /* preferences are optional */ }
+  }
+  function changeSelection(next: Record<string, boolean>) {
+    setSelected(next);
+    try { localStorage.setItem("chatgpt2api:md_selection", JSON.stringify(next)); } catch { /* preferences are optional */ }
+  }
+  async function startBatch() {
+    if (submitting || !materials || identityChanged.current) return;
+    if (!pendingBatch.current) {
+      if (!countsValid || !selectedCandidates.length) { setError("请选择有效条目，数量须为 1–100 的整数"); return; }
+      pendingBatch.current = { request_id: crypto.randomUUID(), version: materials.version, md_version: materials.md_version,
+        conversation_id: conversationId, model, quality, count: Number(count),
+        entries: selectedCandidates.map(item => ({ key: item.key,
+          ...(counts[item.config.document_id] ? { count: Number(counts[item.config.document_id]) } : {}) })) };
+    }
+    const submitted = pendingBatch.current;
+    setSubmitting(true); setError(""); setSubmissionMessage("");
+    try {
+      const saved = await submitSelectedMdBatch(authKey, submitted);
+      pendingBatch.current = null;
+      setSubmissionMessage(`已接受 ${submitted.entries.length} 条；各条参考图就绪后自动生成。`);
+      await onAccepted(saved.id, submitted.conversation_id);
+    } catch (reason) {
+      setError(handleImportError(reason));
+    } finally { if (mounted.current) setSubmitting(false); }
+  }
+
   const pending = materials?.pending ?? failedCleanup;
   const blocked = !materials || busy || !!materials.pending;
   const rows = [
@@ -188,6 +237,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
       </DialogHeader>
       <div className="min-h-0 overflow-y-auto overscroll-contain">
         {error && <p role="alert" className="mb-3 break-words text-sm text-rose-600">{error}</p>}
+        {submissionMessage && <p role="status" className="mb-3 text-sm">{submissionMessage}</p>}
         {busy && <p role="status" className="mb-3 text-sm">正在清理当前素材…</p>}
         {!materials && !identityChanged.current && <p role="status">正在读取当前素材…</p>}
         <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
@@ -235,8 +285,20 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
         {materials?.md && <section className="mt-4 min-w-0 space-y-3" aria-label="MD 条目预览">
           <h3 className="font-medium">MD 条目预览 · {materials.candidates.length} 条</h3>
           <p className="text-xs text-muted-foreground">仅使用下列 Prompt 和目标尺寸。缺少文件或结构错误需修正；等待上传表示文件已登记，尚未就绪。跳过的条目不提交。</p>
+          <label className="flex flex-wrap items-center gap-2 text-sm">批量生成数量
+            <input aria-label="批量生成数量" inputMode="numeric" value={count} onChange={event => onCountChange(event.target.value)} className="w-20 rounded-md border bg-background p-2" />
+            <span className="text-xs text-muted-foreground">1–100，单条留空时沿用此值 · {model} / {quality}</span>
+          </label>
+          <div className="flex gap-3 text-xs"><button type="button" className="underline" onClick={() => changeSelection({ ...selected, ...Object.fromEntries(materials.candidates.map(item => [item.config.document_id, true])) })}>选择全部有效条目</button><button type="button" className="underline" onClick={() => changeSelection({ ...selected, ...Object.fromEntries(materials.candidates.map(item => [item.config.document_id, false])) })}>取消全选</button></div>
           {materials.candidates.length === 0 && <p role="status" className="text-sm">未识别到需要生成的条目。请检查章节标识、Prompt 区块，或文档是否声明直通。</p>}
-          {materials.candidates.map((candidate) => <CandidatePreview key={candidate.key} candidate={candidate} version={materials.version} mdVersion={materials.md_version} disabled={blocked} onCorrect={correct} />)}
+          {materials.candidates.map((candidate) => <div key={candidate.key}>
+            <div className="mb-1 flex flex-wrap items-center gap-3 text-sm">
+              <label><input type="checkbox" aria-label={`选择 ${candidate.config.document_id}`} disabled={candidate.skipped || candidate.status === "error"} checked={!candidate.skipped && candidate.status !== "error" && selected[candidate.config.document_id] !== false} onChange={event => changeSelection({ ...selected, [candidate.config.document_id]: event.target.checked })} /> 选择</label>
+              <label>单条数量 <input aria-label={`${candidate.config.document_id} 单条数量`} inputMode="numeric" placeholder={count} value={counts[candidate.config.document_id] || ""} onChange={event => changeOverride(candidate.config.document_id, event.target.value)} className="w-20 rounded-md border bg-background p-1" /></label>
+              <span className="text-xs text-muted-foreground">生效：{counts[candidate.config.document_id] || count} 张</span>
+            </div>
+            <CandidatePreview candidate={candidate} version={materials.version} mdVersion={materials.md_version} disabled={blocked} onCorrect={correct} />
+          </div>)}
         </section>}
       </div>
       <DialogFooter className="shrink-0 flex-row flex-wrap items-center justify-end gap-2 border-t pt-3">
@@ -244,6 +306,8 @@ export function ImageImportDialog({ open, onOpenChange, authKey }: { open: boole
         <Button variant="outline" disabled={busy} onClick={() => { setError(""); setFailedCleanup(null); void refresh().catch((reason: Error) => setError(handleImportError(reason))); }}>刷新素材</Button>
         {pending && <Button variant="outline" disabled={busy} onClick={() => cleanup(pending.clear, pending.upload_ids[0], pending)}>重试清理</Button>}
         <Button variant="outline" disabled={blocked} onClick={() => cleanup(true)}>清除上传内容</Button>
+        <Button disabled={submitting || (!pendingBatch.current && (blocked || !countsValid || !selectedCandidates.length))} onClick={() => void startBatch()}>{submitting ? "正在保存批量任务…" : pendingBatch.current ? "重试本次提交" : `开始生成（${selectedCandidates.length} 条）`}</Button>
+        {pendingBatch.current && !submitting && <Button variant="outline" onClick={() => { pendingBatch.current = null; setSubmissionMessage("已解除重试；若服务器已接受，原批次仍会继续，可在会话历史查看。"); }}>准备新的提交</Button>}
         <Button onClick={() => onOpenChange(false)}>完成</Button>
       </DialogFooter>
       {preview && <ImageLightbox open={!!preview} onOpenChange={(value) => { if (!value) setPreview(null); }} images={[preview]} currentIndex={0} onIndexChange={() => {}} />}
