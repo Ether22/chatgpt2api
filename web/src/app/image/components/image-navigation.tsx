@@ -58,12 +58,16 @@ export function ImageNavigation({ authKey, conversation, viewport, onLocate, ope
       entries.forEach((entry) => entry.isIntersecting ? visible.add(entry.target as HTMLElement) : visible.delete(entry.target as HTMLElement));
       const top = root.getBoundingClientRect().top;
       const candidates = [...visible].sort((a, b) => Math.abs(a.getBoundingClientRect().top - top) - Math.abs(b.getBoundingClientRect().top - top));
-      const element = candidates[0];
-      if (!element) return;
-      const turn = element.closest<HTMLElement>("[data-turn-id]");
-      if (!turn) return;
-      const next = { turn_id: turn.dataset.turnId!, image_id: element.dataset.imageId };
-      setActive((previous) => previous?.turn_id === next.turn_id && previous?.image_id === next.image_id ? previous : next);
+      if (!candidates.length) return;
+      setActive((previous) => {
+        // Images in the same grid row share a scroll position; keep the explicitly selected image.
+        const preferred = candidates.find((node) => previous?.image_id && node.dataset.imageId === previous.image_id);
+        const element = preferred && Math.abs(preferred.getBoundingClientRect().top - candidates[0].getBoundingClientRect().top) < 1 ? preferred : candidates[0];
+        const turn = element.closest<HTMLElement>("[data-turn-id]");
+        if (!turn) return previous;
+        const next = { turn_id: turn.dataset.turnId!, image_id: element.dataset.imageId };
+        return previous?.turn_id === next.turn_id && previous?.image_id === next.image_id ? previous : next;
+      });
     }, { root, threshold: [0, 0.25, 0.75, 1] });
     root.querySelectorAll<HTMLElement>("[data-result-anchor]").forEach((element) => observer.observe(element));
     return () => observer.disconnect();
@@ -80,6 +84,7 @@ export function ImageNavigation({ authKey, conversation, viewport, onLocate, ope
   const locate = async (target: ResultTarget) => {
     onOpenChange(false);
     await onLocate(target);
+    setActive(target);
   };
   const tree = <nav aria-label="结果定位导航" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 text-sm">
     {loading && <p role="status" className="p-2 text-stone-500">读取导航…</p>}
