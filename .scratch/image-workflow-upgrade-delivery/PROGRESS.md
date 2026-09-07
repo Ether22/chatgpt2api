@@ -31,7 +31,7 @@
 | 07 | MD 结构解析、匹配预览与纠错 | 6 | 01a07d6c-ac9c-7790-8113-6b49cd54eed2 | codex/image-task-07 | gpt-6-astra / high | 实施中 | — | — |
 | 08 | 选择 MD 条目并随上传进度生成 | 5, 7 | 待创建 | codex/image-task-08 | gpt-6-astra / high | 待调度 | — | — |
 | 09 | 重跑与复用持续归入原条目 | 8 | 待创建 | codex/image-task-09 | gpt-6-astra / high | 待调度 | — | — |
-| 10 | 单张结果的真实删除与引用保护 | 4 | 待创建 | codex/image-task-10 | gpt-6-astra / high | 待调度 | — | — |
+| 10 | 单张结果的真实删除与引用保护 | 4 | 01a07d73-ecb5-7913-99da-855877fd8119 | codex/image-task-10 | gpt-6-astra / high | 实施中 | — | — |
 | 11 | 范围删除、迟到清理与批量性能 | 5, 10 | 待创建 | codex/image-task-11 | gpt-6-astra / high | 待调度 | — | — |
 | 12 | 查看器下方操作与本轮直接下载 | 8, 10 | 待创建 | codex/image-task-12 | gpt-6-astra / medium | 待调度 | — | — |
 | 13 | 服务器分页与大型图库按需浏览 | 3 | 01a07d27-3bcf-7f53-abd0-3beed385bd47 | codex/image-task-13 | gpt-6-astra / high | 已集成并验证 | 06918eb、5e9b24a、e795ee3、43b989f | fb34468、bbf97f5、fa9561b、e4e9fe8；41项组合复验、tsc/build与两种3200图浏览器通过 |
@@ -106,3 +106,6 @@
 - 07已从最新已验证06基线6a207f1创建，实际工作树fde8、模型gpt-6-astra/high。范围限imports解析/预览/纠错服务、API、DTO与新弹窗区域；md_version与章节位置组成候选key，独立于可纠正文档标识，server validated_candidates供08使用，不提前消费。05B若抽取现有身份helper，只改已协调的顶部小区域并保留现有接口语义。
 - 05A逐个集成后首轮232通过、2失败，均为13新增测试的旧初始化：模拟上游没有05发送事件、图库种子仍写JSON。主6d6e682适配实际lifecycle与SQLite种子，保留原并发完成快照/分页断言，也更新13真实3200图seed；未修改生产状态逻辑。最终完整离线234通过、7子场景通过，33.15秒；独立tsc通过。主3200图读写诊断：current仅1行/9B约1.60ms、100次poll零写、10变化+100重复进度只10行/5957B、逐图索引1行/498B中位9.54ms，均为本地合成服务调用。
 - 下一步同一05工作树同步主验证基线后继续B，并基于稳定A接口派10。05最终双轴审查以6a207f1（包含13/06、尚无05A的主基线）为固定点，确保A与B都纳入审查。10只改已完成图片删除/清理、对应路由及结果删除UI，不改05发送/恢复/轮询与任务核心schema；_public_conversation仅删除过滤/ordinal区域可与05错误字段映射分别处理。整票05和18仍未完成。
+- 05同树同步完成，merge HEAD345860a的全树已核对与主验证b471218一致，唯一冲突为重复start/shutdown插入，保留主组合实现。05B已启动；07同时在fde8继续解析。10实际gpt-6-astra/high、03cb工作树、codex/image-task-10，基线b471218。其初次把delivery简称当根路径导致未找到文档，已给出完整.scratch/image-workflow-upgrade-delivery路径并核对文件存在，无代码/文档缺失。
+- 10拟定result_deleted墓碑与result_cleanup状态，保留原task_ids/data私有记录，公开images按原ordinal过滤、resultCleanups暴露待清理与错误；与05仅错误映射/轮询区域独立。新删除请求authKey第一参数并显式绑定，主合并05后统一接其identityRequest；不让新客户端重新读取任意当前身份。图库可见性与无活跃生成时的清理进度另行核查。
+- 主在05A新SQLite上复跑13的3200图/20图每轮完整浏览器：首次1054ms、切换248ms、翻页243ms、滚动P95 19.5ms、输入17ms，实际解码/Blob释放/位置恢复/旧响应抑制/标签与全选故障恢复/13图ZIP全部通过。证据data/13-after05A-evidence，专用32624/33272已核对完整命令并停止。05B修改前端后仍须完成两种密度最终浏览器验收。
