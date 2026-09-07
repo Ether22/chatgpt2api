@@ -1,0 +1,12 @@
+PASS first visit defaults to four images
+PASS empty, out-of-range, fractional, signed, exponent, hex, whitespace, letters and full-width digits reject button/Enter submission
+PASS seven remains selected after upload, rerender and reload
+PASS long prompt expands/collapses while round label and reference remain visible
+PASS 1440px: 3 columns in row-major order
+PASS 1000px: 2 columns in row-major order
+PASS 600px: 3 columns in row-major order
+PASS 390px: 3 columns in row-major order
+PASS original PNG download: image-1.png
+PASS count 1: exact number of real task submissions and successful last result in 2503ms
+PASS count 100: exact number of real task submissions and successful last result in 6161ms
+PASS ticket 01 browser acceptance

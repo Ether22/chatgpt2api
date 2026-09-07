@@ -34,7 +34,7 @@ def controlled_upstream(payload):
     number = next(sequence)
     width, height = [(420, 210), (210, 420), (300, 300), (480, 280)][(number - 1) % 4]
     image = Image.new("RGB", (width, height), ["#f8c06a", "#90cfbc", "#a6bcf5", "#eab4d1"][(number - 1) % 4])
-    ImageDraw.Draw(image).text((20, 20), f"Synthetic image {number}", fill="black", font_size=22)
+    ImageDraw.Draw(image).text((20, 20), f"Synthetic {width}x{height}", fill="black", font_size=22)
     output = io.BytesIO()
     image.save(output, format="PNG")
     payload["progress_callback"]("image_stream_resolve_start")

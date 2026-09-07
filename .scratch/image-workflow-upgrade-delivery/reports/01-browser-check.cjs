@@ -39,7 +39,7 @@ const output = path.join(__dirname, '01-evidence');
       await count.fill(value);
       assert.equal(await submit.isDisabled(), true, `Invalid count ${JSON.stringify(value)} must disable submit`);
       if (value === '1e2') await page.screenshot({ path: path.join(output, 'invalid-count.png') });
-      await prompt.click({ position: { x: 8, y: 8 } });
+      await prompt.click({ position: { x: 35, y: 35 } });
       await prompt.press('Enter');
       await page.getByText('生成数量必须为 1–100 的纯数字整数', { exact: true }).first().waitFor();
       assert.equal(await prompt.inputValue(), '数量校验，不应提交非法值', 'Enter must preserve the invalid draft');
@@ -121,13 +121,14 @@ const output = path.join(__dirname, '01-evidence');
       await count.fill(value);
       await prompt.fill(`数量边界 ${value}`);
       const before = submissions.length;
+      const started = Date.now();
       await submit.click();
       await page.getByText(`结果 ${value}`, { exact: true }).waitFor();
       await page.getByText(`结果 ${value}`, { exact: true }).scrollIntoViewIfNeeded();
       await page.getByRole('button', { name: `Generated result ${value}`, exact: true }).waitFor();
       assert.equal(submissions.length - before, Number(value));
       assert.equal(await page.getByRole('button', { name: '展开 Prompt', exact: true }).count(), 0, 'Short prompt needs no disclosure');
-      console.log(`PASS count ${value}: exact number of real task submissions and successful last result`);
+      console.log(`PASS count ${value}: exact number of real task submissions and successful last result in ${Date.now() - started}ms`);
     }
     console.log('PASS ticket 01 browser acceptance');
   } catch (error) {
