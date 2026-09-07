@@ -22,7 +22,7 @@
 
 | 票 | 标题 | 阻塞票 | Codex 对话 | 分支 | 模型/强度 | 状态 | 实施提交 | 集成提交/验证 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 01 | Prompt 折叠、图片顺序与数量记忆 | 无 | client-new-thread:b2aef621-1ed9-4927-9ca7-2083258dc0fe（待实际 ID 回报） | codex/image-task-01 | gpt-6-astra / medium | 工作树已建立 | — | — |
+| 01 | Prompt 折叠、图片顺序与数量记忆 | 无 | 01a07cd9-3e06-7ee2-9772-dc38724e088f | codex/image-task-01 | gpt-6-astra / medium | 实施中 | — | — |
 | 02 | OAuth 弹窗底部操作可达 | 无 | 01a07cd9-5bba-7003-ac8b-728c6f60fbad | codex/image-task-02 | gpt-6-astra / medium | 实施中 | — | — |
 | 03 | 普通生图在服务器保存并跨浏览器恢复 | 无 | 待创建 | codex/image-task-03 | gpt-6-astra / high | 待调度 | — | — |
 | 04 | 普通参考图生成与独立快照 | 3 | 待创建 | codex/image-task-04 | gpt-6-astra / high | 待调度 | — | — |
@@ -58,3 +58,7 @@
 - Git 无作者配置，本次自动化提交使用命令级 Codex <codex@local>，不修改全局身份。
 - 15 的消费资格核查补充 editable-file 的 PPT/PSD 账号选择与模型目录能力推断，不与 01/02 保留范围冲突。
 - 主对话准备 .venv/runtime 下 Python3.13 与 uv.lock 锁定依赖，解释器可共用读取；每个工作树自己的数据、配置、端口及构建输出保持隔离。完整离线测试不能调用现有 localhost:8000 真实联调脚本。
+- 共享测试解释器已完成：C:/Users/ForestHill/Documents/chatgpt2api/.venv/runtime/Scripts/python.exe，Python 3.13.15、uv.lock 冻结依赖及现有数据库测试所需 pytest 9.1.1；未修改依赖清单或全局 Python。
+- 已核对三个新任务实际模型字段：01/02 gpt-6-astra medium，15 gpt-6-astra high。
+- 主对话专用隔离验证工作树：.venv/integration-check（detached HEAD，自统一基线派生）；后端测试仅在该目录运行，主目录实际 data/config 不参与。
+- 原始基线离线检查（138 项，固定测试键 chatgpt2api）：133 通过，5 失败。1 项为轮询 settle 用例未显式启用当前开关，交 05 核查；4 项为 JSON 编辑接口旧断言（默认文件名、缺图错误文案、远程 URL 行为），交 04 按实际公开接口更新，并用受控远程读取避免外网。首轮自定义测试键造成的 14 项 401 已确认为测试配置不符，修正后消除，未改应用鉴权。
