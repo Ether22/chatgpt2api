@@ -31,10 +31,12 @@ from services.storage.json_storage import JSONStorageBackend
 
 
 sequence = itertools.count(1)
+consumed = []
 
 
 def controlled_upstream(payload):
     number = next(sequence)
+    consumed.append(number)
     width, height = [(420, 210), (210, 420), (300, 300), (480, 280)][(number - 1) % 4]
     image = Image.new("RGB", (width, height), ["#f8c06a", "#90cfbc", "#a6bcf5", "#eab4d1"][(number - 1) % 4])
     ImageDraw.Draw(image).text((20, 20), f"Synthetic {number}", fill="black", font_size=22)
@@ -75,6 +77,9 @@ if __name__ == "__main__":
         app.include_router(accounts.create_router())
         app.include_router(ai.create_router())
         app.include_router(image_tasks.create_router())
+        @app.get("/ticket03-consumption")
+        def consumption():
+            return {"count": len(consumed)}
         app.mount("/", StaticFiles(directory=export, html=True), name="web")
         with patch("services.openai_backend_api.OpenAIBackendAPI.list_models", return_value={"data": [{"id": "gpt-image-2"}]}):
             uvicorn.run(app, host="127.0.0.1", port=43130)

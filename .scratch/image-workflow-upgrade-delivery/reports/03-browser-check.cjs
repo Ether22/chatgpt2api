@@ -137,6 +137,11 @@ async function setCount(page, value) {
       assert.equal(submissions.length - before, 1);
       if (count === '100') assert.equal(await secondPage.locator('textarea').inputValue(), '生成期间仍可输入，不应被保存响应清空');
       timings[count] = Date.now() - started;
+      await secondPage.getByRole('button', { name: `Generated result ${count}`, exact: true }).scrollIntoViewIfNeeded();
+      await secondPage.waitForFunction(alt => {
+        const img = document.querySelector(`img[alt="${alt}"]`);
+        return img?.complete && img.naturalWidth > 0;
+      }, `Generated result ${count}`);
       await secondPage.screenshot({ path: path.join(output, `count-${count}.png`) });
     }
     console.log(`PASS one and all 100 results with responsive input: ${JSON.stringify(timings)}`);
@@ -147,7 +152,15 @@ async function setCount(page, value) {
     const download = await downloadEvent;
     assert.equal((await fs.readFile(await download.path())).subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
     await secondPage.goto(`${origin}/image-manager/`);
-    await secondPage.waitForFunction(() => [...document.querySelectorAll('img')].some(img => img.src.startsWith('blob:') && img.complete && img.naturalWidth > 0));
+    await secondPage.locator('img[alt$=".png"]').first().waitFor();
+    for (const preview of await secondPage.locator('img[alt$=".png"]').all()) {
+      await preview.scrollIntoViewIfNeeded();
+      await secondPage.waitForFunction(alt => {
+        const img = [...document.querySelectorAll('img')].find(img => img.alt === alt);
+        return img?.src.startsWith('blob:') && img.complete && img.naturalWidth > 0;
+      }, await preview.getAttribute('alt'));
+    }
+    await secondPage.locator('img[alt$=".png"]').first().scrollIntoViewIfNeeded();
     await secondPage.screenshot({ path: path.join(output, 'private-gallery.png') });
     console.log('PASS original download and authenticated gallery thumbnails');
 

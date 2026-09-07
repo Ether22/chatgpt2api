@@ -203,6 +203,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const conversationsRef = useRef<ImageConversation[]>([]);
   const historyReadVersionRef = useRef(0);
   const pendingSubmissionRef = useRef<{ signature: string; turn: ImageTurn; conversationId: string | null } | null>(null);
+  const pendingDraftRef = useRef<string | null>(null);
+  const pendingRegenerationsRef = useRef(new Map<string, ImageTurn>());
   const loadCancelledRef = useRef(false);
   const resultsViewportRef = useRef<HTMLDivElement>(null);
   const lastConversationIdRef = useRef<string | null>(null);
@@ -654,10 +656,13 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   }, [clearComposerInputs]);
 
   const handleCreateDraft = async () => {
+    const requestId = pendingDraftRef.current ?? createId();
+    pendingDraftRef.current = requestId;
     try {
-      const conversation = await createImageConversation(createId());
+      const conversation = await createImageConversation(requestId);
       await refreshHistory();
       setSelectedConversationId(conversation.id);
+      if (pendingDraftRef.current === requestId) pendingDraftRef.current = null;
       shouldStickToBottomRef.current = true;
       resetComposer();
       textareaRef.current?.focus();
@@ -881,21 +886,25 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     setLightboxOpen(true);
   }, []);
 
-  const handleRegenerateTurn = useCallback(async (conversationId: string, turnId: string, count?: number) => {
+  const handleRegenerateTurn = useCallback(async (conversationId: string, turnId: string, count?: number, imageId?: string) => {
     const source = conversationsRef.current.find((item) => item.id === conversationId)?.turns.find((turn) => turn.id === turnId);
     if (!source || !source.prompt.trim()) return;
+    const key = JSON.stringify([conversationId, turnId, count, imageId]);
+    const pending = pendingRegenerationsRef.current.get(key) ?? { ...source, id: createId(), count: count ?? source.count };
+    pendingRegenerationsRef.current.set(key, pending);
     try {
-      await submitImageTurn({ ...source, id: createId(), count: count ?? source.count }, conversationId);
+      await submitImageTurn(pending, conversationId);
       await refreshHistory();
       setSelectedConversationId(conversationId);
+      if (pendingRegenerationsRef.current.get(key) === pending) pendingRegenerationsRef.current.delete(key);
       toast.success("已保存新轮次并开始处理");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "提交失败");
     }
   }, [refreshHistory]);
 
-  const handleRetryImage = useCallback(async (conversationId: string, turnId: string, _imageId: string) => {
-    await handleRegenerateTurn(conversationId, turnId, 1);
+  const handleRetryImage = useCallback(async (conversationId: string, turnId: string, imageId: string) => {
+    await handleRegenerateTurn(conversationId, turnId, 1, imageId);
   }, [handleRegenerateTurn]);
 
   const handleTimeoutRetryContinue = useCallback(async (taskId: string) => {
