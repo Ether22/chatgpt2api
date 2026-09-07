@@ -12,7 +12,7 @@ export function ImageNavigation({ authKey, conversation, viewport, onLocate, ope
   authKey: string;
   conversation: ImageConversation | null;
   viewport: RefObject<HTMLDivElement | null>;
-  onLocate: (target: ResultTarget) => Promise<void>;
+  onLocate: (target: ResultTarget) => Promise<boolean>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -83,8 +83,7 @@ export function ImageNavigation({ authKey, conversation, viewport, onLocate, ope
   });
   const locate = async (target: ResultTarget) => {
     onOpenChange(false);
-    await onLocate(target);
-    setActive(target);
+    if (await onLocate(target)) setActive(target);
   };
   const tree = <nav aria-label="结果定位导航" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 text-sm">
     {loading && <p role="status" className="p-2 text-stone-500">读取导航…</p>}

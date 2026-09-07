@@ -753,6 +753,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       ]);
       setConversations(conversationsRef.current);
       if (!restorePosition && resultsViewportRef.current) resultsViewportRef.current.scrollTop = 0;
+      return true;
     } catch (error) {
       if (loadCancelledRef.current || readVersion !== historyReadVersionRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "读取结果失败");
@@ -1485,7 +1486,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
         </div>
         <ImageNavigation authKey={authKey} conversation={selectedConversation} viewport={resultsViewportRef}
           open={isNavigationOpen} onOpenChange={setIsNavigationOpen}
-          onLocate={async (target) => { if (selectedConversationId) await loadConversationPage(selectedConversationId, undefined, false, target); }} />
+          onLocate={async (target) => !!selectedConversationId && (await loadConversationPage(selectedConversationId, undefined, false, target)) === true} />
       </section>
 
       <ImageLightbox

@@ -73,6 +73,34 @@ const headers = { Authorization: 'Bearer ticket13-A' };
     start = Date.now(); await group(0).locator(`[data-navigation-image="${target}"]`).click();
     await targetVisible(target); metrics.cross_page_target_ms = Date.now() - start;
     await group(0).locator(`[data-navigation-image="${target}"][aria-current="location"]`).waitFor();
+    // An older target response must not replace the newer target's highlight.
+    const olderTarget = 'gallery-0-turn-000-0';
+    let releaseTarget, enteredTarget;
+    const heldTarget = new Promise(resolve => { releaseTarget = resolve; });
+    const targetEntered = new Promise(resolve => { enteredTarget = resolve; });
+    const targetRoute = '**/api/image-conversations/gallery-0?*';
+    await page.route(targetRoute, async route => {
+      if (new URL(route.request().url()).searchParams.get('image_id') !== olderTarget) return route.continue();
+      const response = await route.fetch(); enteredTarget();
+      await heldTarget; await route.fulfill({ response });
+    });
+    await group(0).locator(`[data-navigation-image="${olderTarget}"]`).click();
+    await targetEntered;
+    await group(0).locator(`[data-navigation-image="${target}"]`).click();
+    await targetVisible(target);
+    await group(0).locator(`[data-navigation-image="${target}"][aria-current="location"]`).waitFor();
+    const oldResponse = page.waitForResponse(response => new URL(response.url()).searchParams.get('image_id') === olderTarget);
+    releaseTarget(); await oldResponse; await page.waitForTimeout(300);
+    assert.equal(await group(0).locator(`[data-navigation-image="${target}"]`).getAttribute('aria-current'), 'location');
+    await page.unroute(targetRoute);
+    metrics.late_target_ignored = true;
+    await page.route(targetRoute, route => new URL(route.request().url()).searchParams.get('image_id') === olderTarget
+      ? route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Controlled deleted target' }) }) : route.continue());
+    await group(0).locator(`[data-navigation-image="${olderTarget}"]`).click();
+    await page.getByText('Controlled deleted target', { exact: true }).waitFor();
+    assert.equal(await group(0).locator(`[data-navigation-image="${target}"]`).getAttribute('aria-current'), 'location');
+    await page.unroute(targetRoute);
+    metrics.failed_target_ignored = true;
     const offset = await viewport.evaluate(e => e.scrollTop);
     await group(0).getByRole('button', { name: '展开或收起 SUB00 · MD item 0', exact: true }).click();
     assert.equal(await viewport.evaluate(e => e.scrollTop), offset);
