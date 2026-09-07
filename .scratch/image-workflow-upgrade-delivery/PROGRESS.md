@@ -29,7 +29,7 @@
 | 05 | 同会话排队、并发、恢复与失败详情 | 4 | 01a07d4f-946c-73f3-ac51-10a2fd199a52 | codex/image-task-05 | gpt-6-astra / high | 已集成并验证 | A：bc62698；B：61224fc、3df22e0 | A：77a6fe8、6d6e682；B：81cabde、a7d2aed；主263项+7子场景、tsc/build、身份/恢复及两种3200图浏览器通过 |
 | 06 | 共享 MD 与参考图导入区 | 4 | 01a07d4f-a527-73c3-ac48-80d5dc95c590 | codex/image-task-06 | gpt-6-astra / high | 已集成并验证 | 072c63f、1513740、7ea5749 | 8b29e23、8eeb38c、3a65f74、b948104；222通过+唯一05旧失败，tsc/build及主流程/身份浏览器通过 |
 | 07 | MD 结构解析、匹配预览与纠错 | 6 | 01a07d6c-ac9c-7790-8113-6b49cd54eed2 | codex/image-task-07 | gpt-6-astra / high | 已集成并验证 | fa5350a、89c364f、255e599 | 900b8ac、6c69e83、d2d5726；完整253项+7子场景、tsc/build与两真实MD浏览器通过 |
-| 08 | 选择 MD 条目并随上传进度生成 | 5, 7 | 01a07d97-89f4-7863-a7b1-b07185a80086 | codex/image-task-08 | gpt-6-astra / high | 实施中 | — | 13dc独立工作树；基线280eec55 |
+| 08 | 选择 MD 条目并随上传进度生成 | 5, 7 | 01a07d97-89f4-7863-a7b1-b07185a80086 | codex/image-task-08 | gpt-6-astra / high | 已集成并验证 | c0d810a、30cfeec、ebf0588、43b3633 | 31ef3cd、c12bb9b、000b695、b01fd06；组合修复55be526、fee5d50；305项+7子场景、tsc/build、三组08及双浏览器10复验通过 |
 | 09 | 重跑与复用持续归入原条目 | 8 | 待创建 | codex/image-task-09 | gpt-6-astra / high | 待调度 | — | — |
 | 10 | 单张结果的真实删除与引用保护 | 4 | 01a07d73-ecb5-7913-99da-855877fd8119 | codex/image-task-10 | gpt-6-astra / high | 已集成并验证 | fd91a6c、42dc177、19dacc3、5244ff7 | a318576、b8495f6、37d9243、2e593d8；身份/增量轮询适配c7fe210、9c9d449；282项+7子场景、tsc/build及双浏览器通过 |
 | 11 | 范围删除、迟到清理与批量性能 | 5, 10 | 01a07da2-51a0-7ed2-885c-b855c1b7925f | codex/image-task-11 | gpt-6-astra / high | 实施中 | — | 06d3独立工作树；基线8dc5aaa |
