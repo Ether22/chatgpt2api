@@ -46,9 +46,11 @@ function resultFilename(turn: ImageTurn, image: StoredImage, index: number) {
   const ordinal = image.ordinal ?? index + 1;
   if (!turn.md) return `image-${ordinal}.png`;
   const { document_id, name, output_name } = turn.md;
-  const stem = [document_id, name, ordinal, output_name?.replace(/\.[^.]+$/, "")].filter(Boolean).join("_")
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/[. ]+$/, "").slice(0, 180);
-  return `${stem}.png`;
+  const clean = (value: string) => value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/[. ]+$/, "");
+  const identifier = clean(document_id).slice(0, 30);
+  const output = clean(output_name?.replace(/\.[^.]+$/, "") || "").slice(0, 100);
+  const suffix = `_${ordinal}${output ? `_${output}` : ""}.png`;
+  return `${identifier}_${clean(name).slice(0, 180 - identifier.length - 1 - suffix.length)}${suffix}`;
 }
 
 async function downloadStoredImage(image: StoredImage, index: number, turn: ImageTurn) {

@@ -142,10 +142,13 @@ class ImageTaskService:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
             self._tasks = self._load_locked()
+            interrupted_references = [record for record in self._references.values() if record.get("state") == "pending"]
+            for record in interrupted_references:
+                record.update(state="failed", upload_error="服务已重启，原参考图上传未确认完成；请重试原上传后重新提交")
             changed = self._recover_unfinished_locked()
             changed = self._cleanup_locked() or changed
-            if changed:
-                self._save_locked(tasks=self._tasks)
+            if changed or interrupted_references:
+                self._save_locked(tasks=self._tasks if changed else (), references=[record["id"] for record in interrupted_references])
 
     def start(self) -> None:
         """Recover accepted work after the application has initialized its services."""
@@ -526,20 +529,31 @@ class ImageTaskService:
                     if scope not in reference["input_scopes"] and not reference["turn_ids"]:
                         return self.retain_reference(identity, reference["id"], scope=scope)
                     return self._public_reference(reference)
-            self._check_reference_destination(reference)
-            with image_storage_service.owner_scope(owner):
-                image_storage_service.save(data, base_url, reference=True, reference_path=reference["path"],
-                                           storage_mode=reference["storage_mode"])
-            with self._lock:
-                if reference.get("upload_cancelled"):
-                    raise ValueError("该上传已取消，请使用新request_id")
-                reference["state"] = "ready"
-                try:
-                    self._save_locked(references=[reference["id"]])
-                except Exception:
+                if reference["state"] == "failed":
+                    previous = copy.deepcopy(reference)
                     reference["state"] = "pending"
-                    raise
-                return self._public_reference(reference)
+                    reference.pop("upload_error", None)
+                    try:
+                        self._save_locked(references=[reference["id"]])
+                    except Exception:
+                        self._references[reference["id"]] = previous
+                        raise
+            try:
+                self._check_reference_destination(reference)
+                with image_storage_service.owner_scope(owner):
+                    image_storage_service.save(data, base_url, reference=True, reference_path=reference["path"],
+                                               storage_mode=reference["storage_mode"])
+                with self._lock:
+                    if reference.get("upload_cancelled"):
+                        raise ValueError("该上传已取消，请使用新request_id")
+                    reference["state"] = "ready"
+                    self._save_locked(references=[reference["id"]])
+                    return self._public_reference(reference)
+            except Exception as exc:
+                with self._lock:
+                    reference.update(state="failed", upload_error=redact(str(exc)))
+                    self._save_locked(references=[reference["id"]])
+                raise
 
     @staticmethod
     def _validate_reference_scope(scope: str) -> None:
@@ -897,6 +911,9 @@ class ImageTaskService:
                 if any(not record or record["owner_id"] != _owner_id(identity) or record.get("deleted")
                        or record.get("upload_cancelled") for record in records):
                     raise ValueError("本轮等待的原始参考图上传已取消，未发送生成请求；请重新提交")
+                failed = next((record for record in records if record["state"] == "failed"), None)
+                if failed:
+                    raise OSError(f"原参考图 {failed['name']} 上传失败：{failed.get('upload_error') or '请重试上传后重新提交'}")
                 if all(record["state"] == "ready" for record in records):
                     # Freeze the completed reference metadata before any consumption.
                     if conversation_id:

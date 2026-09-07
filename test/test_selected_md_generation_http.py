@@ -334,3 +334,71 @@ def test_ready_entry_preserves_ordered_reference_bytes_while_another_original_up
         assert len(env["calls"]) == 1
     finally:
         env["service"].shutdown()
+
+
+def test_failed_original_upload_then_clear_reports_terminal_failure_instead_of_permanent_wait(imports, monkeypatch):
+    from services.image_storage_service import image_storage_service
+    env = imports
+    state = replace(env, document())
+    state = reserve(env, version=state["version"]).json()
+    accepted = batch(env, state, entries=[{"key": state["candidates"][1]["key"]}]).json()
+    real_save = image_storage_service.save
+    def fail_reference(*args, **kwargs):
+        if kwargs.get("reference"):
+            raise OSError("controlled original upload failure")
+        return real_save(*args, **kwargs)
+    try:
+        with monkeypatch.context() as fault:
+            fault.setattr(image_storage_service, "save", fail_reference)
+            assert upload(env).status_code == 507
+        response = env["client"].request("DELETE", "/api/image-imports", headers=env["headers"],
+            json={"request_id": "clear-failed-upload", "version": state["version"]})
+        assert response.status_code == 200, response.text
+        assert upload(env).status_code == 404
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            turn = env["client"].get(f'/api/image-conversations/{accepted["id"]}', headers=env["headers"]).json()["turns"][0]
+            if turn["images"][0]["status"] == "error":
+                break
+            time.sleep(.02)
+        assert turn["images"][0]["status"] == "error"
+        assert env["calls"] == []
+    finally:
+        env["service"].shutdown()
+
+
+def test_unconfirmed_upload_after_service_restart_is_explicit_failure_and_original_upload_can_retry(imports, monkeypatch):
+    from api import image_imports, image_tasks
+    from services.image_import_service import ImageImportService
+    from services.image_task_service import ImageTaskService
+    from services.image_storage_service import image_storage_service
+    from test.test_image_conversations_http import image_bytes
+    env = imports
+    state = replace(env, document())
+    state = reserve(env, version=state["version"]).json()
+    selected = [{"key": state["candidates"][1]["key"]}]
+    assert batch(env, state, entries=selected).status_code == 200
+    env["service"].shutdown()
+    def interrupted(*args, **kwargs):
+        raise SystemExit("controlled process loss during reference persistence")
+    with monkeypatch.context() as fault:
+        fault.setattr(image_storage_service, "save", interrupted)
+        with pytest.raises(SystemExit):
+            env["service"].upload_reference(env["owner"], "ref-one", image_bytes(), "first.png", scope="imports")
+    restored = ImageTaskService(env["path"], generation_handler=env["upstream"], edit_handler=env["upstream"])
+    monkeypatch.setattr(image_tasks, "image_task_service", restored)
+    monkeypatch.setattr(image_imports, "image_import_service", ImageImportService(image_imports.image_import_service.directory, restored))
+    restored.start()
+    try:
+        first = wait_for_history(env)["items"][0]["turns"][0]
+        assert first["images"][0]["status"] == "error"
+        assert "服务已重启" in first["images"][0]["error"]
+        assert env["calls"] == []
+        assert upload(env).status_code == 200
+        assert batch(env, state, entries=selected, request_id="after-original-upload-retry").status_code == 200
+        turns = wait_for_history(env, 2)["items"][0]["turns"]
+        assert turns[0]["images"][0]["status"] == "error"
+        assert turns[1]["images"][0]["status"] == "success"
+        assert len(env["calls"]) == 1
+    finally:
+        restored.shutdown()
