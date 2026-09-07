@@ -42,6 +42,7 @@ export type Account = {
   /** 当前图片在途数(正在生成、尚未结束的图片数)。号池空闲时持续 > 0 表示并发槽位泄漏。 */
   image_inflight?: number;
   last_used_at?: string | null;
+  created_at?: string | null;
   proxy?: string | null;
 };
 

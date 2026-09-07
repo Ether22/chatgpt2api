@@ -29,6 +29,7 @@ import {
 } from "@/lib/api";
 import { identityAuth, IdentityChanged } from "@/lib/identity-request";
 import { useAuthGuard } from "@/lib/use-auth-guard";
+import { formatBeijingDateTime as formatConversationTime } from "@/lib/business-time";
 import { useSettingsStore } from "@/app/settings/store";
 import {
   clearImageConversations,
@@ -100,19 +101,6 @@ function parseImageSize(size: string) {
 
 function getResultsDistanceFromBottom(element: HTMLElement) {
   return element.scrollHeight - element.scrollTop - element.clientHeight;
-}
-
-function formatConversationTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
 }
 
 function formatAvailableQuota(accounts: Account[]) {

@@ -62,6 +62,7 @@ import {
   type RefreshProgressResponse,
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
+import { formatBeijingDateTime } from "@/lib/business-time";
 import { cn } from "@/lib/utils";
 
 import { AccountImportDialog } from "./components/account-import-dialog";
@@ -117,10 +118,8 @@ function formatQuota(account: Account) {
 }
 
 function formatRestoreAt(value?: string | null) {
-  if (!value) {
-    return { absolute: "—", relative: "" };
-  }
-
+  const absolute = formatBeijingDateTime(value);
+  if (!value || absolute === value) return { absolute, relative: "" };
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return { absolute: value, relative: "" };
@@ -131,11 +130,6 @@ function formatRestoreAt(value?: string | null) {
   const days = Math.floor(totalHours / 24);
   const hours = totalHours % 24;
   const relative = diffMs > 0 ? `剩余 ${days}d ${hours}h` : "已到恢复时间";
-
-  const pad = (num: number) => String(num).padStart(2, "0");
-  const absolute = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 
   return { absolute, relative };
 }
@@ -1115,16 +1109,8 @@ function AccountsPageContent() {
                         <td className="px-4 py-3">
                           <div className="text-xs leading-5 text-stone-500">{account.email ?? "—"}</div>
                         </td>
-                        <td className="px-4 py-3 text-xs leading-5 text-stone-500">
-                          {(() => {
-                            const raw = (account as any).created_at;
-                            if (!raw) return "—";
-                            try {
-                              const d = new Date(raw + "Z");
-                              if (isNaN(d.getTime())) return String(raw).slice(0, 10);
-                              return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-                            } catch { return String(raw).slice(0, 10); }
-                          })()}
+                        <td className="whitespace-nowrap px-4 py-3 text-xs leading-5 text-stone-500">
+                          {formatBeijingDateTime(account.created_at)}
                         </td>
                         <td className="px-4 py-3">
                           <Badge variant="info" className="rounded-md">
@@ -1137,7 +1123,7 @@ function AccountsPageContent() {
                             return (
                               <div className="space-y-0.5">
                                 {restore.relative ? <div className="font-medium text-stone-700">{restore.relative}</div> : null}
-                                <div>{restore.absolute}</div>
+                                <div className="whitespace-nowrap">{restore.absolute}</div>
                               </div>
                             );
                           })()}

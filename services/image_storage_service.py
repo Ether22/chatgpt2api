@@ -11,7 +11,6 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from threading import Lock
 from urllib.parse import quote, urlparse
@@ -55,7 +54,7 @@ def _clean(value: object) -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return beijing_iso()
 
 
 def _safe_relative_path(path: str) -> str:
@@ -283,7 +282,7 @@ class ImageStorageService:
             return f"managed/{_owner_namespace(owner)}/{beijing_now():%Y/%m/%d}/{uuid.uuid4().hex}.png"
         file_hash = hashlib.md5(image_data).hexdigest()
         filename = f"{int(time.time())}_{file_hash}.png"
-        relative_dir = Path(time.strftime("%Y"), time.strftime("%m"), time.strftime("%d"))
+        relative_dir = Path(beijing_now().strftime("%Y/%m/%d"))
         return f"{relative_dir.as_posix()}/{filename}"
 
     def make_reference_path(self, mime_type: str) -> str:
@@ -420,9 +419,9 @@ class ImageStorageService:
                     "rel": rel,
                     "path": rel,
                     "name": path.name,
-                    "date": "-".join(rel.split("/")[:3]) if len(rel.split("/")) >= 4 else datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d"),
+                    "date": "-".join(rel.split("/")[:3]) if len(rel.split("/")) >= 4 else beijing_iso(path.stat().st_mtime)[:10],
                     "size": path.stat().st_size,
-                    "created_at": datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                    "created_at": beijing_iso(path.stat().st_mtime),
                     "storage": "local",
                     "local": True,
                     "webdav": False,
@@ -513,9 +512,9 @@ class ImageStorageService:
                         "rel": rel,
                         "path": rel,
                         "name": path.name,
-                        "date": "-".join(rel.split("/")[:3]) if len(rel.split("/")) >= 4 else datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d"),
+                        "date": "-".join(rel.split("/")[:3]) if len(rel.split("/")) >= 4 else beijing_iso(path.stat().st_mtime)[:10],
                         "size": len(payload),
-                        "created_at": str(item.get("created_at") or datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")),
+                        "created_at": str(item.get("created_at") or beijing_iso(path.stat().st_mtime)),
                         "storage": "both",
                         "local": True,
                         "webdav": True,

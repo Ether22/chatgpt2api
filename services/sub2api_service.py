@@ -6,7 +6,6 @@ import json
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 
@@ -14,6 +13,7 @@ from curl_cffi.requests import Session
 
 from services.account_service import account_service
 from services.config import DATA_DIR
+from utils.business_time import beijing_iso
 
 
 SUB2API_CONFIG_FILE = DATA_DIR / "sub2api_config.json"
@@ -28,7 +28,7 @@ def _new_id() -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return beijing_iso()
 
 
 def _clean(value: object) -> str:

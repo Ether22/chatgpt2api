@@ -1,5 +1,7 @@
 "use client";
 
+import { formatBeijingDateTime } from "@/lib/business-time";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Copy, Download, ImageIcon, LoaderCircle, Maximize2, Plus, RefreshCw, Search, Tag, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -556,7 +558,7 @@ function ImageManagerContent() {
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1 font-medium text-stone-700">
                       <CalendarDays className="size-3.5" />
-                      {item.created_at}
+                      {formatBeijingDateTime(item.created_at)}
                     </div>
                     <div className="flex items-center gap-1">
                       <Button
@@ -691,7 +693,7 @@ function ImageManagerContent() {
               />
               <div className="min-w-0 overflow-hidden text-xs text-stone-500">
                 <div className="truncate font-medium text-stone-700">{deleteTarget.name}</div>
-                <div className="truncate">{deleteTarget.created_at}</div>
+                <div className="truncate">{formatBeijingDateTime(deleteTarget.created_at)}</div>
                 <div>{formatSize(deleteTarget.size)}</div>
               </div>
             </div>

@@ -79,7 +79,7 @@ class AccountService:
 
     @staticmethod
     def _now() -> str:
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        return beijing_iso()
 
     @staticmethod
     def _decode_jwt_payload(token: str) -> dict:
@@ -115,8 +115,7 @@ class AccountService:
             ts = int(value)
         except (TypeError, ValueError):
             return ""
-        tz = timezone(timedelta(hours=8))
-        return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(tz).isoformat()
+        return beijing_iso(ts)
 
     def _load_accounts(self) -> dict[str, dict]:
         accounts = self.storage.load_accounts()
@@ -318,7 +317,7 @@ class AccountService:
             return resolved, dict(account) if account else None
 
     def _record_token_refresh_error(self, access_token: str, event: str, error: str) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = beijing_iso()
         with self._lock:
             resolved = self._resolve_access_token_locked(access_token)
             current = self._accounts.get(resolved)
@@ -403,7 +402,7 @@ class AccountService:
             session.close()
 
     def _apply_refreshed_tokens(self, old_access_token: str, token_data: dict, event: str) -> str:
-        now = datetime.now(timezone.utc).isoformat()
+        now = beijing_iso()
         with self._image_slot_condition:
             old_token = self._resolve_access_token_locked(old_access_token)
             current = self._accounts.get(old_token)
@@ -1116,7 +1115,7 @@ class AccountService:
             if current is None:
                 return
             next_item = dict(current)
-            next_item["last_used_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            next_item["last_used_at"] = beijing_iso()
             account = self._normalize_account(next_item)
             if account is None:
                 return
@@ -1131,7 +1130,7 @@ class AccountService:
     def mark_rate_limited(self, access_token: str, retry_after: int | None = None) -> dict | None:
         updates = {"status": "限流", "quota": 0}
         if retry_after is not None:
-            updates["restore_at"] = (datetime.now(timezone.utc) + timedelta(seconds=retry_after)).isoformat()
+            updates["restore_at"] = beijing_iso(datetime.now(timezone.utc) + timedelta(seconds=retry_after))
         return self.update_account(access_token, updates)
 
     def get_account(self, access_token: str) -> dict | None:
@@ -1144,7 +1143,11 @@ class AccountService:
 
     @staticmethod
     def _public_account(account: dict) -> dict:
-        return {key: value for key, value in account.items() if key != "image_account_ref"}
+        result = {key: value for key, value in account.items() if key != "image_account_ref"}
+        for key in ("created_at", "last_used_at", "restore_at", "last_invalid_at", "last_refresh_error_at", "last_token_refresh_at", "last_token_refresh_error_at"):
+            if isinstance(result.get(key), str):
+                result[key] = beijing_iso(result[key])
+        return result
 
     def list_accounts(self) -> list[dict]:
         """返回所有账号的副本，并为每个账号附加当前图片在途数 image_inflight。
@@ -1370,9 +1373,9 @@ class AccountService:
             should_defer = defer_invalid_removal and self._should_defer_invalid_token(current, now)
             next_item = dict(current)
             next_item["invalid_count"] = int(next_item.get("invalid_count") or 0) + 1
-            next_item["last_invalid_at"] = now.isoformat()
+            next_item["last_invalid_at"] = beijing_iso(now)
             next_item["last_refresh_error"] = str(error or "invalid access token")
-            next_item["last_refresh_error_at"] = now.isoformat()
+            next_item["last_refresh_error_at"] = beijing_iso(now)
             account = self._normalize_account(next_item)
             if account is not None:
                 self._accounts[access_token] = account
@@ -1396,7 +1399,7 @@ class AccountService:
             if current is None:
                 return None
             next_item = dict(current)
-            next_item["last_used_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            next_item["last_used_at"] = beijing_iso()
             if success:
                 next_item["success"] = int(next_item.get("success") or 0) + 1
                 next_item["quota"] = max(0, int(next_item.get("quota") or 0) - 1)

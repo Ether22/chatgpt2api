@@ -124,7 +124,7 @@ class AccountRetentionTests(unittest.TestCase):
                         with self.assertRaises(UpstreamHTTPError):
                             search()
                     self.assert_retained("normal", expected)
-                    self.assertEqual(self.service.get_account("retained")["restore_at"], "2099-01-01T00:00:00+00:00")
+                    self.assertEqual(datetime.fromisoformat(self.service.get_account("retained")["restore_at"]), datetime.fromisoformat("2099-01-01T00:00:00+00:00"))
                 with patch("curl_cffi.requests.Session.post", side_effect=RuntimeError("connection timeout")):
                     with self.assertRaisesRegex(RuntimeError, "connection timeout"):
                         search()

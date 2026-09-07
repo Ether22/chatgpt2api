@@ -42,13 +42,9 @@ def _now_iso() -> str:
 def _timestamp(value: object) -> float:
     if not isinstance(value, str) or not value.strip():
         return 0.0
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
-        try:
-            return datetime.strptime(value[:26], fmt).timestamp()
-        except ValueError:
-            continue
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        # Keep the offset after microseconds; unzoned history retains local semantics.
+        return datetime.fromisoformat(value.strip().replace("Z", "+00:00")).timestamp()
     except Exception:
         return 0.0
 
