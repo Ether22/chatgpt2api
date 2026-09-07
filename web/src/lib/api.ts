@@ -1,6 +1,7 @@
 import { httpRequest, request } from "@/lib/request";
 
 export type AccountType = string;
+export type AccountUsageMode = "normal" | "monitor" | "disabled";
 export type AccountStatus = "正常" | "限流" | "异常" | "禁用";
 export type ImageModel = string;
 export type AuthRole = "admin" | "user";
@@ -21,6 +22,7 @@ export type Account = {
   type: AccountType;
   source_type?: string | null;
   status: AccountStatus;
+  usage_mode: AccountUsageMode;
   quota: number;
   email?: string | null;
   user_id?: string | null;
@@ -91,6 +93,7 @@ export type RefreshProgressResponse = {
   error: string | null;
   status_counts?: Record<string, number>;
   total_quota?: number;
+  monitor_quota?: number;
   result?: AccountRefreshResponse | null;
   results?: Array<{ token: string; status: string; error?: string | null }>;
 };
@@ -401,6 +404,7 @@ export async function updateAccount(
   updates: {
     type?: AccountType;
     status?: AccountStatus;
+    usage_mode?: AccountUsageMode;
     quota?: number;
     proxy?: string;
   },

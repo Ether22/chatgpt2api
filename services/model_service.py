@@ -59,7 +59,7 @@ class ModelCatalogService:
     def _active_accounts_by_type(self) -> dict[str, list[str]]:
         groups: dict[str, list[str]] = {}
         for account in self._accounts.list_accounts():
-            if not isinstance(account, dict) or account.get("status") in {"禁用", "异常"}:
+            if not self._accounts.is_text_account_available(account):
                 continue
             access_token = str(account.get("access_token") or "").strip()
             account_type = self._accounts._normalize_account_type(account.get("type"))
@@ -94,6 +94,8 @@ class ModelCatalogService:
                     access_token,
                     event="list_models",
                 ) or access_token
+                if not self._accounts.is_text_account_available(self._accounts.get_account(resolved_token) or {}):
+                    continue
                 if resolved_token in attempted_tokens:
                     continue
                 attempted_tokens.add(resolved_token)

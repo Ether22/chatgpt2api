@@ -11,6 +11,7 @@ import {
   CircleOff,
   Copy,
   Download,
+  Eye,
   Link2,
   LoaderCircle,
   LogIn,
@@ -55,6 +56,7 @@ import {
   type Account,
   type AccountRefreshResponse,
   type AccountStatus,
+  type AccountUsageMode,
   type Model,
   type RefreshProgressResponse,
 } from "@/lib/api";
@@ -63,12 +65,20 @@ import { cn } from "@/lib/utils";
 
 import { AccountImportDialog } from "./components/account-import-dialog";
 
-const accountStatusOptions: { label: string; value: AccountStatus | "all" }[] = [
+const accountStatusOptions: { label: string; value: AccountStatus | AccountUsageMode | "all" }[] = [
   { label: "全部状态", value: "all" },
   { label: "正常", value: "正常" },
   { label: "限流", value: "限流" },
   { label: "异常", value: "异常" },
-  { label: "禁用", value: "禁用" },
+  { label: "上游停用", value: "禁用" },
+  { label: "仅监控", value: "monitor" },
+  { label: "禁用", value: "disabled" },
+];
+
+const usageModeOptions: { label: string; value: AccountUsageMode }[] = [
+  { label: "正常使用", value: "normal" },
+  { label: "仅监控", value: "monitor" },
+  { label: "禁用", value: "disabled" },
 ];
 
 const statusMeta: Record<
@@ -90,7 +100,8 @@ const metricCards = [
   { key: "limited", label: "限流账户", color: "text-orange-500", icon: CircleAlert },
   { key: "abnormal", label: "异常账户", color: "text-rose-500", icon: CircleOff },
   { key: "disabled", label: "禁用账户", color: "text-stone-500", icon: Ban },
-  { key: "quota", label: "剩余额度", color: "text-blue-500", icon: RefreshCw },
+  { key: "quota", label: "可用剩余额度", color: "text-blue-500", icon: RefreshCw },
+  { key: "monitorQuota", label: "监控额度（不参与消费）", color: "text-amber-600", icon: Eye },
 ] as const;
 
 function formatCompact(value: number) {
@@ -129,7 +140,7 @@ function formatRestoreAt(value?: string | null) {
 }
 
 function formatQuotaSummary(accounts: Account[]) {
-  const availableAccounts = accounts.filter((account) => account.status === "正常");
+  const availableAccounts = accounts.filter((account) => account.status === "正常" && account.usage_mode === "normal");
   return formatCompact(availableAccounts.reduce((sum, account) => sum + Math.max(0, account.quota), 0));
 }
 
@@ -172,11 +183,11 @@ function AccountsPageContent() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState<AccountStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<AccountStatus | AccountUsageMode | "all">("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState("10");
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
-  const [editStatus, setEditStatus] = useState<AccountStatus>("正常");
+  const [editUsageMode, setEditUsageMode] = useState<AccountUsageMode>("normal");
   const [editProxy, setEditProxy] = useState("");
   const [isTestingProxy, setIsTestingProxy] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -200,7 +211,6 @@ function AccountsPageContent() {
     email: "",
   });
   const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [refreshSummary, setRefreshSummary] = useState<Record<string, number | string> | null>(null);
 
   const loadAccounts = async (silent = false) => {
     if (!silent) {
@@ -253,9 +263,9 @@ function AccountsPageContent() {
       const searchMatched =
         normalizedQuery.length === 0 || (account.email ?? "").toLowerCase().includes(normalizedQuery);
       const typeMatched = typeFilter === "all" || displayAccountType(account) === typeFilter;
-      const statusMatched = statusFilter === "all" || account.status === statusFilter;
+      const statusMatched = statusFilter === "all" || account.status === statusFilter || account.usage_mode === statusFilter;
       return searchMatched && typeMatched && statusMatched;
-    });
+    }).sort((a, b) => Number(b.usage_mode === "monitor") - Number(a.usage_mode === "monitor"));
   }, [accounts, query, statusFilter, typeFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filteredAccounts.length / Number(pageSize)));
@@ -267,13 +277,14 @@ function AccountsPageContent() {
 
   const summary = useMemo(() => {
     const total = accounts.length;
-    const active = accounts.filter((item) => item.status === "正常").length;
+    const active = accounts.filter((item) => item.status === "正常" && item.usage_mode === "normal").length;
     const limited = accounts.filter((item) => item.status === "限流").length;
     const abnormal = accounts.filter((item) => item.status === "异常").length;
-    const disabled = accounts.filter((item) => item.status === "禁用").length;
+    const disabled = accounts.filter((item) => item.usage_mode === "disabled").length;
     const quota = formatQuotaSummary(accounts);
 
-    return { total, active, limited, abnormal, disabled, quota };
+    const monitorQuota = formatCompact(accounts.filter((item) => item.usage_mode === "monitor").reduce((sum, item) => sum + Math.max(0, item.quota), 0));
+    return { total, active, limited, abnormal, disabled, quota, monitorQuota };
   }, [accounts]);
 
   const accountTypeOptions = useMemo(
@@ -359,16 +370,6 @@ function AccountsPageContent() {
 
     setIsRefreshing(true);
 
-    // 计算非选中账号的基数（统计卡片联动用）
-    const selectedTokenSet = new Set(accessTokens);
-    const baseAccountsList = accounts.filter((a) => !selectedTokenSet.has(a.access_token));
-    const baseActive = baseAccountsList.filter((a) => a.status === "正常").length;
-    const baseLimited = baseAccountsList.filter((a) => a.status === "限流").length;
-    const baseAbnormal = baseAccountsList.filter((a) => a.status === "异常").length;
-    const baseDisabled = baseAccountsList.filter((a) => a.status === "禁用").length;
-    const baseNormalAccounts = baseAccountsList.filter((a) => a.status === "正常");
-    const baseQuotaNum = baseNormalAccounts.reduce((s, a) => s + Math.max(0, a.quota), 0);
-
     // 显示进度条（只显示当前任务，不含分类统计）
     const total = accessTokens.length;
     setProgress({
@@ -403,8 +404,6 @@ function AccountsPageContent() {
                 current: prev.total,
                 message: "刷新完成",
               }));
-              // 清除联动统计
-              setRefreshSummary(null);
               resolve(p.result);
             } else {
               // 实时更新进度
@@ -412,19 +411,6 @@ function AccountsPageContent() {
                 ...prev,
                 current: p.processed,
               }));
-              // 实时更新统计卡片：基数 + 已刷新的累加结果
-              const runningActive = baseActive + ((p.status_counts?.["正常"]) ?? 0);
-              const runningLimited = baseLimited + ((p.status_counts?.["限流"]) ?? 0);
-              const runningAbnormal = baseAbnormal + ((p.status_counts?.["异常"]) ?? 0);
-              const runningDisabled = baseDisabled + ((p.status_counts?.["禁用"]) ?? 0);
-              setRefreshSummary({
-                total: accounts.length,
-                active: runningActive,
-                limited: runningLimited,
-                abnormal: runningAbnormal,
-                disabled: runningDisabled,
-                quota: formatCompact(baseQuotaNum + (p.total_quota ?? 0)),
-              });
             }
           } catch (err) {
             clearInterval(pollTimer);
@@ -491,7 +477,6 @@ function AccountsPageContent() {
       }
     } catch (error) {
       setProgress({ visible: false, current: 0, total: 0, message: "", email: "" });
-      setRefreshSummary(null);
       const message = error instanceof Error ? error.message : "刷新账户失败";
       toast.error(message);
     } finally {
@@ -547,14 +532,6 @@ function AccountsPageContent() {
 
     setIsRelogining(true);
 
-    // 计算非选中账号的基数（统计卡片联动用）
-    const selectedTokenSet = new Set(abnormalTokens);
-    const baseAccountsList = accounts.filter((a) => !selectedTokenSet.has(a.access_token));
-    const baseActive = baseAccountsList.filter((a) => a.status === "正常").length;
-    const baseLimited = baseAccountsList.filter((a) => a.status === "限流").length;
-    const baseAbnormal = baseAccountsList.filter((a) => a.status === "异常").length;
-    const baseDisabled = baseAccountsList.filter((a) => a.status === "禁用").length;
-
     // 显示进度条（真实进度）
     const total = abnormalTokens.length;
     setProgress({ visible: true, current: 0, total, message: "正在尝试恢复异常账号...", email: "" });
@@ -574,7 +551,6 @@ function AccountsPageContent() {
                 return;
               }
               setProgress((prev) => ({ ...prev, current: prev.total, message: "恢复流程已完成" }));
-              setRefreshSummary(null);
               resolve();
             } else {
               // 实时更新进度
@@ -591,28 +567,6 @@ function AccountsPageContent() {
                 message: "正在尝试恢复异常账号...",
               }));
 
-              // 实时更新统计卡片：基数 + 已处理的恢复结果
-              let runningActive = baseActive;
-              let runningAbnormal = baseAbnormal;
-              let runningDisabled = baseDisabled;
-              for (const r of results) {
-                if (r.status === "成功") {
-                  runningActive += 1;
-                  runningAbnormal -= 1;
-                } else if (r.status === "禁用") {
-                  runningDisabled += 1;
-                  runningAbnormal -= 1;
-                }
-                // "异常"或"跳过"：保持异常状态不变
-              }
-              setRefreshSummary({
-                total: accounts.length,
-                active: runningActive,
-                limited: baseLimited,
-                abnormal: runningAbnormal,
-                disabled: runningDisabled,
-                quota: summary.quota,
-              });
             }
           } catch (err) {
             clearInterval(pollTimer);
@@ -641,7 +595,6 @@ function AccountsPageContent() {
       toast.success(`恢复流程已全部完成`);
     } catch (error) {
       setProgress({ visible: false, current: 0, total: 0, message: "", email: "" });
-      setRefreshSummary(null);
       const message = error instanceof Error ? error.message : "重新登录失败";
       toast.error(message);
     } finally {
@@ -651,7 +604,7 @@ function AccountsPageContent() {
 
   const openEditDialog = (account: Account) => {
     setEditingAccount(account);
-    setEditStatus(account.status);
+    setEditUsageMode(account.usage_mode);
     setEditProxy(account.proxy ?? "");
   };
 
@@ -682,13 +635,14 @@ function AccountsPageContent() {
     setIsUpdating(true);
     try {
       const data = await updateAccount(editingAccount.access_token, {
-        status: editStatus,
+        usage_mode: editUsageMode,
         proxy: editProxy.trim(),
       });
       setAccounts(data.items);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
       setEditingAccount(null);
       toast.success("账号信息已更新");
+      void loadModels();
     } catch (error) {
       const message = error instanceof Error ? error.message : "更新账号失败";
       toast.error(message);
@@ -782,19 +736,18 @@ function AccountsPageContent() {
           <DialogHeader className="gap-2">
             <DialogTitle>编辑账户</DialogTitle>
             <DialogDescription className="text-sm leading-6">
-              手动修改账号状态和专属代理。
+              设置账号使用状态和专属代理。监控和禁用仍自动维护，但不参与消费。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-stone-700">状态</label>
-              <Select value={editStatus} onValueChange={(value) => setEditStatus(value as AccountStatus)}>
-                <SelectTrigger className="h-11 rounded-xl border-stone-200 bg-white">
+              <label htmlFor="account-usage-mode" className="text-sm font-medium text-stone-700">使用状态</label>
+              <Select value={editUsageMode} onValueChange={(value) => setEditUsageMode(value as AccountUsageMode)}>
+                <SelectTrigger id="account-usage-mode" className="h-11 rounded-xl border-stone-200 bg-white">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {accountStatusOptions
-                    .filter((option) => option.value !== "all")
+                  {usageModeOptions
                     .map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
@@ -846,10 +799,10 @@ function AccountsPageContent() {
       </Dialog>
 
       <section className="space-y-3">
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
           {metricCards.map((item) => {
             const Icon = item.icon;
-            const value = (refreshSummary ?? summary)[item.key];
+            const value = summary[item.key];
             return (
               <Card key={item.key} className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
                 <CardContent className="p-4">
@@ -948,7 +901,7 @@ function AccountsPageContent() {
             <Select
               value={statusFilter}
               onValueChange={(value) => {
-                setStatusFilter(value as AccountStatus | "all");
+                setStatusFilter(value as AccountStatus | AccountUsageMode | "all");
                 setPage(1);
               }}
             >
@@ -1066,9 +1019,9 @@ function AccountsPageContent() {
                     return (
                       <tr
                         key={account.access_token}
-                        className="border-b border-stone-100/80 text-sm text-stone-600 transition-colors hover:bg-stone-50/70"
+                        className={cn("border-b border-stone-100/80 text-sm text-stone-600 transition-colors hover:bg-stone-50/70", account.usage_mode === "monitor" && "bg-amber-50/70 hover:bg-amber-100/70")}
                       >
-                        <td className="px-4 py-3">
+                        <td className={cn("px-4 py-3", account.usage_mode === "monitor" && "border-l-4 border-l-amber-400")}>
                           <Checkbox
                             checked={selectedIds.includes(account.access_token)}
                             onCheckedChange={(checked) => {
@@ -1113,8 +1066,14 @@ function AccountsPageContent() {
                             className="inline-flex items-center gap-1 rounded-md px-2 py-1"
                           >
                             <StatusIcon className="size-3.5" />
-                            {account.status}
+                            {account.status === "禁用" ? "上游停用" : account.status}
                           </Badge>
+                          {account.usage_mode !== "normal" && (
+                            <Badge variant="outline" className="mt-1 inline-flex items-center gap-1 whitespace-nowrap" title="继续刷新额度、监测和保活，不参与生图、文本或搜索消费">
+                              {account.usage_mode === "monitor" ? <Eye className="size-3.5" /> : <Ban className="size-3.5" />}
+                              {account.usage_mode === "monitor" ? "仅监控" : "禁用"}
+                            </Badge>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-xs leading-5 text-stone-500">{account.email ?? "—"}</div>

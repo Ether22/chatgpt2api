@@ -741,14 +741,12 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
             error_message = str(exc)
             if token and not emitted and is_token_invalid_error(error_message):
                 refreshed_token = account_service.refresh_access_token(token, force=True, event="text_stream")
-                if refreshed_token and refreshed_token != token and refreshed_token not in attempted_tokens:
-                    token = refreshed_token
-                else:
+                if not refreshed_token or refreshed_token == token:
                     account_service.remove_invalid_token(token, "text_stream")
-                    token = account_service.get_text_access_token(
-                        excluded_tokens=set(attempted_tokens),
-                        model=request.model,
-                    )
+                token = account_service.get_text_access_token(
+                    excluded_tokens=set(attempted_tokens),
+                    model=request.model,
+                )
                 if token:
                     continue
             raise

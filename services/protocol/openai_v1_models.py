@@ -14,7 +14,10 @@ def list_models() -> dict[str, Any]:
         return result
     seen = {str(item.get("id") or "").strip() for item in data if isinstance(item, dict)}
     dynamic_models: set[str] = set()
-    accounts = account_service.list_accounts()
+    accounts = [
+        account for account in account_service.list_accounts()
+        if account_service.is_text_account_available(account)
+    ]
     web_image_accounts = [
         account
         for account in accounts

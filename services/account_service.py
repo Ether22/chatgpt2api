@@ -129,12 +129,21 @@ class AccountService:
         self.storage.save_accounts(list(self._accounts.values()))
 
     @staticmethod
-    def _is_image_account_available(account: dict) -> bool:
-        if not isinstance(account, dict):
-            return False
-        if account.get("status") in {"禁用", "限流", "异常"}:
-            return False
-        return int(account.get("quota") or 0) > 0
+    def is_text_account_available(account: dict) -> bool:
+        return (
+            isinstance(account, dict)
+            and bool(account)
+            and account.get("usage_mode", "normal") == "normal"
+            and account.get("status") not in {"禁用", "异常"}
+        )
+
+    @classmethod
+    def _is_image_account_available(cls, account: dict) -> bool:
+        return (
+            cls.is_text_account_available(account)
+            and account.get("status") != "限流"
+            and int(account.get("quota") or 0) > 0
+        )
 
     @classmethod
     def _account_matches_plan_type(cls, account: dict, plan_type: str | None = None) -> bool:
@@ -217,6 +226,8 @@ class AccountService:
             normalized.pop("type", None)
         normalized["type"] = normalized.get("type") or "free"
         normalized["status"] = normalized.get("status") or "正常"
+        usage_mode = normalized.get("usage_mode", "normal")
+        normalized["usage_mode"] = usage_mode if usage_mode in ("normal", "monitor", "disabled") else "disabled"
         normalized["quota"] = max(0, int(normalized.get("quota") if normalized.get("quota") is not None else 0))
         normalized["email"] = normalized.get("email") or None
         normalized["user_id"] = normalized.get("user_id") or None
@@ -341,8 +352,6 @@ class AccountService:
 
     def _refresh_token_keepalive_due_at(self, account: dict, now: datetime) -> datetime | None:
         if not str(account.get("refresh_token") or "").strip():
-            return None
-        if account.get("status") == "禁用":
             return None
         if self._recent_refresh_token_keepalive_error(account, now):
             return None
@@ -1009,29 +1018,33 @@ class AccountService:
             from services.model_service import model_catalog_service
 
             route = model_catalog_service.route_for_model(requested_model)
-        with self._lock:
-            candidates = [
-                token
-                for account in self._accounts.values()
-                if account.get("status") not in {"禁用", "异常"}
-                   and (
-                       route is None
-                       or self._normalize_account_type(account.get("type")) in route.account_types
-                   )
-                   and (token := account.get("access_token") or "")
-                   and token not in excluded
-            ]
-            if not candidates:
-                if route is None or route.allow_anonymous:
-                    return ""
-                from services.model_service import ModelUnavailableError
+        while True:
+            with self._lock:
+                candidates = [
+                    token
+                    for account in self._accounts.values()
+                    if self.is_text_account_available(account)
+                       and (
+                           route is None
+                           or self._normalize_account_type(account.get("type")) in route.account_types
+                       )
+                       and (token := account.get("access_token") or "")
+                       and token not in excluded
+                ]
+                if not candidates:
+                    if route is None or route.allow_anonymous:
+                        return ""
+                    from services.model_service import ModelUnavailableError
 
-                raise ModelUnavailableError(
-                    f"model {requested_model!r} is not available to any active account"
-                )
-            access_token = candidates[self._index % len(candidates)]
-            self._index += 1
-        return self.refresh_access_token(access_token, event="get_text_access_token") or access_token
+                    raise ModelUnavailableError(
+                        f"model {requested_model!r} is not available to any active account"
+                    )
+                access_token = candidates[self._index % len(candidates)]
+                self._index += 1
+            resolved = self.refresh_access_token(access_token, event="get_text_access_token") or access_token
+            if self.is_text_account_available(self.get_account(resolved) or {}):
+                return resolved
+            excluded.update({access_token, resolved})
 
     def mark_text_used(self, access_token: str) -> None:
         if not access_token:
@@ -1050,7 +1063,7 @@ class AccountService:
             self._save_accounts()
 
     def remove_invalid_token(self, access_token: str, event: str, quiet: bool = False) -> bool:
-        if not config.auto_remove_invalid_accounts:
+        if not config.auto_remove_invalid_accounts or (self.get_account(access_token) or {}).get("usage_mode") in {"monitor", "disabled"}:
             self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
             return False
         removed = bool(self.delete_accounts([access_token])["removed"])
@@ -1224,7 +1237,7 @@ class AccountService:
             account = self._normalize_account({**current, **updates, "access_token": access_token})
             if account is None:
                 return None
-            if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
+            if account.get("status") == "限流" and account.get("usage_mode") == "normal" and config.auto_remove_rate_limited_accounts:
                 self._accounts.pop(access_token, None)
                 self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
@@ -1322,7 +1335,7 @@ class AccountService:
             account = self._normalize_account(next_item)
             if account is None:
                 return None
-            if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
+            if account.get("status") == "限流" and account.get("usage_mode") == "normal" and config.auto_remove_rate_limited_accounts:
                 self._accounts.pop(access_token, None)
                 self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
@@ -1378,6 +1391,7 @@ class AccountService:
                     self.remove_invalid_token(active_token, event)
                 raise
         self._record_refresh_success(active_token)
+        result.pop("usage_mode", None)
         return self.update_account(active_token, result)
 
     # ---- 刷新进度追踪 ----
@@ -1392,6 +1406,7 @@ class AccountService:
                 "error": None,
                 "status_counts": {"正常": 0, "限流": 0, "异常": 0, "禁用": 0},
                 "total_quota": 0,
+                "monitor_quota": 0,
             }
 
     def update_refresh_progress(self, progress_id: str, token: str) -> None:
@@ -1406,7 +1421,10 @@ class AccountService:
                 return
             progress["processed"] += 1
             progress["status_counts"][status] = progress["status_counts"].get(status, 0) + 1
-            progress["total_quota"] += quota
+            if account and account.get("usage_mode") == "monitor":
+                progress["monitor_quota"] += quota
+            elif self._is_image_account_available(account or {}):
+                progress["total_quota"] += quota
 
     def finish_refresh_progress(self, progress_id: str, result: dict | None = None, error: str | None = None) -> None:
         """标记刷新完成。"""
@@ -1682,11 +1700,12 @@ class AccountService:
         with self._lock:
             items = list(self._accounts.values())
         total = len(items)
-        active = sum(1 for a in items if a.get("status") == "正常")
+        active = sum(1 for a in items if a.get("status") == "正常" and self.is_text_account_available(a))
         limited = sum(1 for a in items if a.get("status") == "限流")
         abnormal = sum(1 for a in items if a.get("status") == "异常")
-        disabled = sum(1 for a in items if a.get("status") == "禁用")
-        total_quota = sum(max(0, int(a.get("quota") or 0)) for a in items if a.get("status") == "正常")
+        disabled = sum(1 for a in items if a.get("usage_mode") == "disabled")
+        total_quota = sum(int(a.get("quota") or 0) for a in items if self._is_image_account_available(a))
+        monitor_quota = sum(int(a.get("quota") or 0) for a in items if a.get("usage_mode") == "monitor")
         total_success = sum(int(a.get("success") or 0) for a in items)
         total_fail = sum(int(a.get("fail") or 0) for a in items)
         by_type = {}
@@ -1701,6 +1720,7 @@ class AccountService:
             "abnormal": abnormal,
             "disabled": disabled,
             "total_quota": total_quota,
+            "monitor_quota": monitor_quota,
             "total_success": total_success,
             "total_fail": total_fail,
             "by_type": by_type,
