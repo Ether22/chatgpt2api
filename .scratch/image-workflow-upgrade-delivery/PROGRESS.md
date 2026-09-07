@@ -35,11 +35,11 @@
 | 11 | 范围删除、迟到清理与批量性能 | 5, 10 | 01a07da2-51a0-7ed2-885c-b855c1b7925f | codex/image-task-11 | gpt-6-astra / high | 已集成并验证 | 3979932、9da2fb7、fd896ee | a26afb0、68ca1b4、72c4b6c；组合修复83ea77c、664065c；325项+7子场景、tsc/build及3200真PNG/双浏览器通过 |
 | 12 | 查看器下方操作与本轮直接下载 | 8, 10 | 01a07dc4-9195-7c51-8d0c-8309a686e425 | codex/image-task-12 | gpt-6-astra / medium→high | 实施中 | — | 10ca独立工作树；已验证基线f6d26ba；真实98图下载被浏览器限制，已提升high核验 |
 | 13 | 服务器分页与大型图库按需浏览 | 3 | 01a07d27-3bcf-7f53-abd0-3beed385bd47 | codex/image-task-13 | gpt-6-astra / high | 已集成并验证 | 06918eb、5e9b24a、e795ee3、43b989f | fb34468、bbf97f5、fa9561b、e4e9fe8；41项组合复验、tsc/build与两种3200图浏览器通过 |
-| 14 | 所有结果的右侧定位导航与窄屏抽屉 | 9, 13 | 待创建 | codex/image-task-14 | gpt-6-astra / high | 待调度 | — | — |
+| 14 | 所有结果的右侧定位导航与窄屏抽屉 | 9, 13 | 01a07dda-14e0-7f12-b85f-0f934f6faca3 | codex/image-task-14 | gpt-6-astra / high | 实施中 | — | f52d独立工作树；已验证基线adcee13 |
 | 15 | 监控、禁用与可消费额度 | 无 | 01a07cd9-5e81-7a41-9890-e40f01e0855a | codex/image-task-15 | gpt-6-astra / high | 已集成并验证 | 43e3834、9727a25 | 61a34d5、1e6888a；40项账号/路由/能力/导出及 tsc 通过 |
 | 16 | 账号隐藏与组内拖拽排序 | 15 | 01a07cf9-063a-7df3-b3ca-c0526209f6ff | codex/image-task-16 | gpt-6-astra / medium | 已集成并验证 | 6b9f716、2c6b2e9、9d57af1 | 5f03ee3、c1b1c59、a8cfe61；主对话44项组合回归及tsc通过 |
 | 17 | 账号只保留不物理删除 | 无 | 01a07cff-4ece-7c00-9b83-96a96150951d | codex/image-task-17 | gpt-6-astra / high | 已集成并验证 | 1c35397、8e591aa、5046c59 | 651fe59、fabb9ad、534e467；53项+4子场景、tsc/build及组合浏览器通过 |
-| 18 | 业务 API、界面、日志及文件日期统一北京时间 | 无 | 01a07cff-709a-7512-ac93-8f632637e9e3 | codex/image-task-18 | gpt-6-astra / high | 阶段A/B已集成验证，待新增票最终全域复核 | A：815436d、5fbcd94；B：d19cd00、97ccbc6 | A：178c6e7、aac4b11；B：70e1d81、3c6bc47；主263项+7子场景和三时区浏览器通过，整票未完成 |
+| 18 | 业务 API、界面、日志及文件日期统一北京时间 | 无 | 01a07cff-709a-7512-ac93-8f632637e9e3 | codex/image-task-18 | gpt-6-astra / high | A/B已集成；C只读预审新增后端，待12/14后最终全域复核 | A：815436d、5fbcd94；B：d19cd00、97ccbc6 | A：178c6e7、aac4b11；B：70e1d81、3c6bc47；主263项+7子场景和三时区浏览器通过，整票未完成 |
 
 ## 修改范围与调度约束
 
