@@ -9,11 +9,11 @@ ___ MultiImageResultTests.test_poll_waits_for_generated_asset_ids_to_settle ___
 test\test_multi_image_results.py:127: in test_poll_waits_for_generated_asset_ids_to_settle
     self.assertEqual(file_ids, ["file-one", "file-two"])
 E   AssertionError: Lists differ: ['file-one'] != ['file-one', 'file-two']
-E   
+E
 E   Second list contains 1 additional elements.
 E   First extra element 1:
 E   'file-two'
-E   
+E
 E   - ['file-one']
 E   + ['file-one', 'file-two']
 ---------------------------- Captured stderr call -----------------------------
