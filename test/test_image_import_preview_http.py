@@ -237,3 +237,38 @@ def test_repeated_corrections_keep_only_current_prompt_not_prompt_history_in_rec
     assert "original document prompt" in restored["md"]["content"]
     assert previous not in next((tmp_path / "imports").glob("*.json")).read_text(encoding="utf-8")
     assert correct(env, state, candidate, {"prompt": "different"}).status_code == 409
+
+
+@pytest.mark.parametrize("dimension", ["-1600x800", "1600.5x800", "1600x800.5", "1e3x800"])
+def test_invalid_dimension_is_not_silently_truncated_to_a_valid_size(imports, dimension):
+    state = replace(imports, f"## [MAIN] First｜{dimension}\n参考图：无\n### Prompt\n```text\nactual prompt\n```")
+    candidate = state["candidates"][0]
+    assert candidate["status"] == "error"
+    assert any(e["code"] == "invalid_size" for e in candidate["errors"])
+
+
+def test_numeric_filenames_are_not_list_markers_or_rewritten_before_matching(imports):
+    env = imports
+    state = replace(env, """## MAIN First｜640x480
+参考图：1.png、image 1.png、`Second, (2).png`
+### Prompt
+```
+actual prompt
+```
+## SUB01 Second｜640x480
+参考图：
+  1. 1.png
+  2. image 1.png
+  3. `Second, (2).png`
+### Prompt
+~~~
+actual prompt
+~~~
+""")
+    expected = ["1.png", "image 1.png", "Second, (2).png"]
+    assert all(c["config"]["reference_names"] == expected for c in state["candidates"])
+    for index, name in enumerate(expected):
+        state = reserve(env, f"numeric-{index}", name, state["version"]).json()
+        state = upload(env, f"numeric-{index}", name).json()
+    assert all(c["status"] == "ready" for c in state["candidates"])
+    assert all([m["upload_id"] for m in c["matches"]] == ["numeric-0", "numeric-1", "numeric-2"] for c in state["candidates"])

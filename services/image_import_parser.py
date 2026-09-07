@@ -5,7 +5,7 @@ import re
 
 HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 IDENTIFIER = re.compile(r"^(?:\[([^\]\n]+)\]|((?:MAIN|SUB|A-D|A-M|[PDM]\d+)[A-Za-z0-9-]*))(?=\s|[｜|:：·]|$)", re.I)
-DIMENSION = re.compile(r"(?<!\d)(\d+)\s*[xX×*]\s*(\d+)(?!\d)")
+DIMENSION = re.compile(r"(?<![\d.eE+-])(\d+)\s*[xX×*]\s*(\d+)(?![\d.eE])")
 FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
 FIELD = re.compile(r"^(?:[-*+]\s+)?(?:\*\*)?([^:：]+?)(?:\*\*)?\s*[:：]\s*(.*)$")
 REFERENCE_FIELDS = {"参考图", "参考图片", "参考图文件", "必须上传的参考图", "参考图声明", "references"}
@@ -23,12 +23,12 @@ def filenames(value):
     """Remove list syntax only; filename spelling/case and order remain exact."""
     names = []
     for line in value.splitlines():
-        line = re.sub(r"^\s*(?:[-*+]\s+|\d+[.、)]\s*)", "", line).strip()
+        line = re.sub(r"^\s*[-*+]\s+", "", line).strip()
         for segment in re.split(r"(`[^`]*`)", line):
             if segment.startswith("`") and segment.endswith("`"):
                 names.append(segment[1:-1])
                 continue
-            segment = re.sub(r"(^|[、，,；;]\s*|\s+)\d+[.、)]\s*", r"\1", segment)
+            segment = re.sub(r"(^|[、，,；;]\s*)\d+(?:[.)]\s+|、\s*)", r"\1", segment)
             names.extend(part.strip() for part in re.split(r"[、，,；;]", segment) if part.strip())
     return names
 
