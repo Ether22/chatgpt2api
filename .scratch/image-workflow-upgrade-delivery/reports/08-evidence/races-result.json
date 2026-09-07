@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "errors": [],
+  "switchedFrom": "159ca5bf85ab403b8212c7f93fd46ea4",
+  "switchedTo": "e04522b9cfe24762aac508e0890c8fc2",
+  "acceptedAuthorization": "Bearer ticket08-A",
+  "pendingResumedAfterRestart": true
+}

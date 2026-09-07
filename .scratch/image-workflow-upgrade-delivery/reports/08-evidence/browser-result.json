@@ -1,0 +1,76 @@
+{
+  "passed": true,
+  "metrics": {
+    "parseAndRenderMs": 187,
+    "inputWhilePendingMs": 30,
+    "originalDimensions": [
+      480,
+      280
+    ],
+    "hundredSyntheticResultsMs": 4793
+  },
+  "errors": [],
+  "submissions": [
+    {
+      "request_id": "dca2717b-241d-45b1-af39-072bb0fa0b65",
+      "version": 2,
+      "md_version": 1,
+      "conversation_id": null,
+      "model": "gpt-image-2",
+      "quality": "auto",
+      "count": 1,
+      "entries": [
+        {
+          "key": "1:1"
+        },
+        {
+          "key": "1:8",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "request_id": "24cf3c31-ce7c-4d98-a802-add5b4a96d73",
+      "version": 3,
+      "md_version": 3,
+      "conversation_id": "159ca5bf85ab403b8212c7f93fd46ea4",
+      "model": "gpt-image-2",
+      "quality": "auto",
+      "count": 100,
+      "entries": [
+        {
+          "key": "3:1"
+        }
+      ]
+    },
+    {
+      "request_id": "8180ab8b-fb49-45f4-9e97-75650efb19c8",
+      "version": 3,
+      "md_version": 3,
+      "conversation_id": "159ca5bf85ab403b8212c7f93fd46ea4",
+      "model": "gpt-image-2",
+      "quality": "auto",
+      "count": 1,
+      "entries": [
+        {
+          "key": "3:1"
+        }
+      ]
+    },
+    {
+      "request_id": "767c0406-9bf3-43e2-acae-50138213a493",
+      "version": 4,
+      "md_version": 3,
+      "conversation_id": "159ca5bf85ab403b8212c7f93fd46ea4",
+      "model": "gpt-image-2",
+      "quality": "auto",
+      "count": 1,
+      "entries": [
+        {
+          "key": "3:1"
+        }
+      ]
+    }
+  ],
+  "consumption": 106
+}

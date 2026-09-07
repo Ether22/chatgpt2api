@@ -58,6 +58,7 @@ async function eventually(fn) { for(let i=0;i<250;i++){ if(await fn())return; aw
     await page.getByRole('button',{name:/^开始生成/}).click(); await arrived;
     const otherTab=await context.newPage(); await otherTab.goto(origin+'/accounts/');
     await otherTab.getByRole('button',{name:'退出',exact:true}).click();
+    await otherTab.getByLabel('密钥',{exact:true}).waitFor();
     await login(otherTab,'B');
     releaseResponse();
     await eventually(async()=>(await get(`/api/image-conversations/${next}/metadata`)).turnCount===2);
