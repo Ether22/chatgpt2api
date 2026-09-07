@@ -32,7 +32,7 @@
 | 08 | 选择 MD 条目并随上传进度生成 | 5, 7 | 01a07d97-89f4-7863-a7b1-b07185a80086 | codex/image-task-08 | gpt-6-astra / high | 实施中 | — | 13dc独立工作树；基线280eec55 |
 | 09 | 重跑与复用持续归入原条目 | 8 | 待创建 | codex/image-task-09 | gpt-6-astra / high | 待调度 | — | — |
 | 10 | 单张结果的真实删除与引用保护 | 4 | 01a07d73-ecb5-7913-99da-855877fd8119 | codex/image-task-10 | gpt-6-astra / high | 已集成并验证 | fd91a6c、42dc177、19dacc3、5244ff7 | a318576、b8495f6、37d9243、2e593d8；身份/增量轮询适配c7fe210、9c9d449；282项+7子场景、tsc/build及双浏览器通过 |
-| 11 | 范围删除、迟到清理与批量性能 | 5, 10 | 待创建 | codex/image-task-11 | gpt-6-astra / high | 待调度 | — | — |
+| 11 | 范围删除、迟到清理与批量性能 | 5, 10 | 01a07da2-51a0-7ed2-885c-b855c1b7925f | codex/image-task-11 | gpt-6-astra / high | 实施中 | — | 06d3独立工作树；基线8dc5aaa |
 | 12 | 查看器下方操作与本轮直接下载 | 8, 10 | 待创建 | codex/image-task-12 | gpt-6-astra / medium | 待调度 | — | — |
 | 13 | 服务器分页与大型图库按需浏览 | 3 | 01a07d27-3bcf-7f53-abd0-3beed385bd47 | codex/image-task-13 | gpt-6-astra / high | 已集成并验证 | 06918eb、5e9b24a、e795ee3、43b989f | fb34468、bbf97f5、fa9561b、e4e9fe8；41项组合复验、tsc/build与两种3200图浏览器通过 |
 | 14 | 所有结果的右侧定位导航与窄屏抽屉 | 9, 13 | 待创建 | codex/image-task-14 | gpt-6-astra / high | 待调度 | — | — |
@@ -122,3 +122,4 @@
 - 10四提交已逐个集成；仅API导入与结果错误卡冲突，保留05失败详情、可达布局并采用10原ordinal。c7fe210接现有identityRequest。主组合新回归实际复现：旧成功图版本未推进使另一浏览器看不到删除；9c9d449让删除/清理同事务推进task.updated_at，并在增量轮询检测墓碑后刷新当前有限页。重启pending与complete版本HTTP回归先失败后通过。主完整离线282项及7子场景通过（61.84秒），独立tsc及11页生产构建通过。
 - 主10真实生产浏览器43028：确认后51ms隐藏、第二独立登录浏览器不重载即同步删除与失败清理；WebDAV受控2秒pending→error、重载/重试、390px、Delete/Enter/Esc、原image-3.png下载、邻图/末图关闭、参考图无删除按钮均通过，0页面错误，最终真实本地/远端各仅保留共享参考图、消费仍3。第一轮附加浏览器因未复制IndexedDB登录态停在登录页，已改真实登录后完整重跑，不计失败尝试为业务通过。证据data/10-evidence，目视复核桌面/窄屏；主专用20004/22144已按完整命令核对停止。当前完成12/18。
 - 08已实际13dc工作树/高强度启动，05+07前置基线280eec55核实。当前新契约复用_references中精确owner/scope/request_id reserved→pending→ready及正常turn_ids，不增加引用账本；各轮_prepare_payload只等自己引用。11可在10验证后并行，只占范围删除/发送取消/迟到终态，不改08批量提交/准备/上传保留新函数；主合并时适配10持有集合过滤无path的reserved行并保留双向引用保护。
+- 11已实际创建第15个执行任务，gpt-6-astra/high，06d3工作树/codex/image-task-11，基线8dc5aaa核对。08实测19条各100=1900等待参考任务保存成功、0错误/消费并正常shutdown，未复现线程耗尽，双方保留05原调度。08独占waiter内增加每轮检查会话/轮次删除，不等参考ready才发现删除；11按同字段保存取消和清理，主最终做交叉场景验收。
