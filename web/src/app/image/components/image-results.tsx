@@ -16,6 +16,9 @@ export type ImageLightboxItem = {
   sizeLabel?: string;
   dimensions?: string;
   filename?: string;
+  conversationId?: string;
+  turnId?: string;
+  ordinal?: number;
 };
 
 type ImageResultsProps = {
@@ -25,6 +28,8 @@ type ImageResultsProps = {
   onContinueEdit: (conversationId: string, image: StoredImage | StoredReferenceImage) => void;
   onDeletePrompt: (conversationId: string, turnId: string) => void;
   onDeleteResults: (conversationId: string, turnId: string) => void;
+  onDeleteImage: (conversationId: string, turnId: string, imageId: string, ordinal: number) => void;
+  onRetryDeleteImage: (conversationId: string, turnId: string, imageId: string, ordinal: number) => void | Promise<void>;
   onReuseTurnConfig: (conversationId: string, turnId: string) => void | Promise<void>;
   onRegenerateTurn: (conversationId: string, turnId: string) => void | Promise<void>;
   onRetryImage: (conversationId: string, turnId: string, imageId: string) => void | Promise<void>;
@@ -58,7 +63,7 @@ async function downloadStoredImage(image: StoredImage, index: number) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `image-${index + 1}.png`;
+  a.download = `image-${image.ordinal ?? index + 1}.png`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -72,6 +77,8 @@ export function ImageResults({
   onContinueEdit,
   onDeletePrompt,
   onDeleteResults,
+  onDeleteImage,
+  onRetryDeleteImage,
   onReuseTurnConfig,
   onRegenerateTurn,
   onRetryImage,
@@ -136,7 +143,7 @@ export function ImageResults({
           src: image.url,
           filename: image.name,
         }));
-        const successfulTurnImages = turn.images.flatMap((image) => {
+        const successfulTurnImages = turn.images.flatMap((image, index) => {
           const src = image.status === "success" ? getStoredImageSrc(image) : "";
           return src
             ? [
@@ -145,6 +152,10 @@ export function ImageResults({
                   src,
                   sizeLabel: image.b64_json ? formatBase64ImageSize(image.b64_json) : undefined,
                   dimensions: dimensionsLabel(image.id),
+                  filename: `image-${image.ordinal ?? index + 1}.png`,
+                  ordinal: image.ordinal ?? index + 1,
+                  conversationId: selectedConversation.id,
+                  turnId: turn.id,
                 },
               ]
             : [];
@@ -229,8 +240,15 @@ export function ImageResults({
                     ) : null}
                   </div>
 
+                  {turn.resultCleanups?.map((cleanup) => (
+                    <div key={cleanup.id} role="status" className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-stone-100 px-3 py-2 text-xs text-stone-700">
+                      <span className="min-w-0 break-words">结果 {cleanup.ordinal} 已隐藏。{cleanup.state === "error" ? `清理失败：${cleanup.error}` : cleanup.state === "retained" ? "清理时文件仍被其他轮次或素材使用，已保留。可重试检查引用是否已释放。" : "正在清理文件；服务中断后可重试。"}</span>
+                      <Button size="sm" variant="outline" onClick={() => void onRetryDeleteImage(selectedConversation.id, turn.id, cleanup.id, cleanup.ordinal)}>重试清理结果 {cleanup.ordinal}</Button>
+                    </div>
+                  ))}
                   <div className="grid grid-cols-3 items-start gap-2 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
                     {turn.images.map((image, index) => {
+                      const ordinal = image.ordinal ?? index + 1;
                       const imageSrc = image.status === "success" ? getStoredImageSrc(image) : "";
                       if (image.status === "success" && imageSrc) {
                         const currentIndex = successfulTurnImages.findIndex((item) => item.id === image.id);
@@ -246,7 +264,7 @@ export function ImageResults({
                             <LazyImage
                               src={imageSrc}
                               dimensions={imageDimensions.get(image.id)}
-                              alt={`Generated result ${index + 1}`}
+                              alt={`Generated result ${ordinal}`}
                               className="group block aspect-square w-full cursor-zoom-in overflow-hidden rounded-xl sm:aspect-auto"
                               onLoad={(event) => {
                                 updateImageDimensions(
@@ -259,11 +277,20 @@ export function ImageResults({
                             />
                             <div className="flex flex-col gap-1 px-0.5 py-1 text-[10px] sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-3 sm:py-3 sm:text-xs">
                               <div className="min-w-0 text-stone-500">
-                                <span>结果 {index + 1}</span>
+                                <span>结果 {ordinal}</span>
                                 {image.durationMs != null ? <span className="text-stone-400 sm:ml-2">{formatDuration(image.durationMs)}</span> : null}
                                 <span className="block min-h-[1lh] text-stone-400">{imageMeta || "\u00a0"}</span>
                               </div>
                               <div className="flex items-center gap-1.5">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 w-7 shrink-0 rounded-full border-stone-200 bg-white px-0 text-rose-600 sm:h-8 sm:w-8"
+                                  onClick={() => onDeleteImage(selectedConversation.id, turn.id, image.id, ordinal)}
+                                  aria-label={`删除结果 ${ordinal}`}
+                                >
+                                  <Trash2 className="size-3 sm:size-4" />
+                                </Button>
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -306,7 +333,7 @@ export function ImageResults({
                               )}
                             >
                             <div className="flex h-full min-h-56 flex-col items-center justify-center gap-1.5 px-2 py-2 text-center text-[11px] leading-4 text-rose-600 sm:gap-3 sm:px-6 sm:py-8 sm:text-sm sm:leading-6">
-                              <p className="font-medium">图片 {index + 1}/{turn.images.length}</p>
+                              <p className="font-medium">图片 {ordinal}/{turn.count}</p>
                               <span className="shrink-0 line-clamp-2 sm:line-clamp-none">{image.error || "生成失败"}</span>
                               <details className="w-full text-left">
                                 <summary className="cursor-pointer text-center">失败详情</summary>
@@ -335,7 +362,7 @@ export function ImageResults({
                             </div>
                             <div className="flex flex-col gap-1 px-0.5 py-1 text-[10px] sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-3 sm:py-3 sm:text-xs">
                               <div className="min-w-0 text-stone-500">
-                                <span>结果 {index + 1}</span>
+                                <span>结果 {ordinal}</span>
                                 {image.durationMs != null ? <span className="text-stone-400 sm:ml-2">{formatDuration(image.durationMs)}</span> : null}
                                 <span className="block text-transparent">-</span>
                               </div>
@@ -375,7 +402,7 @@ export function ImageResults({
                               )}
                             </div>
                             <p className="text-[11px] font-medium leading-4 sm:text-sm">
-                              图片 {index + 1}/{turn.images.length}
+                              图片 {ordinal}/{turn.count}
                             </p>
                             <p className="text-[10px] leading-4 text-stone-400 sm:text-xs">
                               {imageStatusLabel}

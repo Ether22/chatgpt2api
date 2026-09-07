@@ -223,7 +223,7 @@ class ImageStorageService:
             _IMAGE_OWNER.reset(token)
 
     def require_owner(self, rel: str, identity: dict[str, object]) -> None:
-        if not self.can_access(rel, identity):
+        if not self.can_access(rel, identity) or (image_rows.get(self.index_file, "images", _safe_relative_path(rel)) or {}).get("deleting"):
             raise HTTPException(status_code=404, detail="image not found")
 
     def can_access(self, rel: str, identity: dict[str, object] | None = None) -> bool:
@@ -256,6 +256,11 @@ class ImageStorageService:
 
     def mode(self) -> str:
         return _clean(self.settings().get("mode")) or "local"
+
+    def storage_target(self) -> dict[str, str]:
+        settings = self.settings()
+        return {key: str(settings.get(key) or "").rstrip("/")
+                for key in ("webdav_url", "webdav_root_path", "webdav_username")}
 
     def _load_index(self) -> dict[str, dict[str, object]]:
         return image_rows.load(self.index_file, "images")
@@ -340,6 +345,7 @@ class ImageStorageService:
             "local": stored_local,
             "webdav": stored_webdav,
             "remote_url": remote_url,
+            "storage_target": self.storage_target(),
         }
         if _IMAGE_OWNER.get() is not None:
             item["owner_id"] = _IMAGE_OWNER.get()
@@ -353,12 +359,12 @@ class ImageStorageService:
 
     def get_bytes(self, rel: str) -> bytes:
         safe_rel = _safe_relative_path(rel)
-        if not _is_image_rel(safe_rel):
+        item = image_rows.get(self.index_file, "images", safe_rel) or {}
+        if not _is_image_rel(safe_rel) or item.get("deleting"):
             raise HTTPException(status_code=404, detail="image not found")
         path = local_image_path(safe_rel)
         if path.is_file():
             return path.read_bytes()
-        item = image_rows.get(self.index_file, "images", safe_rel) or {}
         if item.get("webdav"):
             return WebDAVClient(self.settings()).get(safe_rel)
         raise HTTPException(status_code=404, detail="image not found")
@@ -385,14 +391,14 @@ class ImageStorageService:
         with self._index_lock:
             indexed = self._load_clean_index()
         items = [(rel, item) for rel, item in indexed.items()
-                 if item.get("kind") != "reference" and "/references/" not in rel
+                 if not item.get("deleting") and not item.get("result_hidden") and item.get("kind") != "reference" and "/references/" not in rel
                  and self.can_access(rel, identity)
                  and (not start_date or str(item.get("date", "")) >= start_date)
                  and (not end_date or str(item.get("date", "")) <= end_date)
                  and (matching_paths is None or rel in matching_paths)]
         items.sort(key=lambda pair: (str(pair[1].get("created_at", "")), pair[0]), reverse=True)
         total = len(items)
-        return {"items": [{"rel": rel} if paths_only else {**{key: value for key, value in item.items() if key not in {"remote_url", "owner_id"}},
+        return {"items": [{"rel": rel} if paths_only else {**{key: value for key, value in item.items() if key not in {"remote_url", "owner_id", "storage_target"}},
                            "rel": rel, "path": rel, "url": self._public_url(rel, base_url)}
                           for rel, item in items[offset:offset + limit]],
                 "pagination": {"offset": offset, "limit": limit, "total": total,
@@ -466,23 +472,52 @@ class ImageStorageService:
         items.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
         return items
 
+    def hide_result(self, rel: str) -> None:
+        """A file held only as input must not reappear in the generated gallery."""
+        safe_rel = _safe_relative_path(rel)
+        with self._index_lock:
+            item = image_rows.get(self.index_file, "images", safe_rel)
+            if item and not item.get("result_hidden"):
+                image_rows.save(self.index_file, {"images": {safe_rel: {**item, "result_hidden": True}}})
+
     def delete(self, rel: str, *, reference_storage_mode: str | None = None) -> bool:
+        from services.image_tags_service import remove_tags
+
         safe_rel = _safe_relative_path(rel)
         removed = False
-        path = local_image_path(safe_rel)
-        if path.is_file():
-            path.unlink()
-            removed = True
         with self._index_lock:
             item = image_rows.get(self.index_file, "images", safe_rel) or {}
-            if item.get("webdav") or reference_storage_mode in {"webdav", "both"}:
-                try:
-                    removed = WebDAVClient(self.settings()).delete(safe_rel) or removed
-                except ImageStorageError:
-                    if not removed or item.get("kind") == "reference" or reference_storage_mode:
-                        raise
-            if item:
-                image_rows.save(self.index_file, {"images": {safe_rel: None}})
+            item = {**item, "deleting": True}
+            image_rows.save(self.index_file, {"images": {safe_rel: item}})
+        errors = []
+        path = local_image_path(safe_rel)
+        try:
+            removed = path.is_file()
+            path.unlink(missing_ok=True)
+            item["local"] = False
+        except OSError as exc:
+            errors.append(f"本地原图：{exc}")
+        if item.get("webdav") or reference_storage_mode in {"webdav", "both"}:
+            try:
+                if item.get("storage_target") and item["storage_target"] != self.storage_target():
+                    raise ImageStorageError("远端存储位置已变更，请恢复原位置后重试")
+                removed = WebDAVClient(self.settings()).delete(safe_rel) or removed
+                item["webdav"] = False
+            except Exception as exc:
+                errors.append(f"WebDAV 副本：{exc}")
+        for thumbnail in (config.image_thumbnails_dir / f"{safe_rel}.png", config.image_thumbnails_dir / safe_rel):
+            try:
+                thumbnail.unlink(missing_ok=True)
+            except OSError as exc:
+                errors.append(f"缩略图：{exc}")
+        try:
+            remove_tags(safe_rel)
+        except OSError as exc:
+            errors.append(f"标签：{exc}")
+        with self._index_lock:
+            image_rows.save(self.index_file, {"images": {safe_rel: item if errors else None}})
+        if errors:
+            raise ImageStorageError("；".join(errors))
         return removed
 
     def sync_all(self) -> dict[str, int]:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-
-from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -179,6 +178,14 @@ def create_router() -> APIRouter:
     async def delete_conversation(conversation_id: str, authorization: str | None = Header(default=None)):
         await conversation_call(image_task_service.delete_conversations, require_identity(authorization), conversation_id)
         return {"ok": True}
+
+    @router.delete("/api/image-conversations/{conversation_id}/turns/{turn_id}/images/{task_id}")
+    async def delete_result(conversation_id: str, turn_id: str, task_id: str, background: BackgroundTasks,
+                            authorization: str | None = Header(default=None)):
+        identity = require_identity(authorization)
+        result = await conversation_call(image_task_service.delete_result, identity, conversation_id, turn_id, task_id)
+        background.add_task(image_task_service.cleanup_result, identity, task_id)
+        return result
 
     @router.delete("/api/image-conversations")
     async def clear_conversations(authorization: str | None = Header(default=None)):

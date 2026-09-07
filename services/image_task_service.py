@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 from services.config import DATA_DIR, config
 from services.content_filter import request_text
 from services.log_service import LOG_TYPE_CALL, log_service
-from services.image_storage_service import ImageStorageError, image_storage_service
+from services.image_storage_service import ImageStorageError, image_storage_service, is_managed_image
 from services.storage import image_rows
 from PIL import Image, UnidentifiedImageError
 from utils.business_time import beijing_iso
@@ -87,7 +87,7 @@ def _public_task(task: dict[str, Any]) -> dict[str, Any]:
     }
     if task.get("conversation_id"):
         item["conversation_id"] = task.get("conversation_id")
-    if task.get("data") is not None:
+    if task.get("data") is not None and not task.get("result_deleted"):
         item["data"] = task.get("data")
     if task.get("usage") is not None:
         item["usage"] = task.get("usage")
@@ -97,7 +97,7 @@ def _public_task(task: dict[str, Any]) -> dict[str, Any]:
         item["progress"] = task.get("progress")
     if task.get("duration_ms") is not None:
         item["duration_ms"] = task.get("duration_ms")
-    for field in ("dispatch_state", "error_code", "error_detail", "retryable", "can_resume", "waiting"):
+    for field in ("dispatch_state", "error_code", "error_detail", "retryable", "can_resume", "waiting", "result_deleted", "result_cleanup"):
         if field in task:
             item[field] = copy.deepcopy(task[field])
     if task.get("status") in (TASK_STATUS_RUNNING, TASK_STATUS_QUEUED):
@@ -135,6 +135,7 @@ class ImageTaskService:
         self._current: dict[str, str] = {}
         self._references: dict[str, dict[str, Any]] = {}
         self._reference_locks: dict[str, threading.RLock] = {}
+        self._result_cleanup_locks: dict[str, threading.Lock] = {}
         self._stopping = threading.Event()
         self._workers: dict[str, threading.Thread] = {}
         self._deleted_tasks: set[str] = set()
@@ -189,7 +190,8 @@ class ImageTaskService:
                         continue
                     if ((not turn_id or turn["id"] == turn_id) and
                             (not image_id or not turn.get("resultsDeleted") and image_id in turn["task_ids"]
-                             and image_id not in turn.get("dismissedImageIds", []))):
+                             and image_id not in turn.get("dismissedImageIds", [])
+                             and not self._tasks[_task_key(item["owner_id"], image_id)].get("result_deleted"))):
                         offset = index // max(1, limit) * limit
                         target = {"turn_id": turn["id"], "image_id": image_id or None}
                         break
@@ -249,12 +251,20 @@ class ImageTaskService:
             if navigation:
                 turn.update(promptDeleted=bool(saved.get("promptDeleted")), resultsDeleted=bool(saved.get("resultsDeleted")))
             images = []
-            for task_id in ([] if saved.get("resultsDeleted") else saved["task_ids"]):
+            turn["resultCleanups"] = []
+            for ordinal, task_id in enumerate(saved["task_ids"], 1):
+                stored_task = self._tasks[_task_key(item["owner_id"], task_id)]
+                if stored_task.get("result_deleted"):
+                    if not navigation and stored_task["result_cleanup"]["state"] != "complete":
+                        turn["resultCleanups"].append({"id": task_id, "ordinal": ordinal, **stored_task["result_cleanup"]})
+                    continue
+                if saved.get("resultsDeleted"):
+                    continue
                 if task_id in saved.get("dismissedImageIds", []):
                     continue
                 task = _public_task(self._tasks[_task_key(item["owner_id"], task_id)])
                 status = task["status"]
-                image = {"id": task_id, "taskId": task_id,
+                image = {"id": task_id, "taskId": task_id, "ordinal": ordinal,
                          "status": status if status in TERMINAL_STATUSES else "loading"}
                 if status not in TERMINAL_STATUSES:
                     image["taskStatus"] = status
@@ -360,6 +370,74 @@ class ImageTaskService:
                     item.pop("deleted", None)
                 self._restore_current(owner, previous_current)
                 raise
+
+    def delete_result(self, identity: dict[str, object], conversation_id: str, turn_id: str, task_id: str) -> dict[str, Any]:
+        """Commit invisibility before scheduling physical cleanup; retries use the same task tombstone."""
+        key = _task_key(_owner_id(identity), task_id)
+        with self._lock:
+            conversation = self._owned_conversation(identity, conversation_id)
+            turn = next((turn for turn in conversation["turns"] if turn["id"] == turn_id), None)
+            if not turn or task_id not in turn["task_ids"]:
+                raise KeyError("result not found")
+            task = self._tasks[key]
+            if task["status"] != TASK_STATUS_SUCCESS:
+                raise ValueError("仅支持删除已完成的单张结果")
+            if not task.get("result_deleted") or task["result_cleanup"]["state"] in {"error", "retained"}:
+                updated = {**task, "result_deleted": True,
+                           "result_cleanup": {"state": "pending", "updated_at": _now_iso()}}
+                self._tasks[key] = updated
+                try:
+                    self._save_locked(tasks=[key])
+                except Exception:
+                    self._tasks[key] = task
+                    raise
+            return {"id": task_id, **copy.deepcopy(self._tasks[key]["result_cleanup"])}
+
+    @staticmethod
+    def _result_paths(task: dict[str, Any]) -> set[str]:
+        return {urlsplit(image.get("url", "")).path.removeprefix("/images/")
+                for image in task.get("data", []) if urlsplit(image.get("url", "")).path.startswith("/images/")}
+
+    def cleanup_result(self, identity: dict[str, object], task_id: str) -> None:
+        owner = _owner_id(identity)
+        key = _task_key(owner, task_id)
+        with self._lock:
+            lock = self._result_cleanup_locks.setdefault(key, threading.Lock())
+        with lock:
+            with self._lock:
+                task = self._tasks.get(key)
+                if not task or not task.get("result_deleted"):
+                    raise KeyError("deleted result not found")
+                if task["result_cleanup"]["state"] == "complete":
+                    return
+                paths = self._result_paths(task)
+                # ponytail: scan existing holders on single deletion; add a reverse index if bulk profiling requires it.
+                generated_holders = {path for other in self._tasks.values() if not other.get("result_deleted")
+                        for path in self._result_paths(other)}
+                held = generated_holders | {ref["path"] for ref in self._references.values()
+                            if not ref.get("deleted") and (ref["input_scopes"] or ref["turn_ids"])}
+            try:
+                if not paths and task.get("data"):
+                    raise ImageStorageError("结果没有可验证的服务器文件位置，无法确认物理清理")
+                for path in paths:
+                    # Ownership is checked against server-held task data, never a client-supplied file path.
+                    if not is_managed_image(path) or not image_storage_service.can_access(path, identity):
+                        raise ImageStorageError("结果文件不属于当前登录身份")
+                    if path not in generated_holders:
+                        image_storage_service.hide_result(path)
+                    if path not in held:
+                        image_storage_service.delete(path)
+                cleanup = {"state": "retained" if paths & held else "complete", "updated_at": _now_iso()}
+            except Exception as exc:
+                cleanup = {"state": "error", "error": redact(str(exc), [config.auth_key]), "updated_at": _now_iso()}
+            with self._lock:
+                previous = task["result_cleanup"]
+                task["result_cleanup"] = cleanup
+                try:
+                    self._save_locked(tasks=[key])
+                except Exception:
+                    task["result_cleanup"] = previous
+                    raise
 
     def _owned_reference(self, identity: dict[str, object], reference_id: str) -> dict[str, Any]:
         reference = self._references.get(reference_id)
@@ -576,11 +654,13 @@ class ImageTaskService:
             return {"retained": True}
         if reference.get("deleted"):
             return {"retained": False}
-        # Keep the record until every destination confirms deletion; each release operation is retryable.
-        self._check_reference_destination(reference)
-        image_storage_service.delete(reference["path"], reference_storage_mode=reference["storage_mode"])
-        thumbnail = config.image_thumbnails_dir / f'{reference["path"]}.png'
-        thumbnail.unlink(missing_ok=True)
+        with self._lock:
+            retained = any(reference["path"] in self._result_paths(task) for task in self._tasks.values()
+                           if not task.get("result_deleted"))
+        # The same existing task/reference records govern both release directions.
+        if not retained:
+            self._check_reference_destination(reference)
+            image_storage_service.delete(reference["path"], reference_storage_mode=reference["storage_mode"])
         with self._lock:
             reference["deleted"] = True
             try:
@@ -588,7 +668,7 @@ class ImageTaskService:
             except Exception:
                 reference.pop("deleted", None)
                 raise
-        return {"retained": False}
+        return {"retained": retained}
 
     def submit_turn(self, identity: dict[str, object], submission: dict[str, Any], base_url: str = "") -> dict[str, Any]:
         owner = _owner_id(identity)

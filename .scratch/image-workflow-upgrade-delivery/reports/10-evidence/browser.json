@@ -1,0 +1,57 @@
+{
+  "metrics": {
+    "cancelled": {
+      "local": [
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/references/2026/09/08/07c1b744deae44bf9522d44aec692ab5.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/4a121dc216934174ba60074bfd03ee26.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/5babbab7208647bfba98a373bfdada6c.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/7d35da65a5504609a9a74ee8ff25f3ea.png"
+      ],
+      "remote": [
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/references/2026/09/08/07c1b744deae44bf9522d44aec692ab5.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/4a121dc216934174ba60074bfd03ee26.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/7d35da65a5504609a9a74ee8ff25f3ea.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/5babbab7208647bfba98a373bfdada6c.png"
+      ],
+      "consumed": 3
+    },
+    "hide_ms": 39,
+    "failed": {
+      "local": [
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/references/2026/09/08/07c1b744deae44bf9522d44aec692ab5.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/4a121dc216934174ba60074bfd03ee26.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/5babbab7208647bfba98a373bfdada6c.png"
+      ],
+      "remote": [
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/references/2026/09/08/07c1b744deae44bf9522d44aec692ab5.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/4a121dc216934174ba60074bfd03ee26.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/7d35da65a5504609a9a74ee8ff25f3ea.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/5babbab7208647bfba98a373bfdada6c.png"
+      ],
+      "consumed": 3
+    },
+    "cleaned": {
+      "local": [
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/references/2026/09/08/07c1b744deae44bf9522d44aec692ab5.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/4a121dc216934174ba60074bfd03ee26.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/5babbab7208647bfba98a373bfdada6c.png"
+      ],
+      "remote": [
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/references/2026/09/08/07c1b744deae44bf9522d44aec692ab5.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/4a121dc216934174ba60074bfd03ee26.png",
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/2026/09/08/5babbab7208647bfba98a373bfdada6c.png"
+      ],
+      "consumed": 3
+    },
+    "final": {
+      "local": [
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/references/2026/09/08/07c1b744deae44bf9522d44aec692ab5.png"
+      ],
+      "remote": [
+        "managed/7f08bd4dfa56dce5c70019f7ec3fb32381e8fec95f12d80ab9fb5b767eb6d2fb/references/2026/09/08/07c1b744deae44bf9522d44aec692ab5.png"
+      ],
+      "consumed": 3
+    }
+  },
+  "errors": []
+}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -22,6 +22,7 @@ type ImageLightboxProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onIndexChange: (index: number) => void;
+  onDelete?: () => void;
 };
 
 type ImageTransform = {
@@ -96,6 +97,7 @@ export function ImageLightbox({
   open,
   onOpenChange,
   onIndexChange,
+  onDelete,
 }: ImageLightboxProps) {
   const gestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef(0);
@@ -179,12 +181,15 @@ export function ImageLightbox({
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         goNext();
+      } else if (e.key === "Delete" && onDelete) {
+        e.preventDefault();
+        onDelete();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, goPrev, goNext]);
+  }, [open, goPrev, goNext, onDelete]);
 
   const handleDownload = useCallback(async () => {
     if (!current) return;
@@ -388,6 +393,7 @@ export function ImageLightbox({
               <X className="size-4" />
               <span className="sr-only">关闭</span>
             </DialogPrimitive.Close>
+            {onDelete ? <button type="button" onClick={onDelete} aria-label="删除当前生成结果" className="inline-flex size-9 items-center justify-center rounded-full bg-black/50 text-white/90 hover:bg-black/70"><Trash2 className="size-4" /></button> : null}
           </div>
 
           {hasPrev && transform.scale <= minScale && (

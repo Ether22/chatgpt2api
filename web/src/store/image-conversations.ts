@@ -66,6 +66,7 @@ export function fetchReferenceImages(authKey: string) {
 
 export type StoredImage = {
   id: string;
+  ordinal?: number;
   taskId?: string;
   updatedAt?: string;
   errorCode?: string;
@@ -107,7 +108,21 @@ export type ImageTurn = {
   error?: string;
   promptDeleted?: boolean;
   resultsDeleted?: boolean;
+  resultCleanups?: ResultCleanup[];
 };
+
+export type ResultCleanup = {
+  id: string;
+  ordinal: number;
+  state: "pending" | "complete" | "retained" | "error";
+  error?: string;
+};
+
+export function deleteImageResult(authKey: string, conversationId: string, turnId: string, imageId: string) {
+  return httpRequest<Omit<ResultCleanup, "ordinal">>(`/api/image-conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}/images/${encodeURIComponent(imageId)}`, {
+    method: "DELETE", headers: { Authorization: `Bearer ${authKey}` }, redirectOnUnauthorized: false,
+  });
+}
 
 export type ImageConversation = {
   id: string;

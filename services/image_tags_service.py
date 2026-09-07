@@ -45,7 +45,12 @@ def set_tags(image_rel: str, tags: list[str]) -> list[str]:
 
 
 def remove_tags(image_rel: str) -> None:
-    data = load_tags()
+    # Cleanup must report unreadable/corrupt metadata instead of treating it as empty.
+    if not TAGS_FILE.exists():
+        return
+    data = json.loads(TAGS_FILE.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("图片标签记录格式无效")
     if data.pop(image_rel, None) is not None:
         save_tags(data)
 

@@ -42,11 +42,13 @@ import {
   submitImageTurn,
   updateTurnVisibility,
   deleteImageConversation,
+  deleteImageResult,
   getImageConversationStats,
   renameImageConversation,
   type ImageConversation,
   type ImageConversationMode,
   type ImageTurn,
+  type ResultCleanup,
   type StoredImage,
   type StoredReferenceImage,
   type DraftReferenceImage,
@@ -252,22 +254,31 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const [lightboxImages, setLightboxImages] = useState<ImageLightboxItem[]>([]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [deletedResults, setDeletedResults] = useState<Record<string, ResultCleanup>>({});
   const scrollToLatestBtnRef = useRef<HTMLButtonElement>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<
     | { type: "one"; id: string }
     | { type: "prompt"; conversationId: string; turnId: string }
     | { type: "results"; conversationId: string; turnId: string }
+    | { type: "image"; conversationId: string; turnId: string; imageId: string; ordinal: number }
     | { type: "all" }
     | null
   >(null);
   const parsedCount = parseImageCount(imageCount);
   const selectedConversation = useMemo(
-    () => conversations.find((item) => item.id === selectedConversationId) ?? null,
-    [conversations, selectedConversationId],
+    () => {
+      const conversation = conversations.find((item) => item.id === selectedConversationId);
+      return conversation ? { ...conversation, turns: conversation.turns.map((turn) => ({
+        ...turn,
+        images: turn.images.filter((image) => !deletedResults[image.id]),
+        resultCleanups: [...(turn.resultCleanups || []), ...turn.images.flatMap((image) => deletedResults[image.id] ? [deletedResults[image.id]] : [])],
+      })) } : null;
+    },
+    [conversations, selectedConversationId, deletedResults],
   );
   selectedIdRef.current = selectedConversationId;
   const deleteConfirmTitle =
-    deleteConfirm?.type === "all"
+    deleteConfirm?.type === "image" ? `删除结果 ${deleteConfirm.ordinal}` : deleteConfirm?.type === "all"
       ? "清空历史记录"
       : deleteConfirm?.type === "prompt"
         ? "删除提示词记录"
@@ -277,7 +288,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
             ? "删除对话"
             : "";
   const deleteConfirmDescription =
-    deleteConfirm?.type === "all"
+    deleteConfirm?.type === "image" ? "确认删除这张生成结果吗？图片将立即隐藏，后台清理原图、缩略图、标签和存储副本。其他轮次或素材仍使用的文件会保留。" : deleteConfirm?.type === "all"
       ? "确认删除全部图片历史记录吗？删除后无法恢复。"
       : deleteConfirm?.type === "prompt"
         ? "确认删除这条提示词记录吗？对应生成结果会保留。"
@@ -915,6 +926,36 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     setDeleteConfirm({ type: "all" });
   };
 
+  const handleDeleteImage = async (conversationId: string, turnId: string, imageId: string, ordinal: number) => {
+    ++historyReadVersionRef.current;
+    setDeletedResults((current) => ({ ...current, [imageId]: { id: imageId, ordinal, state: "pending" } }));
+    const remaining = lightboxImages.filter((image) => image.id !== imageId);
+    setLightboxImages(remaining);
+    setLightboxIndex((index) => Math.max(0, Math.min(index, remaining.length - 1)));
+    if (!remaining.length) setLightboxOpen(false);
+    try {
+      await deleteImageResult(authKey, conversationId, turnId, imageId);
+      if (!loadCancelledRef.current) await refreshHistory(false);
+    } catch (error) {
+      if (loadCancelledRef.current) return;
+      const message = error instanceof Error ? error.message : "删除未能确认，请重试";
+      setDeletedResults((current) => ({ ...current, [imageId]: { id: imageId, ordinal, state: "error", error: message } }));
+    }
+  };
+
+  const hasPendingResultCleanup = selectedConversation?.turns.some((turn) => turn.resultCleanups?.some((item) => item.state === "pending"));
+  useEffect(() => {
+    if (!hasPendingResultCleanup) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      try { await refreshHistory(false); } catch { /* The visible retry action remains available. */ }
+      if (!cancelled) timer = setTimeout(refresh, 1500);
+    };
+    timer = setTimeout(refresh, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [hasPendingResultCleanup, refreshHistory]);
+
   const handleConfirmDelete = async () => {
     const target = deleteConfirm;
     setDeleteConfirm(null);
@@ -923,6 +964,10 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     }
     if (target.type === "all") {
       await handleClearHistory();
+      return;
+    }
+    if (target.type === "image") {
+      await handleDeleteImage(target.conversationId, target.turnId, target.imageId, target.ordinal);
       return;
     }
     if (target.type === "prompt" || target.type === "results") {
@@ -1253,6 +1298,8 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
                 onContinueEdit={handleContinueEdit}
                 onDeletePrompt={openDeletePromptConfirm}
                 onDeleteResults={openDeleteResultsConfirm}
+                onDeleteImage={(conversationId, turnId, imageId, ordinal) => setDeleteConfirm({ type: "image", conversationId, turnId, imageId, ordinal })}
+                onRetryDeleteImage={handleDeleteImage}
                 onReuseTurnConfig={handleReuseTurnConfig}
                 onRegenerateTurn={handleRegenerateTurn}
                 onRetryImage={handleRetryImage}
@@ -1315,11 +1362,17 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
         open={lightboxOpen}
         onOpenChange={setLightboxOpen}
         onIndexChange={setLightboxIndex}
+        onDelete={lightboxImages[lightboxIndex]?.turnId ? () => {
+          const image = lightboxImages[lightboxIndex];
+          setDeleteConfirm({ type: "image", conversationId: image.conversationId!, turnId: image.turnId!, imageId: image.id, ordinal: image.ordinal! });
+        } : undefined}
       />
 
       {deleteConfirm ? (
         <Dialog open onOpenChange={(open) => (!open ? setDeleteConfirm(null) : null)}>
-          <DialogContent showCloseButton={false} className="rounded-2xl p-6">
+          <DialogContent showCloseButton={false} className="rounded-2xl p-6" onKeyDown={(event) => {
+            if (event.key === "Enter") { event.preventDefault(); void handleConfirmDelete(); }
+          }}>
             <DialogHeader className="gap-2">
               <DialogTitle>{deleteConfirmTitle}</DialogTitle>
               <DialogDescription className="text-sm leading-6">
