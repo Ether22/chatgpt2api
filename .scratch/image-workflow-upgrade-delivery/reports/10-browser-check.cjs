@@ -82,7 +82,8 @@ async function eventually(check, label) {
     await page.keyboard.press('Delete');
     await page.getByRole('button', { name: '取消', exact: true }).waitFor();
     await page.keyboard.press('Escape');
-    assert.equal(await page.getByRole('button', { name: '确认删除', exact: true }).count(), 0);
+    await eventually(async () => await page.getByRole('button', { name: '确认删除', exact: true }).count() === 0, 'Escape cancels only deletion');
+    assert.equal(await page.getByRole('dialog', { name: '图片预览', exact: true }).count(), 1);
     await page.keyboard.press('Delete');
     await page.getByRole('button', { name: '确认删除', exact: true }).press('Enter');
     await eventually(async () => await page.getByRole('button', { name: '删除结果 3', exact: true }).count() === 0, 'viewer deletion');

@@ -512,7 +512,7 @@ class ImageStorageService:
                 errors.append(f"缩略图：{exc}")
         try:
             remove_tags(safe_rel)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             errors.append(f"标签：{exc}")
         with self._index_lock:
             image_rows.save(self.index_file, {"images": {safe_rel: item if errors else None}})

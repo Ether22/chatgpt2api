@@ -354,3 +354,42 @@ def test_local_result_synced_to_new_webdav_deletes_the_actual_added_copy(environ
     restored = env["client"].get(f'/api/image-conversations/{conversation["id"]}', headers=env["headers"]).json()
     assert restored["turns"][0]["resultCleanups"] == []
     assert remote == {}
+
+
+@pytest.mark.parametrize("invalid_tags", ["{broken", "[]"])
+def test_corrupt_tags_keep_cleanup_retry_without_repeating_removed_remote_copy(environment, monkeypatch, invalid_tags):
+    from services import image_storage_service as storage
+    env = environment
+    remote = {}
+    deletions = []
+    class Remote:
+        def __init__(self, settings):
+            pass
+        def test(self):
+            return {"ok": True}
+        def put(self, rel, data):
+            remote[rel] = data
+            return f"https://synthetic.example/{rel}"
+        def delete(self, rel):
+            deletions.append(rel)
+            return remote.pop(rel, None) is not None
+    monkeypatch.setattr(storage, "WebDAVClient", Remote)
+    monkeypatch.setitem(config_module.config.data, "image_storage", {"enabled": True, "mode": "both", "webdav_url": "https://synthetic.example"})
+    assert submit(env).status_code == 200
+    conversation = wait_for_history(env)["items"][0]
+    turn = conversation["turns"][0]
+    image = turn["images"][0]
+    tags.TAGS_FILE.write_text(invalid_tags, encoding="utf-8")
+    route = f'/api/image-conversations/{conversation["id"]}/turns/{turn["id"]}/images/{image["id"]}'
+    assert env["client"].delete(route, headers=env["headers"]).status_code == 200
+    assert remote == {} and len(deletions) == 1
+    monkeypatch.setattr(image_tasks, "image_task_service", ImageTaskService(env["path"]))
+    restored = env["client"].get(f'/api/image-conversations/{conversation["id"]}', headers=env["headers"]).json()
+    assert restored["turns"][0]["resultCleanups"][0]["state"] == "error"
+    assert "标签" in restored["turns"][0]["resultCleanups"][0]["error"]
+    assert tags.TAGS_FILE.read_text(encoding="utf-8") == invalid_tags
+    tags.TAGS_FILE.write_text("{}", encoding="utf-8")
+    assert env["client"].delete(route, headers=env["headers"]).status_code == 200
+    assert len(deletions) == 1
+    restored = env["client"].get(f'/api/image-conversations/{conversation["id"]}', headers=env["headers"]).json()
+    assert restored["turns"][0]["resultCleanups"] == []

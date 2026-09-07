@@ -1360,7 +1360,10 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
         images={lightboxImages}
         currentIndex={lightboxIndex}
         open={lightboxOpen}
-        onOpenChange={setLightboxOpen}
+        onOpenChange={(open) => {
+          if (!open && deleteConfirm?.type === "image") setDeleteConfirm(null);
+          else setLightboxOpen(open);
+        }}
         onIndexChange={setLightboxIndex}
         onDelete={lightboxImages[lightboxIndex]?.turnId ? () => {
           const image = lightboxImages[lightboxIndex];
