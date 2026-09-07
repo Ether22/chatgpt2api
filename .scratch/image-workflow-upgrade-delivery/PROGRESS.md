@@ -26,15 +26,15 @@
 | 02 | OAuth 弹窗底部操作可达 | 无 | 01a07cd9-5bba-7003-ac8b-728c6f60fbad | codex/image-task-02 | gpt-6-astra / medium | 已集成并验证 | 67ab6b6、3276251 | 27b65ca、bdb0273；类型检查与独立浏览器复验通过 |
 | 03 | 普通生图在服务器保存并跨浏览器恢复 | 无 | 01a07cf8-f611-78b2-8990-6886c4de4e9e | codex/image-task-03 | gpt-6-astra / high | 已集成并验证 | 01e973a、fd04fc9、2f54c6f | a1f4096、8c9b7d0、b35f8ba；完整离线183通过+原5失败，tsc/build及100图/断线复验通过 |
 | 04 | 普通参考图生成与独立快照 | 3 | 01a07d27-2b4c-7db3-ac6a-9e5b799e2206 | codex/image-task-04 | gpt-6-astra / high | 已集成并验证 | 86d4aa4、1a44299、0474296 | 82cb86e、d25cfd0、73f6c7f；206通过+唯一05旧失败，tsc/build及主流程/五竞态浏览器通过 |
-| 05 | 同会话排队、并发、恢复与失败详情 | 4 | 待创建 | codex/image-task-05 | gpt-6-astra / high | 待调度 | — | — |
-| 06 | 共享 MD 与参考图导入区 | 4 | 待创建 | codex/image-task-06 | gpt-6-astra / high | 待调度 | — | — |
+| 05 | 同会话排队、并发、恢复与失败详情 | 4 | client-new-thread:4afcd40d-ae5f-4097-80f3-018fbf42c876（待实际ID） | codex/image-task-05 | gpt-6-astra / high | 已派发后端阶段 | — | — |
+| 06 | 共享 MD 与参考图导入区 | 4 | client-new-thread:c2d3aea2-c5b5-4b51-a047-c7a88106af70（待实际ID） | codex/image-task-06 | gpt-6-astra / high | 已派发 | — | — |
 | 07 | MD 结构解析、匹配预览与纠错 | 6 | 待创建 | codex/image-task-07 | gpt-6-astra / high | 待调度 | — | — |
 | 08 | 选择 MD 条目并随上传进度生成 | 5, 7 | 待创建 | codex/image-task-08 | gpt-6-astra / high | 待调度 | — | — |
 | 09 | 重跑与复用持续归入原条目 | 8 | 待创建 | codex/image-task-09 | gpt-6-astra / high | 待调度 | — | — |
 | 10 | 单张结果的真实删除与引用保护 | 4 | 待创建 | codex/image-task-10 | gpt-6-astra / high | 待调度 | — | — |
 | 11 | 范围删除、迟到清理与批量性能 | 5, 10 | 待创建 | codex/image-task-11 | gpt-6-astra / high | 待调度 | — | — |
 | 12 | 查看器下方操作与本轮直接下载 | 8, 10 | 待创建 | codex/image-task-12 | gpt-6-astra / medium | 待调度 | — | — |
-| 13 | 服务器分页与大型图库按需浏览 | 3 | 01a07d27-3bcf-7f53-abd0-3beed385bd47 | codex/image-task-13 | gpt-6-astra / high | 实施中 | — | — |
+| 13 | 服务器分页与大型图库按需浏览 | 3 | 01a07d27-3bcf-7f53-abd0-3beed385bd47 | codex/image-task-13 | gpt-6-astra / high | 待主集成验证 | 06918eb、5e9b24a、e795ee3 | — |
 | 14 | 所有结果的右侧定位导航与窄屏抽屉 | 9, 13 | 待创建 | codex/image-task-14 | gpt-6-astra / high | 待调度 | — | — |
 | 15 | 监控、禁用与可消费额度 | 无 | 01a07cd9-5e81-7a41-9890-e40f01e0855a | codex/image-task-15 | gpt-6-astra / high | 已集成并验证 | 43e3834、9727a25 | 61a34d5、1e6888a；40项账号/路由/能力/导出及 tsc 通过 |
 | 16 | 账号隐藏与组内拖拽排序 | 15 | 01a07cf9-063a-7df3-b3ca-c0526209f6ff | codex/image-task-16 | gpt-6-astra / medium | 已集成并验证 | 6b9f716、2c6b2e9、9d57af1 | 5f03ee3、c1b1c59、a8cfe61；主对话44项组合回归及tsc通过 |
