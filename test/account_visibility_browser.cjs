@@ -15,7 +15,11 @@ const headers = { Authorization: 'Bearer ticket-16-browser' };
     await context.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort());
     const page = await context.newPage();
     const errors = [];
+    const moveMilliseconds = [];
     page.on('pageerror', error => errors.push(error.message));
+    page.on('requestfinished', request => {
+      if (request.url().endsWith('/api/accounts/move')) moveMilliseconds.push(request.timing().responseEnd);
+    });
     page.setDefaultTimeout(10000);
     const row = letter => page.locator('tbody tr').filter({ hasText: `${letter}@example.test` });
     const order = async expected => {
@@ -30,8 +34,10 @@ const headers = { Authorization: 'Bearer ticket-16-browser' };
       await target.getByRole('button', { name: '登录', exact: true }).click();
       await target.waitForURL('**/accounts/');
     };
+    const started = performance.now();
     await login(page);
     await order(['m', 'n', 'a', 'd']);
+    const firstListMilliseconds = performance.now() - started;
     await page.screenshot({ path: path.join(evidence, 'default.png'), fullPage: true });
     const downloadReady = page.waitForEvent('download');
     await page.getByRole('button', { name: /导出/ }).click();
@@ -91,7 +97,15 @@ const headers = { Authorization: 'Bearer ticket-16-browser' };
     await narrow.keyboard.press('ArrowDown');
     await narrow.waitForFunction(() => document.querySelector('tbody tr')?.textContent.includes('m@example.test'));
     await narrow.screenshot({ path: path.join(evidence, 'narrow-keyboard.png'), fullPage: true });
+    const narrowN = narrow.locator('tbody tr').filter({ hasText: 'n@example.test' });
+    await narrowN.getByRole('button', { name: '隐藏账号', exact: true }).click();
+    await narrowN.waitFor({ state: 'detached' });
+    await narrow.getByRole('checkbox', { name: /显示隐藏账号/ }).check();
+    await narrowN.getByRole('button', { name: '取消隐藏账号', exact: true }).click();
+    await narrowN.getByRole('button', { name: '隐藏账号', exact: true }).waitFor();
+    await narrow.screenshot({ path: path.join(evidence, 'narrow-restore.png'), fullPage: true });
     assert.deepEqual(errors, []);
+    await fs.writeFile(path.join(evidence, 'timings.json'), JSON.stringify({ accounts: 5, firstListMilliseconds, moveMilliseconds }, null, 2) + '\n');
     console.log('PASS: default hide, full export, group drag/rejection, keyboard/focus, restore, token rotation, service reload, usage group change, independent narrow browser.');
   } finally {
     await browser.close();
