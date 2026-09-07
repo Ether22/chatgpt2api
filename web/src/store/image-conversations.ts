@@ -119,8 +119,8 @@ export type ResultCleanup = {
 };
 
 export function deleteImageResult(authKey: string, conversationId: string, turnId: string, imageId: string) {
-  return httpRequest<Omit<ResultCleanup, "ordinal">>(`/api/image-conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}/images/${encodeURIComponent(imageId)}`, {
-    method: "DELETE", headers: { Authorization: `Bearer ${authKey}` }, redirectOnUnauthorized: false,
+  return identityRequest<Omit<ResultCleanup, "ordinal">>(authKey, `/api/image-conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}/images/${encodeURIComponent(imageId)}`, {
+    method: "DELETE",
   });
 }
 
