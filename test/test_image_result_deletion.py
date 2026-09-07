@@ -227,8 +227,13 @@ def test_persisted_delete_before_background_start_is_retryable_after_restart(env
     conversation = wait_for_history(env)["items"][0]
     turn = conversation["turns"][0]
     image = turn["images"][0]
+    query = {"ids": [image["id"]], "versions": {image["id"]: image["updatedAt"]}}
+    assert env["client"].post("/api/image-tasks/query", headers=env["headers"], json=query).json()["items"] == []
     env["service"].delete_result(env["owner"], conversation["id"], turn["id"], image["id"])
     monkeypatch.setattr(image_tasks, "image_task_service", ImageTaskService(env["path"]))
+    changed = env["client"].post("/api/image-tasks/query", headers=env["headers"], json=query).json()["items"]
+    assert len(changed) == 1 and changed[0]["result_deleted"] and "data" not in changed[0]
+    query["versions"][image["id"]] = changed[0]["updated_at"]
     restored = env["client"].get(f'/api/image-conversations/{conversation["id"]}', headers=env["headers"]).json()
     assert restored["turns"][0]["images"] == []
     assert restored["turns"][0]["resultCleanups"][0]["state"] == "pending"
@@ -237,6 +242,10 @@ def test_persisted_delete_before_background_start_is_retryable_after_restart(env
     assert env["client"].get(image["url"].replace("/images/", "/image-thumbnails/"), headers=env["headers"]).status_code == 404
     route = f'/api/image-conversations/{conversation["id"]}/turns/{turn["id"]}/images/{image["id"]}'
     assert env["client"].delete(route, headers=env["headers"]).status_code == 200
+    completed = env["client"].post("/api/image-tasks/query", headers=env["headers"], json=query).json()["items"]
+    assert len(completed) == 1 and completed[0]["result_cleanup"]["state"] == "complete"
+    query["versions"][image["id"]] = completed[0]["updated_at"]
+    assert env["client"].post("/api/image-tasks/query", headers=env["headers"], json=query).json()["items"] == []
     assert env["client"].get(image["url"], headers=env["headers"]).status_code == 404
 
 

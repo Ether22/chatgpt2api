@@ -383,8 +383,9 @@ class ImageTaskService:
             if task["status"] != TASK_STATUS_SUCCESS:
                 raise ValueError("仅支持删除已完成的单张结果")
             if not task.get("result_deleted") or task["result_cleanup"]["state"] in {"error", "retained"}:
-                updated = {**task, "result_deleted": True,
-                           "result_cleanup": {"state": "pending", "updated_at": _now_iso()}}
+                now = _now_iso()
+                updated = {**task, "result_deleted": True, "updated_at": now, "updated_ts": time.time(),
+                           "result_cleanup": {"state": "pending", "updated_at": now}}
                 generated_holders, held = self._result_holders(exclude_key=key)
                 with image_storage_service._index_lock:
                     visibility = {}
@@ -439,12 +440,13 @@ class ImageTaskService:
             except Exception as exc:
                 cleanup = {"state": "error", "error": redact(str(exc), [config.auth_key]), "updated_at": _now_iso()}
             with self._lock:
-                previous = task["result_cleanup"]
-                task["result_cleanup"] = cleanup
+                previous = self._tasks[key]
+                self._tasks[key] = {**previous, "result_cleanup": cleanup,
+                                    "updated_at": cleanup["updated_at"], "updated_ts": time.time()}
                 try:
                     self._save_locked(tasks=[key])
                 except Exception:
-                    task["result_cleanup"] = previous
+                    self._tasks[key] = previous
                     raise
 
     def _owned_reference(self, identity: dict[str, object], reference_id: str) -> dict[str, Any]:

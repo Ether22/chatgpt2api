@@ -286,6 +286,7 @@ export type ImageResponse = {
 };
 
 export type ImageTask = {
+  result_deleted?: boolean;
   error_code?: string;
   error_detail?: string;
   retryable?: boolean;

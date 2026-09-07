@@ -745,7 +745,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
             selected ? fetchImageConversationMetadata(authKey, selected.id) : Promise.resolve(null),
           ]);
           if (cancelled || loadCancelledRef.current || version !== historyReadVersionRef.current) return;
-          if (metadata && metadata.updatedAt !== selected?.updatedAt || history.pagination.total !== historyTotalRef.current) {
+          if (metadata && metadata.updatedAt !== selected?.updatedAt || history.pagination.total !== historyTotalRef.current || changes.items.some((task) => task.result_deleted)) {
             await refreshHistory(false);
           } else {
             const changed = new Map(changes.items.map((task) => [task.id, task]));
