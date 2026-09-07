@@ -125,6 +125,10 @@ def create_router() -> APIRouter:
     async def release_reference(reference_id: str, authorization: str | None = Header(default=None)):
         return await conversation_call(image_task_service.release_reference, require_identity(authorization), reference_id)
 
+    @router.delete("/api/image-references/uploads/{request_id}")
+    async def cancel_reference_upload(request_id: str, authorization: str | None = Header(default=None)):
+        return await conversation_call(image_task_service.cancel_reference_upload, require_identity(authorization), request_id)
+
     @router.get("/api/image-conversations")
     async def list_conversations(authorization: str | None = Header(default=None)):
         return await conversation_call(image_task_service.list_conversations, require_identity(authorization))

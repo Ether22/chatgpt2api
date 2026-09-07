@@ -1,0 +1,25 @@
+{
+  "results": [
+    {
+      "name": "failed submit then remove releases ordinary input",
+      "passed": true
+    },
+    {
+      "name": "remove during failed submit flushes deferred release",
+      "passed": true
+    },
+    {
+      "name": "retain waits for earlier delayed release",
+      "passed": true
+    },
+    {
+      "name": "lost upload response can be removed without reload",
+      "passed": true
+    },
+    {
+      "name": "cancel in-flight upload exposes cleanup failure and retries",
+      "passed": true
+    }
+  ],
+  "errors": []
+}

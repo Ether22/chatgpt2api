@@ -19,6 +19,7 @@ export type DraftReferenceImage = StoredReferenceImage & {
   uploading?: boolean;
   progress?: number;
   error?: string;
+  releasing?: boolean;
 };
 
 export async function uploadReferenceImage(file: File, requestId: string, onProgress: (percent: number) => void) {
@@ -30,12 +31,27 @@ export async function uploadReferenceImage(file: File, requestId: string, onProg
   })).data;
 }
 
+const referenceOperations = new Map<string, Promise<unknown>>();
+
+function referenceOperation<T>(id: string, operation: () => Promise<T>): Promise<T> {
+  const pending = (referenceOperations.get(id) ?? Promise.resolve()).catch(() => {}).then(operation);
+  referenceOperations.set(id, pending);
+  void pending.finally(() => {
+    if (referenceOperations.get(id) === pending) referenceOperations.delete(id);
+  }).catch(() => {});
+  return pending;
+}
+
+export function cancelReferenceUpload(requestId: string) {
+  return httpRequest(`/api/image-references/uploads/${encodeURIComponent(requestId)}`, { method: "DELETE" });
+}
+
 export function releaseReferenceImage(id: string) {
-  return httpRequest(`/api/image-references/${encodeURIComponent(id)}`, { method: "DELETE" });
+  return referenceOperation(id, () => httpRequest(`/api/image-references/${encodeURIComponent(id)}`, { method: "DELETE" }));
 }
 
 export function retainReferenceImage(id: string) {
-  return httpRequest<StoredReferenceImage>(`/api/image-references/${encodeURIComponent(id)}/retain`, { method: "POST" });
+  return referenceOperation(id, () => httpRequest<StoredReferenceImage>(`/api/image-references/${encodeURIComponent(id)}/retain`, { method: "POST" }));
 }
 
 export function fetchReferenceImages() {

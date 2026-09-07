@@ -1,12 +1,12 @@
 {
   "timings": {
-    "selectionFeedbackMs": 39,
-    "fourSyntheticImagesMs": 789
+    "selectionFeedbackMs": 47,
+    "fourSyntheticImagesMs": 822
   },
   "mainUploads": 2,
   "mainOutputs": 4,
-  "submissionBytes": 313,
-  "protectedReads": 21,
+  "submissionBytes": 314,
+  "protectedReads": 20,
   "errors": [],
   "download": "original-wrong.gif; exact original bytes",
   "checks": [

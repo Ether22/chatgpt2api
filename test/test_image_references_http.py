@@ -16,6 +16,35 @@ def upload(env, request_id="upload-one", name="original.png"):
     return response.json()
 
 
+def test_cancel_upload_before_arrival_is_durable_and_identity_scoped(environment, monkeypatch):
+    from services.image_task_service import ImageTaskService
+    from api import image_tasks
+    env = environment
+    route = "/api/image-references/uploads/late-upload"
+    assert env["client"].delete(route, headers=env["headers"]).json() == {"retained": False}
+    monkeypatch.setattr(image_tasks, "image_task_service", ImageTaskService(env["path"]))
+    response = env["client"].post("/api/image-references", headers=env["headers"],
+        data={"request_id": "late-upload"}, files={"file": ("original.png", image_bytes(), "image/png")})
+    assert response.status_code == 400
+    assert env["client"].get("/api/image-references", headers=env["headers"]).json()["items"] == []
+    other = env["client"].post("/api/image-references", headers=env["other"],
+        data={"request_id": "late-upload"}, files={"file": ("original.png", image_bytes(), "image/png")})
+    assert other.status_code == 200
+
+
+def test_cancel_upload_after_lost_confirmation_cleans_file_and_retries(environment, monkeypatch):
+    from services.image_storage_service import image_storage_service
+    env = environment
+    reference = upload(env, "lost-confirmation")
+    route = "/api/image-references/uploads/lost-confirmation"
+    with monkeypatch.context() as failure:
+        failure.setattr(image_storage_service, "delete", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("controlled cleanup failure")))
+        assert env["client"].delete(route, headers=env["headers"]).status_code == 507
+    assert env["client"].delete(route, headers=env["headers"]).json() == {"retained": False}
+    assert env["client"].delete(route, headers=env["headers"]).json() == {"retained": False}
+    assert env["client"].get(reference["url"], headers=env["headers"]).status_code == 404
+
+
 def test_upload_once_ordered_snapshot_and_release_survive_reload(environment, monkeypatch):
     env = environment
     first = upload(env)

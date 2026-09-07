@@ -256,7 +256,7 @@ export function ImageComposer({
                   <X className="size-3" />
                 </button>
                 {image.uploading ? <span role="status" className="absolute bottom-0 inset-x-0 bg-white/90 text-center text-[10px]">上传中 {image.progress || 0}%</span> : null}
-                {image.error ? <button type="button" onClick={() => onRetryReferenceImage(index)} title={image.error} aria-label={`重试上传 ${image.name}`} className="absolute bottom-0 inset-x-0 bg-rose-50 text-[10px] text-rose-700">上传失败 · 重试</button> : null}
+                {image.error ? <button type="button" onClick={() => image.file && !image.releasing ? onRetryReferenceImage(index) : onRemoveReferenceImage(index)} title={image.error} aria-label={`${image.file && !image.releasing ? "重试上传" : "重试移除"} ${image.name}`} className="absolute bottom-0 inset-x-0 bg-rose-50 text-[10px] text-rose-700">{image.file && !image.releasing ? "上传失败 · 重试" : "移除 · 重试"}</button> : null}
               </div>
             ))}
           </div>

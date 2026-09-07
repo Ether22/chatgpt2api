@@ -47,6 +47,7 @@ import {
   type DraftReferenceImage,
   uploadReferenceImage,
   releaseReferenceImage,
+  cancelReferenceUpload,
   retainReferenceImage,
   fetchReferenceImages,
 } from "@/store/image-conversations";
@@ -182,6 +183,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [referenceImages, updateReferenceImages] = useState<DraftReferenceImage[]>([]);
   const referenceImagesRef = useRef<DraftReferenceImage[]>([]);
+  const activeSubmissionReferences = useRef(new Map<string, number>());
+  const deferredReleases = useRef(new Map<string, DraftReferenceImage>());
   const setReferenceImages = useCallback((value: DraftReferenceImage[] | ((previous: DraftReferenceImage[]) => DraftReferenceImage[])) => {
     const previous = referenceImagesRef.current;
     const next = typeof value === "function" ? value(previous) : value;
@@ -193,11 +196,15 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   }, []);
   const releaseInputs = useCallback((images: DraftReferenceImage[]) => {
     for (const image of images) {
-      if (pendingSubmissionRef.current?.turn.referenceImages.some((item) => item.id === image.id)) continue;
-      if (!image.file) void releaseReferenceImage(image.id).catch((error) => {
+      if (activeSubmissionReferences.current.has(image.id)) {
+        deferredReleases.current.set(image.id, image);
+        continue;
+      }
+      void (image.file ? cancelReferenceUpload(image.id) : releaseReferenceImage(image.id)).catch((error) => {
         toast.error(`释放参考图失败：${error.message}`);
         setReferenceImages((current) => current.some((item) => item.id === image.id) ? current
-          : [...current, { ...image, error: "释放失败，请重试移除" }]);
+          : [...current, { ...image, url: image.file ? URL.createObjectURL(image.file) : image.url,
+            uploading: false, releasing: true, error: "释放失败，请重试移除" }]);
       });
     }
   }, [setReferenceImages]);
@@ -761,16 +768,13 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     setReferenceImages((current) => current.map((image) => image.id === draft.id ? { ...image, uploading: true, error: undefined } : image));
     try {
       const saved = await uploadReferenceImage(draft.file, draft.id, (progress) => {
-        setReferenceImages((current) => current.map((image) => image.id === draft.id ? { ...image, progress } : image));
+        setReferenceImages((current) => current.map((image) => image.id === draft.id && !image.releasing ? { ...image, progress } : image));
       });
-      if (!referenceImagesRef.current.some((image) => image.id === draft.id)) {
-        await releaseReferenceImage(saved.id);
-      } else {
-        setReferenceImages((current) => current.map((image) => image.id === draft.id ? saved : image));
-      }
+      setReferenceImages((current) => current.map((image) => image.id === draft.id && !image.releasing ? saved : image));
     } catch (error) {
       const message = error instanceof Error ? error.message : "上传参考图失败";
-      setReferenceImages((current) => current.map((image) => image.id === draft.id ? { ...image, uploading: false, error: message } : image));
+      if (!referenceImagesRef.current.some((image) => image.id === draft.id && !image.releasing)) return;
+      setReferenceImages((current) => current.map((image) => image.id === draft.id && !image.releasing ? { ...image, uploading: false, error: message } : image));
       toast.error(message);
     }
   }, [setReferenceImages]);
@@ -798,7 +802,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       setSelectedConversationId(conversationId);
       if ("name" in image) {
         const retained = await retainReferenceImage(image.id);
-        setReferenceImages((current) => current.some((item) => item.id === retained.id) ? current : [...current, retained]);
+        setReferenceImages((current) => current.some((item) => item.id === retained.id)
+          ? current.map((item) => item.id === retained.id ? retained : item) : [...current, retained]);
       } else {
         const source = image.b64_json ? `data:image/png;base64,${image.b64_json}` : image.url;
         if (!source) return;
@@ -926,6 +931,9 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       pendingSubmissionRef.current = { signature, turn: draftTurn, conversationId };
     }
     const pending = pendingSubmissionRef.current;
+    for (const image of pending.turn.referenceImages) {
+      activeSubmissionReferences.current.set(image.id, (activeSubmissionReferences.current.get(image.id) ?? 0) + 1);
+    }
     try {
       const saved = await submitImageTurn(pending.turn, pending.conversationId);
       await refreshHistory();
@@ -940,6 +948,17 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       toast.success("已保存并提交生成");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "保存并提交失败");
+    } finally {
+      for (const image of pending.turn.referenceImages) {
+        const remaining = (activeSubmissionReferences.current.get(image.id) ?? 1) - 1;
+        if (remaining) activeSubmissionReferences.current.set(image.id, remaining);
+        else {
+          activeSubmissionReferences.current.delete(image.id);
+          const released = deferredReleases.current.get(image.id);
+          deferredReleases.current.delete(image.id);
+          if (released && !referenceImagesRef.current.some((item) => item.id === image.id)) releaseInputs([released]);
+        }
+      }
     }
   };
 

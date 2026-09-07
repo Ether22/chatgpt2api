@@ -297,7 +297,7 @@ class ImageTaskService:
             reference = next((item for item in self._references.values()
                               if item["owner_id"] == owner and item["request_id"] == request_id and item["upload_scope"] == scope), None)
             if reference:
-                if reference.get("deleted") or reference["digest"] != digest or reference["name"] != name:
+                if reference.get("deleted") or reference.get("upload_cancelled") or reference["digest"] != digest or reference["name"] != name:
                     raise ValueError("上传request_id已使用，请为新文件使用新标识")
                 if reference["state"] == "ready":
                     if scope not in reference["input_scopes"]:
@@ -407,6 +407,28 @@ class ImageTaskService:
                 self._references[reference_id] = previous
                 raise
             return self._delete_unused_reference(reference)
+
+    def cancel_reference_upload(self, identity: dict[str, object], request_id: str, *, scope: str = "ordinary") -> dict[str, bool]:
+        self._validate_reference_scope(scope)
+        if not request_id.strip() or len(request_id) > 128:
+            raise ValueError("上传request_id无效")
+        owner = _owner_id(identity)
+        with self._lock:
+            reference = next((item for item in self._references.values()
+                              if item["owner_id"] == owner and item["request_id"] == request_id and item["upload_scope"] == scope), None)
+            if reference:
+                reference["upload_cancelled"] = True
+                return self.release_reference(identity, reference["id"], scope=scope)
+            # Persist cancellation even when DELETE overtakes the multipart upload.
+            reference_id = uuid.uuid4().hex
+            self._references[reference_id] = {"id": reference_id, "owner_id": owner, "request_id": request_id,
+                                              "upload_scope": scope, "input_scopes": [], "turn_ids": [], "deleted": True}
+            try:
+                self._save_locked()
+            except Exception:
+                del self._references[reference_id]
+                raise
+            return {"retained": False}
 
     def release_turn_reference(self, identity: dict[str, object], reference_id: str, turn_id: str) -> dict[str, bool]:
         """Deletion callers release each snapshot ID after removing its turn/conversation and settling tasks."""
