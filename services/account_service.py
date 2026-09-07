@@ -1071,6 +1071,12 @@ class AccountService:
         self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
         return False
 
+    def mark_rate_limited(self, access_token: str, retry_after: int | None = None) -> dict | None:
+        updates = {"status": "限流", "quota": 0}
+        if retry_after is not None:
+            updates["restore_at"] = (datetime.now(timezone.utc) + timedelta(seconds=retry_after)).isoformat()
+        return self.update_account(access_token, updates)
+
     def get_account(self, access_token: str) -> dict | None:
         if not access_token:
             return None

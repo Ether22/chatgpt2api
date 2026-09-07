@@ -4,6 +4,7 @@ import json
 import tempfile
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -32,7 +33,8 @@ class AccountRetentionTests(unittest.TestCase):
         self.service.add_account_items([{
             "access_token": "retained", "email": "test@example.invalid", "password": "fake-password",
             "refresh_token": "fake-refresh", "id_token": "fake-id", "type": "Plus", "status": "正常", "quota": 1,
-            "usage_mode": "normal", "proxy": "", "custom_metadata": {"label": "keep"},
+            "usage_mode": "normal", "proxy": "", "hidden": False, "display_order": 17,
+            "custom_metadata": {"label": "keep"},
         }])
         self.original = self.service.get_account("retained")
         patcher = patch.object(accounts_api, "account_service", self.service)
@@ -95,7 +97,7 @@ class AccountRetentionTests(unittest.TestCase):
         self.assertIsNotNone(reloaded)
         self.assertEqual(reloaded["usage_mode"], mode)
         self.assertEqual(reloaded["status"], status)
-        for field in ("access_token", "email", "password", "refresh_token", "id_token", "type", "proxy", "created_at", "custom_metadata"):
+        for field in ("access_token", "email", "password", "refresh_token", "id_token", "type", "proxy", "created_at", "hidden", "display_order", "custom_metadata"):
             self.assertEqual(reloaded[field], self.original[field], field)
 
     def test_legacy_config_file_and_updates_do_not_advertise_deletion(self):
@@ -115,12 +117,13 @@ class AccountRetentionTests(unittest.TestCase):
                            lambda: web_search_tool.run_web_search("test")):
                 for code, error, expected in ((401, "unauthorized", "异常"), (429, "rate limited", "限流"),
                                               (403, "token_invalidated", "异常"), (503, "unavailable", "正常")):
-                    self.service.update_account("retained", {"status": "正常", "quota": 1})
+                    self.service.update_account("retained", {"status": "正常", "quota": 1, "restore_at": "2099-01-01T00:00:00+00:00"})
                     response = SimpleNamespace(status_code=code, text=error, headers={})
                     with patch("curl_cffi.requests.Session.post", return_value=response):
                         with self.assertRaises(UpstreamHTTPError):
                             search()
                     self.assert_retained("normal", expected)
+                    self.assertEqual(self.service.get_account("retained")["restore_at"], "2099-01-01T00:00:00+00:00")
                 with patch("curl_cffi.requests.Session.post", side_effect=RuntimeError("connection timeout")):
                     with self.assertRaisesRegex(RuntimeError, "connection timeout"):
                         search()
@@ -162,6 +165,63 @@ class AccountRetentionTests(unittest.TestCase):
                 list(conversation.stream_image_outputs_with_pool(conversation.ConversationRequest(model="gpt-image-2", prompt="test")))
             self.assert_retained("normal", "异常")
             self.assertEqual(self.service.list_accounts()[0]["image_inflight"], 0)
+
+    def test_search_polling_rate_limit_keeps_retrying_and_retains_account(self):
+        polls = []
+
+        def upstream(method, url, **kwargs):
+            payload = {"conduit_token": "test-conduit", "token": "test-sentinel"}
+            status = 200
+            if url.endswith("/backend-api/conversation/test-search"):
+                polls.append(url)
+                if len(polls) == 1:
+                    status = 429
+                    payload = {"error": "rate limited"}
+                else:
+                    payload = {"mapping": {"answer": {"message": {
+                        "author": {"role": "assistant"}, "content": {"parts": ["controlled result"]},
+                        "metadata": {"status": "finished_successfully"},
+                    }}}}
+            return SimpleNamespace(status_code=status, text=json.dumps(payload), json=lambda: payload,
+                                   headers={"Retry-After": "60"}, close=lambda: None,
+                                   iter_lines=lambda: iter([b'data: {"conversation_id":"test-search"}', b'data: [DONE]']))
+
+        started = time.time()
+        with patch.dict(config.data, {"auto_remove_rate_limited_accounts": True}), \
+             patch.object(openai_backend_api, "account_service", self.service), \
+             patch("curl_cffi.requests.Session.request", side_effect=upstream):
+            with openai_backend_api.OpenAIBackendAPI("retained") as backend:
+                result = backend.search("test", timeout_secs=2, poll_interval_secs=0)
+        self.assertEqual(result["answer"], "controlled result")
+        self.assertEqual(len(polls), 2)
+        self.assert_retained("normal", "限流")
+        restore_at = datetime.fromisoformat(self.service.get_account("retained")["restore_at"]).timestamp()
+        self.assertGreaterEqual(restore_at, started + 60)
+        self.assertLessEqual(restore_at, time.time() + 60)
+
+    def test_text_and_image_http_auth_and_rate_errors_update_health(self):
+        with patch.dict(config.data, {"auto_remove_invalid_accounts": True, "auto_remove_rate_limited_accounts": True}), \
+             patch.object(conversation, "account_service", self.service), \
+             patch.object(openai_backend_api, "account_service", self.service), \
+             patch("services.openai_backend_api.OpenAIBackendAPI.get_user_info", return_value={"status": "正常", "quota": 1}):
+            for image in (False, True):
+                for status, expected in ((401, "异常"), (429, "限流")):
+                    with self.subTest(image=image, status=status):
+                        self.service.update_account("retained", {"status": "正常", "quota": 1})
+                        started = time.time()
+                        error = UpstreamHTTPError("conversation", status, "unauthorized" if status == 401 else "rate limited", retry_after=90)
+                        with patch("services.openai_backend_api.OpenAIBackendAPI.stream_conversation", side_effect=error):
+                            with self.assertRaises((UpstreamHTTPError, conversation.ImageGenerationError)):
+                                if image:
+                                    list(conversation.stream_image_outputs_with_pool(conversation.ConversationRequest(model="gpt-image-2", prompt="test")))
+                                else:
+                                    list(conversation.stream_text_deltas(SimpleNamespace(access_token="retained"), conversation.ConversationRequest(prompt="test")))
+                        self.assert_retained("normal", expected)
+                        self.assertEqual(self.service.list_accounts()[0]["image_inflight"], 0)
+                        if status == 429:
+                            restore_at = datetime.fromisoformat(self.service.get_account("retained")["restore_at"]).timestamp()
+                            self.assertGreaterEqual(restore_at, started + 90)
+                            self.assertLessEqual(restore_at, time.time() + 90)
 
 
 if __name__ == "__main__":

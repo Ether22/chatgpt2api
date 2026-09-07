@@ -14,9 +14,10 @@ import tiktoken
 from services.account_service import account_service
 from services.config import config
 from services.image_storage_service import image_storage_service
-from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, OpenAIBackendAPI
+from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, InvalidAccessTokenError, OpenAIBackendAPI
 from utils.helper import (
     IMAGE_MODELS,
+    UpstreamHTTPError,
     extract_image_from_message_content,
     is_codex_image_model,
     is_supported_image_model,
@@ -67,7 +68,9 @@ def public_image_error_message(message: str) -> str:
     return text or "The image generation request failed. Please try again later."
 
 
-def is_token_invalid_error(message: str) -> bool:
+def is_token_invalid_error(message: object) -> bool:
+    if isinstance(message, InvalidAccessTokenError) or (isinstance(message, UpstreamHTTPError) and message.status_code == 401):
+        return True
     text = str(message or "").lower()
     return (
         "token_invalidated" in text
@@ -738,8 +741,11 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
             account_service.mark_text_used(token)
             return
         except Exception as exc:
-            error_message = str(exc)
-            if token and not emitted and is_token_invalid_error(error_message):
+            if token and emitted and is_token_invalid_error(exc):
+                account_service.remove_invalid_token(token, "text_stream")
+            if token and isinstance(exc, UpstreamHTTPError) and exc.status_code == 429:
+                account_service.mark_rate_limited(token, exc.retry_after)
+            if token and not emitted and is_token_invalid_error(exc):
                 refreshed_token = account_service.refresh_access_token(token, force=True, event="text_stream")
                 if not refreshed_token or refreshed_token == token:
                     account_service.remove_invalid_token(token, "text_stream")
@@ -1481,7 +1487,11 @@ def _generate_single_image(
                 "error": last_error,
                 "index": index,
             })
-            if not emitted_for_token and is_token_invalid_error(last_error):
+            if emitted_for_token and is_token_invalid_error(exc):
+                account_service.remove_invalid_token(token, "image_stream")
+            if isinstance(exc, UpstreamHTTPError) and exc.status_code == 429:
+                account_service.mark_rate_limited(token, exc.retry_after)
+            if not emitted_for_token and is_token_invalid_error(exc):
                 refreshed_token = account_service.refresh_access_token(token, force=True, event="image_stream")
                 if refreshed_token and refreshed_token != token:
                     token = refreshed_token

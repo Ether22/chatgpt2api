@@ -1834,10 +1834,10 @@ class OpenAIBackendAPI:
             from services.protocol.conversation import is_token_invalid_error
 
             status = exc.status_code if isinstance(exc, UpstreamHTTPError) else None
-            if isinstance(exc, InvalidAccessTokenError) or status == 401 or is_token_invalid_error(str(exc)):
+            if is_token_invalid_error(exc):
                 account_service.remove_invalid_token(self.access_token, "search")
             elif status == 429:
-                account_service.update_account(self.access_token, {"status": "限流", "quota": 0})
+                account_service.mark_rate_limited(self.access_token, exc.retry_after)
             raise
 
     def _prepare_search_conversation(self, prompt: str, model: str) -> str:
@@ -1930,6 +1930,8 @@ class OpenAIBackendAPI:
             try:
                 last_result = self._extract_search_result(conversation_id, self._get_search_conversation(conversation_id))
             except UpstreamHTTPError as exc:
+                if exc.status_code == 429:
+                    account_service.mark_rate_limited(self.access_token, exc.retry_after)
                 if exc.status_code not in {404, 409, 423, 429, 500, 502, 503, 504}:
                     raise
             if last_result and last_result.get("answer"):
