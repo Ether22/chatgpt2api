@@ -1,0 +1,1242 @@
+{
+  "timings": {
+    "first_open_ms": 1013,
+    "switch_ms": 250,
+    "previous_page_ms": 242,
+    "scroll_frames": {
+      "p95_ms": 19,
+      "max_ms": 26.600000023841858
+    },
+    "visible_images_reloaded": true,
+    "input_ms": 30,
+    "return_position": {
+      "savedPosition": {
+        "scrollTop": 1200,
+        "turn": "gallery-1-turn-076",
+        "image": "Generated result 10"
+      },
+      "returnedPosition": {
+        "scrollTop": 1228,
+        "turn": "gallery-1-turn-076",
+        "image": "Generated result 10"
+      }
+    },
+    "history_position_restored": true,
+    "stale_response_ignored": true,
+    "target_bytes": 13359,
+    "blobs_after_scroll": {
+      "live": 9,
+      "revoked": 88,
+      "peak": 9
+    },
+    "gallery_open_ms": 986,
+    "gallery_next_ms": 76,
+    "selected_download": {
+      "count": 13,
+      "bytes": 3178
+    },
+    "tag_filter_updated_after_edit": true,
+    "selection_failure_recovered": true,
+    "deleted_middle_continuation_recovered": true,
+    "more_conversations_reachable": true,
+    "long_tasks_ms": []
+  },
+  "reads": [
+    {
+      "url": "http://127.0.0.1:43150/api/image-references",
+      "bytes": 12,
+      "items": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations?offset=0&limit=30",
+      "bytes": 539,
+      "items": 2,
+      "offset": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations/gallery-0?",
+      "bytes": 13292,
+      "turns": 2,
+      "offset": 78,
+      "images": 40
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations/current",
+      "bytes": 11
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations/gallery-1?",
+      "bytes": 13292,
+      "turns": 2,
+      "offset": 78,
+      "images": 40
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations/gallery-1?offset=76",
+      "bytes": 13290,
+      "turns": 2,
+      "offset": 76,
+      "images": 40
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations?offset=0&limit=30",
+      "bytes": 539,
+      "items": 2,
+      "offset": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-tasks/query",
+      "bytes": 29,
+      "items": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations/gallery-1/metadata",
+      "bytes": 183,
+      "turns": 0,
+      "images": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations/current",
+      "bytes": 11
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations/gallery-0?",
+      "bytes": 13292,
+      "turns": 2,
+      "offset": 78,
+      "images": 40
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations/gallery-1?offset=76",
+      "bytes": 13290,
+      "turns": 2,
+      "offset": 76,
+      "images": 40
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations/current",
+      "bytes": 11
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images/tags",
+      "bytes": 11
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=0&limit=12",
+      "bytes": 18304,
+      "items": 12,
+      "offset": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images/storage",
+      "bytes": 132
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images/tags",
+      "bytes": 11
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=12&limit=12",
+      "bytes": 18322,
+      "items": 12,
+      "offset": 12
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images/tags",
+      "bytes": 23
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=12&limit=12",
+      "bytes": 18346,
+      "items": 12,
+      "offset": 12
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images/tags",
+      "bytes": 23
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=0&limit=12&tag=cross-page",
+      "bytes": 18590,
+      "items": 12,
+      "offset": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=0&limit=100&tag=cross-page&paths_only=true",
+      "bytes": 1654,
+      "items": 13,
+      "offset": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images/tags",
+      "bytes": 23
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=12&limit=12&tag=cross-page",
+      "bytes": 1686,
+      "items": 1,
+      "offset": 12
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images/tags",
+      "bytes": 21
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images/tags",
+      "bytes": 23
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images/tags",
+      "bytes": 23
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=12&limit=12&tag=cross-page",
+      "bytes": 112,
+      "items": 0,
+      "offset": 12
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images/tags",
+      "bytes": 23
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=0&limit=12&tag=cross-page",
+      "bytes": 18592,
+      "items": 12,
+      "offset": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images/tags",
+      "bytes": 23
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=0&limit=12",
+      "bytes": 18592,
+      "items": 12,
+      "offset": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=0&limit=100&paths_only=true",
+      "bytes": 12053,
+      "items": 100,
+      "offset": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=100&limit=100&paths_only=true",
+      "bytes": 46
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=0&limit=100&paths_only=true",
+      "bytes": 12053,
+      "items": 100,
+      "offset": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=100&limit=100&paths_only=true",
+      "bytes": 12052,
+      "items": 100,
+      "offset": 100
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=200&limit=100&paths_only=true",
+      "bytes": 12054,
+      "items": 100,
+      "offset": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=300&limit=100&paths_only=true",
+      "bytes": 12054,
+      "items": 100,
+      "offset": 300
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=400&limit=100&paths_only=true",
+      "bytes": 12054,
+      "items": 100,
+      "offset": 400
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=500&limit=100&paths_only=true",
+      "bytes": 12054,
+      "items": 100,
+      "offset": 500
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=600&limit=100&paths_only=true",
+      "bytes": 12054,
+      "items": 100,
+      "offset": 600
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=700&limit=100&paths_only=true",
+      "bytes": 12054,
+      "items": 100,
+      "offset": 700
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=800&limit=100&paths_only=true",
+      "bytes": 12054,
+      "items": 100,
+      "offset": 800
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=900&limit=100&paths_only=true",
+      "bytes": 12055,
+      "items": 100,
+      "offset": 900
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=1000&limit=100&paths_only=true",
+      "bytes": 12056,
+      "items": 100,
+      "offset": 1000
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=1100&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 1100
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=1200&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 1200
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=1300&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 1300
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=1400&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 1400
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=1500&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 1500
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=1600&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 1600
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=1700&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 1700
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=1800&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 1800
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=1900&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 1900
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=2000&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 2000
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=2100&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 2100
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=2200&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 2200
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=2300&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 2300
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=2400&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 2400
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=2500&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 2500
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=2600&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 2600
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=2700&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 2700
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=2800&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 2800
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=2900&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 2900
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=3000&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 3000
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/images?offset=3100&limit=100&paths_only=true",
+      "bytes": 12057,
+      "items": 100,
+      "offset": 3100
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-references",
+      "bytes": 12,
+      "items": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations?offset=0&limit=30",
+      "bytes": 6530,
+      "items": 30,
+      "offset": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations/gallery-0?",
+      "bytes": 13292,
+      "turns": 2,
+      "offset": 78,
+      "images": 40
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations?offset=30&limit=30",
+      "bytes": 6588,
+      "items": 30,
+      "offset": 30
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations?offset=0&limit=30",
+      "bytes": 6530,
+      "items": 30,
+      "offset": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-tasks/query",
+      "bytes": 29,
+      "items": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations/gallery-0/metadata",
+      "bytes": 183,
+      "turns": 0,
+      "images": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations?offset=0&limit=30",
+      "bytes": 6530,
+      "items": 30,
+      "offset": 0
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations/gallery-0?",
+      "bytes": 13292,
+      "turns": 2,
+      "offset": 78,
+      "images": 40
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations?offset=30&limit=30",
+      "bytes": 6588,
+      "items": 30,
+      "offset": 30
+    },
+    {
+      "url": "http://127.0.0.1:43150/api/image-conversations?offset=60&limit=30",
+      "bytes": 1241,
+      "items": 5,
+      "offset": 60
+    }
+  ],
+  "protectedReads": [
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-2.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-1.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-0.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-3.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-5.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-4.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-6.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-9.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-11.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-7.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-8.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-10.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-19.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-18.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-7.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-6.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-10.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-8.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-9.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-11.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-12.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-14.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-13.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-16.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-15.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-17.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-18.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-19.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-15.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-19.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-17.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-18.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-16.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-0.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-1.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-4.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-3.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-2.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-5.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-6.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-7.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-8.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-9.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-11.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-10.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-12.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-14.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-13.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-15.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-17.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-16.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-19.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-18.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-2.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-0.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-1.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-5.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-4.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-3.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-7.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-8.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-6.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-9.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-10.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-11.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-12.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-13.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-14.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-15.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-17.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-16.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-19.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-077-18.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-0.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-2.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-1.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-5.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-3.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-4.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-9.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-10.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-11.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-14.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-13.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-12.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-15.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-17.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-16.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-11.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-9.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-13.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-12.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-14.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-10.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-11.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-15.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-16.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-076-17.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-9.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-7.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-6.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-8.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-5.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-3.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-2.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-4.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-18.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-19.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-16.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-17.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-15.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-12.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-13.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-14.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-10.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-11.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-1.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-8.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-0.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-7.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-9.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-6.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-9.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-7.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-6.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-4.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-5.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-8.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-19.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-3.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-18.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-16.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-17.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-2.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-15.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-8.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-4.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-7.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-6.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-5.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-9.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-3.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-19.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-2.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-17.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-16.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/image-thumbnails/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-1-turn-079-18.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-1.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-0.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-3.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-2.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-4.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-5.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-8.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-7.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-6.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-9.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-10.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-11.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-12.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-14.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-13.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-17.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-15.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-16.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-18.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-078-19.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-2.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-0.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-1.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-5.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-4.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-3.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-6.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-7.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-8.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-11.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-9.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-10.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-5.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-12.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-14.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-13.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-16.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-17.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-15.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-18.png",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:43150/images/managed/fcf1452b89a40526bf8a7ba058ff3a6928c30c5840f1ff4c7979babb01e39dde/2026/09/08/gallery-0-turn-079-19.png",
+      "status": 200
+    }
+  ],
+  "errors": []
+}

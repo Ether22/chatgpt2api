@@ -1,0 +1,36 @@
+{
+  "uploads": [
+    {
+      "auth": "Bearer ticket05-A"
+    },
+    {
+      "auth": "Bearer ticket05-A"
+    }
+  ],
+  "taskReads": 10,
+  "detailReads": 4,
+  "turns": 3,
+  "remoteResume": [
+    {
+      "id": "85c770847e064af087e56f92b397ddbc-0",
+      "status": "error"
+    },
+    {
+      "id": "85c770847e064af087e56f92b397ddbc-0",
+      "status": "running"
+    },
+    {
+      "id": "85c770847e064af087e56f92b397ddbc-0",
+      "status": "success"
+    }
+  ],
+  "copied": {
+    "task_id": "85c770847e064af087e56f92b397ddbc-0",
+    "type": "TimeoutError",
+    "code": "timeout",
+    "message": "controlled timeout Authorization: [REDACTED]",
+    "dispatch_state": "unknown",
+    "conversation_id": "controlled-conversation"
+  },
+  "errors": []
+}

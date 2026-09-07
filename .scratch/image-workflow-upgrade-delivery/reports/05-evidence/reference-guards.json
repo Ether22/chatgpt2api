@@ -1,0 +1,12 @@
+{
+  "queuedRetainAndReleaseBlocked": true,
+  "lateResultAppendBlocked": true,
+  "mutations": [
+    {
+      "method": "POST",
+      "url": "http://127.0.0.1:43151/api/image-references/1f445b90cac44b8992b70b9ba0f323d7/retain",
+      "auth": "Bearer ticket05-A"
+    }
+  ],
+  "errors": []
+}

@@ -1,0 +1,13 @@
+[storage] Initializing storage backend: json
+[storage] Using JSON storage: C:\Users\ForestHill\.codex\worktrees\633b\chatgpt2api\data\accounts.json
+.................................................................... [ 28%]
+........................................................................ [ 58%]
+..................................................................... [ 87%]
+.............................                                            [100%]
+============================== warnings summary ===============================
+..\..\..\..\Documents\chatgpt2api\.venv\runtime\Lib\site-packages\_pytest\config\__init__.py:1345
+  C:\Users\ForestHill\Documents\chatgpt2api\.venv\runtime\Lib\site-packages\_pytest\config\__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; anyio
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+238 passed, 1 warning, 7 subtests passed in 38.71s
