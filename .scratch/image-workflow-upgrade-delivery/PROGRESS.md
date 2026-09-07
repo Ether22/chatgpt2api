@@ -39,7 +39,7 @@
 | 15 | 监控、禁用与可消费额度 | 无 | 01a07cd9-5e81-7a41-9890-e40f01e0855a | codex/image-task-15 | gpt-6-astra / high | 已集成并验证 | 43e3834、9727a25 | 61a34d5、1e6888a；40项账号/路由/能力/导出及 tsc 通过 |
 | 16 | 账号隐藏与组内拖拽排序 | 15 | 01a07cf9-063a-7df3-b3ca-c0526209f6ff | codex/image-task-16 | gpt-6-astra / medium | 已集成并验证 | 6b9f716、2c6b2e9、9d57af1 | 5f03ee3、c1b1c59、a8cfe61；主对话44项组合回归及tsc通过 |
 | 17 | 账号只保留不物理删除 | 无 | 01a07cff-4ece-7c00-9b83-96a96150951d | codex/image-task-17 | gpt-6-astra / high | 已集成并验证 | 1c35397、8e591aa、5046c59 | 651fe59、fabb9ad、534e467；53项+4子场景、tsc/build及组合浏览器通过 |
-| 18 | 业务 API、界面、日志及文件日期统一北京时间 | 无 | 01a07cff-709a-7512-ac93-8f632637e9e3 | codex/image-task-18 | gpt-6-astra / high | A/B已集成；C只读预审新增后端，待12/14后最终全域复核 | A：815436d、5fbcd94；B：d19cd00、97ccbc6 | A：178c6e7、aac4b11；B：70e1d81、3c6bc47；主263项+7子场景和三时区浏览器通过，整票未完成 |
+| 18 | 业务 API、界面、日志及文件日期统一北京时间 | 无 | 01a07cff-709a-7512-ac93-8f632637e9e3 | codex/image-task-18 | gpt-6-astra / high | A/B已集成；主对话C集成日期复核中，待12/14后最终浏览器验收 | A：815436d、5fbcd94；B：d19cd00、97ccbc6；根C：68c513c | A：178c6e7、aac4b11；B：70e1d81、3c6bc47；C新增三服务器时区午夜工作流回归通过，整票未完成 |
 
 ## 修改范围与调度约束
 
