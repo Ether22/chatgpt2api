@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import base64
+import binascii
+from typing import Literal
+
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from api.image_inputs import parse_image_edit_request, read_image_sources
+from api.image_inputs import MAX_IMAGE_REFERENCE_BYTES, parse_image_edit_request, read_image_sources
 from api.support import require_identity, resolve_image_base_url
 from services.content_filter import check_request
 from services.image_task_service import image_task_service
+from services.image_storage_service import ImageStorageError
 from services.log_service import LoggedCall
 
 
@@ -21,6 +26,80 @@ class ImageGenerationTaskRequest(BaseModel):
 
 class ResumePollRequest(BaseModel):
     extra_timeout_secs: float = Field(default=30.0, ge=5.0, le=120.0)
+
+
+class ReferenceImageRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    type: Literal["image/png", "image/jpeg", "image/webp", "image/gif"]
+    dataUrl: str = Field(max_length=(MAX_IMAGE_REFERENCE_BYTES + 2) // 3 * 4 + 100)
+
+    @field_validator("dataUrl")
+    @classmethod
+    def valid_image_data_url(cls, value: str) -> str:
+        header, separator, encoded = value.partition(",")
+        if not separator or header not in {f"data:{mime};base64" for mime in ("image/png", "image/jpeg", "image/webp", "image/gif")}:
+            raise ValueError("参考图必须为图片 Base64 data URL")
+        try:
+            if not base64.b64decode(encoded, validate=True):
+                raise ValueError("参考图不能为空")
+        except binascii.Error as exc:
+            raise ValueError("参考图 Base64 无效") from exc
+        return value
+
+
+class ImageTurnRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: str = Field(min_length=1, max_length=128)
+    conversation_id: str | None = None
+    source_entry_id: str | None = None
+    prompt: str = Field(min_length=1)
+    model: str = Field(default="gpt-image-2", min_length=1)
+    size: str = Field(default="1024x1024", pattern=r"^[1-9]\d{0,4}x[1-9]\d{0,4}$")
+    quality: str = "auto"
+    count: int = Field(default=4, ge=1, le=100, strict=True)
+    ratio: str = "1:1"
+    tier: str = "1k"
+    referenceImages: list[ReferenceImageRequest] = Field(default_factory=list)
+
+    @field_validator("prompt", "request_id")
+    @classmethod
+    def nonblank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
+
+
+class CreateConversationRequest(BaseModel):
+    request_id: str = Field(min_length=1, max_length=128)
+
+
+class CurrentConversationRequest(BaseModel):
+    conversation_id: str
+
+
+class TurnVisibilityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    promptDeleted: bool | None = None
+    resultsDeleted: bool | None = None
+    dismissedImageIds: list[str] | None = Field(default=None, max_length=100)
+
+
+class ConversationUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    turns: list[TurnVisibilityRequest] = Field(default_factory=list)
+
+
+async def conversation_call(method, *args):
+    try:
+        return await run_in_threadpool(method, *args)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail={"error": "conversation not found"}) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+    except (OSError, ImageStorageError) as exc:
+        raise HTTPException(status_code=507, detail={"error": f"保存失败，未能启动生成：{exc}"}) from exc
 
 
 def _parse_task_ids(value: str) -> list[str]:
@@ -37,6 +116,44 @@ async def filter_or_log(call: LoggedCall, text: str) -> None:
 
 def create_router() -> APIRouter:
     router = APIRouter()
+
+    @router.get("/api/image-conversations")
+    async def list_conversations(authorization: str | None = Header(default=None)):
+        return await conversation_call(image_task_service.list_conversations, require_identity(authorization))
+
+    @router.post("/api/image-conversations")
+    async def create_conversation(body: CreateConversationRequest, authorization: str | None = Header(default=None)):
+        return await conversation_call(image_task_service.create_conversation, require_identity(authorization), body.request_id)
+
+    @router.put("/api/image-conversations/current")
+    async def select_conversation(body: CurrentConversationRequest, authorization: str | None = Header(default=None)):
+        await conversation_call(image_task_service.set_current_conversation, require_identity(authorization), body.conversation_id)
+        return {"ok": True}
+
+    @router.post("/api/image-conversations/turns")
+    async def submit_turn(body: ImageTurnRequest, request: Request, authorization: str | None = Header(default=None)):
+        identity = require_identity(authorization)
+        await filter_or_log(LoggedCall(identity, "/api/image-conversations/turns", body.model, "生图轮次", request_text=body.prompt), body.prompt)
+        return await conversation_call(image_task_service.submit_turn, identity, body.model_dump(), resolve_image_base_url(request))
+
+    @router.get("/api/image-conversations/{conversation_id}")
+    async def get_conversation(conversation_id: str, authorization: str | None = Header(default=None)):
+        return await conversation_call(image_task_service.get_conversation, require_identity(authorization), conversation_id)
+
+    @router.patch("/api/image-conversations/{conversation_id}")
+    async def update_conversation(conversation_id: str, body: ConversationUpdateRequest, authorization: str | None = Header(default=None)):
+        return await conversation_call(image_task_service.update_conversation, require_identity(authorization), conversation_id,
+                                       body.model_dump(exclude_none=True))
+
+    @router.delete("/api/image-conversations/{conversation_id}")
+    async def delete_conversation(conversation_id: str, authorization: str | None = Header(default=None)):
+        await conversation_call(image_task_service.delete_conversations, require_identity(authorization), conversation_id)
+        return {"ok": True}
+
+    @router.delete("/api/image-conversations")
+    async def clear_conversations(authorization: str | None = Header(default=None)):
+        await conversation_call(image_task_service.delete_conversations, require_identity(authorization))
+        return {"ok": True}
 
     @router.get("/api/image-tasks")
     async def list_image_tasks(
@@ -67,6 +184,8 @@ def create_router() -> APIRouter:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        except (OSError, ImageStorageError) as exc:
+            raise HTTPException(status_code=507, detail={"error": f"保存失败，未能启动生成：{exc}"}) from exc
 
     @router.post("/api/image-tasks/edits")
     async def create_edit_task(
@@ -98,6 +217,8 @@ def create_router() -> APIRouter:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        except (OSError, ImageStorageError) as exc:
+            raise HTTPException(status_code=507, detail={"error": f"保存失败，未能启动生成：{exc}"}) from exc
 
     @router.post("/api/image-tasks/{task_id}/resume-poll")
     async def resume_image_poll(

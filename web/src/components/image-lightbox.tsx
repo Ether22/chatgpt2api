@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
+import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
+import { fetchStoredImageBlob, useImageSource } from "@/store/image-conversations";
 
 type LightboxImage = {
   id: string;
@@ -101,6 +103,7 @@ export function ImageLightbox({
   const [transform, setTransform] = useState<ImageTransform>({ scale: 1, x: 0, y: 0 });
   const [isGesturing, setIsGesturing] = useState(false);
   const current = images[currentIndex];
+  const imageSource = useImageSource(open ? current?.src : undefined);
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < images.length - 1;
 
@@ -182,12 +185,19 @@ export function ImageLightbox({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, goPrev, goNext]);
 
-  const handleDownload = useCallback(() => {
+  const handleDownload = useCallback(async () => {
     if (!current) return;
-    const link = document.createElement("a");
-    link.href = current.src;
-    link.download = `image-${current.id}.png`;
-    link.click();
+    try {
+      const blob = await fetchStoredImageBlob(current.src);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `image-${current.id}.png`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "下载失败");
+    }
   }, [current]);
 
   const toggleZoom = useCallback(() => {
@@ -398,7 +408,7 @@ export function ImageLightbox({
             onTouchCancel={handleTouchCancel}
           >
             <img
-              src={current.src}
+              src={imageSource}
               alt=""
               className={cn(
                 "max-h-[90vh] max-w-[90vw] rounded-lg object-contain will-change-transform",

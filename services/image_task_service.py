@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import base64
+import copy
 import json
 import threading
 import time
+import uuid
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from services.config import DATA_DIR, config
 from services.content_filter import request_text
 from services.log_service import LOG_TYPE_CALL, log_service
+from services.image_storage_service import image_storage_service, write_json_atomic
 from services.protocol import openai_v1_image_edit, openai_v1_image_generations
 
 TASK_STATUS_QUEUED = "queued"
@@ -44,7 +49,10 @@ def _clean(value: object, default: str = "") -> str:
 
 
 def _owner_id(identity: dict[str, object]) -> str:
-    return _clean(identity.get("id")) or "anonymous"
+    owner = _clean(identity.get("id"))
+    if not owner:
+        raise ValueError("identity id is required")
+    return owner
 
 
 def _task_key(owner_id: str, task_id: str) -> str:
@@ -111,6 +119,8 @@ class ImageTaskService:
         self.retention_days_getter = retention_days_getter or (lambda: config.image_retention_days)
         self._lock = threading.RLock()
         self._tasks: dict[str, dict[str, Any]] = {}
+        self._conversations: dict[str, dict[str, Any]] = {}
+        self._current: dict[str, str] = {}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
             self._tasks = self._load_locked()
@@ -118,6 +128,218 @@ class ImageTaskService:
             changed = self._cleanup_locked() or changed
             if changed:
                 self._save_locked()
+
+    def list_conversations(self, identity: dict[str, object]) -> dict[str, Any]:
+        owner = _owner_id(identity)
+        with self._lock:
+            items = [self._public_conversation(item) for item in self._conversations.values()
+                     if item["owner_id"] == owner and not item.get("deleted")]
+            items.sort(key=lambda item: item["updatedAt"], reverse=True)
+            return {"items": items, "current_conversation_id": self._current.get(owner)}
+
+    def get_conversation(self, identity: dict[str, object], conversation_id: str) -> dict[str, Any]:
+        with self._lock:
+            return self._public_conversation(self._owned_conversation(identity, conversation_id))
+
+    def _owned_conversation(self, identity: dict[str, object], conversation_id: str) -> dict[str, Any]:
+        item = self._conversations.get(conversation_id)
+        if not item or item["owner_id"] != _owner_id(identity) or item.get("deleted"):
+            raise KeyError("conversation not found")
+        return item
+
+    def _public_conversation(self, item: dict[str, Any]) -> dict[str, Any]:
+        result = {key: copy.deepcopy(item[key]) for key in ("id", "title", "createdAt", "updatedAt", "sourceEntries")}
+        result["turns"] = []
+        for saved in item["turns"]:
+            turn = {key: copy.deepcopy(value) for key, value in saved.items() if key not in {"task_ids", "request_id"}}
+            images = []
+            for task_id in saved["task_ids"]:
+                if task_id in saved.get("dismissedImageIds", []):
+                    continue
+                task = _public_task(self._tasks[_task_key(item["owner_id"], task_id)])
+                status = task["status"]
+                image = {"id": task_id, "taskId": task_id,
+                         "status": status if status in TERMINAL_STATUSES else "loading"}
+                if status not in TERMINAL_STATUSES:
+                    image["taskStatus"] = status
+                if task.get("data"):
+                    image.update(task["data"][0])
+                for source, target in (("error", "error"), ("progress", "progress"),
+                                       ("elapsed_secs", "elapsedSecs"), ("duration_ms", "durationMs")):
+                    if task.get(source) is not None:
+                        image[target] = task[source]
+                images.append(image)
+            turn["images"] = images
+            turn["status"] = ("generating" if any(image["status"] == "loading" for image in images)
+                              else "error" if any(image["status"] == "error" for image in images) else "success")
+            result["turns"].append(turn)
+        return result
+
+    def _new_conversation(self, owner: str, title: str = "新对话") -> dict[str, Any]:
+        now = _now_iso()
+        conversation = {"id": uuid.uuid4().hex, "owner_id": owner, "title": title,
+                        "createdAt": now, "updatedAt": now, "turns": [], "sourceEntries": []}
+        self._conversations[conversation["id"]] = conversation
+        self._current[owner] = conversation["id"]
+        return conversation
+
+    def create_conversation(self, identity: dict[str, object], request_id: str) -> dict[str, Any]:
+        owner = _owner_id(identity)
+        with self._lock:
+            for conversation in self._conversations.values():
+                if conversation["owner_id"] == owner and conversation.get("creation_request_id") == request_id:
+                    return self.get_conversation(identity, conversation["id"])
+            previous_current = self._current.get(owner)
+            conversation = self._new_conversation(owner)
+            conversation["creation_request_id"] = request_id
+            try:
+                self._save_locked()
+            except Exception:
+                del self._conversations[conversation["id"]]
+                self._restore_current(owner, previous_current)
+                raise
+            return self._public_conversation(conversation)
+
+    def _restore_current(self, owner: str, value: str | None) -> None:
+        if value is None:
+            self._current.pop(owner, None)
+        else:
+            self._current[owner] = value
+
+    def set_current_conversation(self, identity: dict[str, object], conversation_id: str) -> None:
+        owner = _owner_id(identity)
+        with self._lock:
+            self._owned_conversation(identity, conversation_id)
+            previous = self._current.get(owner)
+            self._current[owner] = conversation_id
+            try:
+                self._save_locked()
+            except Exception:
+                self._restore_current(owner, previous)
+                raise
+
+    def update_conversation(self, identity: dict[str, object], conversation_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            current = self._owned_conversation(identity, conversation_id)
+            updated = copy.deepcopy(current)
+            if "title" in updates:
+                updated["title"] = updates["title"]
+            for visibility in updates.get("turns", []):
+                turn = next((turn for turn in updated["turns"] if turn["id"] == visibility["id"]), None)
+                if turn is None:
+                    raise KeyError("turn not found")
+                for flag in ("promptDeleted", "resultsDeleted"):
+                    if flag in visibility:
+                        turn[flag] = bool(visibility[flag])
+                if "dismissedImageIds" in visibility:
+                    if not set(visibility["dismissedImageIds"]).issubset(turn["task_ids"]):
+                        raise ValueError("image not found in this turn")
+                    turn["dismissedImageIds"] = visibility["dismissedImageIds"]
+            updated["updatedAt"] = _now_iso()
+            self._conversations[conversation_id] = updated
+            try:
+                self._save_locked()
+            except Exception:
+                self._conversations[conversation_id] = current
+                raise
+            return self._public_conversation(updated)
+
+    def delete_conversations(self, identity: dict[str, object], conversation_id: str | None = None) -> None:
+        owner = _owner_id(identity)
+        with self._lock:
+            targets = ([self._owned_conversation(identity, conversation_id)] if conversation_id else
+                       [item for item in self._conversations.values() if item["owner_id"] == owner and not item.get("deleted")])
+            previous_current = self._current.get(owner)
+            for item in targets:
+                item["deleted"] = True
+                if self._current.get(owner) == item["id"]:
+                    self._current.pop(owner, None)
+            try:
+                self._save_locked()
+            except Exception:
+                for item in targets:
+                    item.pop("deleted", None)
+                self._restore_current(owner, previous_current)
+                raise
+
+    def submit_turn(self, identity: dict[str, object], submission: dict[str, Any], base_url: str = "") -> dict[str, Any]:
+        owner = _owner_id(identity)
+        request_id = submission["request_id"]
+        payload = {key: submission.get(key) for key in ("prompt", "model", "size", "quality")}
+        payload.update(n=1, response_format="url", base_url=base_url)
+        references = submission.get("referenceImages", [])
+        if references:
+            payload["images"] = [(base64.b64decode(image["dataUrl"].split(",", 1)[1], validate=True),
+                                  image["name"], image["type"]) for image in references]
+        mode = "edit" if references else "generate"
+        with self._lock:
+            # One identity's concurrent first submissions resolve the target under the same save lock.
+            for existing in self._conversations.values():
+                if existing["owner_id"] == owner and any(turn["request_id"] == request_id for turn in existing["turns"]):
+                    return self.get_conversation(identity, existing["id"])
+            image_storage_service.check_writable(verify_destinations=True)
+            previous_current = self._current.get(owner)
+            conversation_id = submission.get("conversation_id") or previous_current
+            conversation = (self._owned_conversation(identity, conversation_id) if conversation_id
+                            else self._new_conversation(owner, submission["prompt"][:24]))
+            previous_conversation = copy.deepcopy(conversation) if conversation_id else None
+            source_id = submission.get("source_entry_id")
+            if source_id and not any(source["id"] == source_id for source in conversation["sourceEntries"]):
+                if not conversation_id:
+                    del self._conversations[conversation["id"]]
+                    self._restore_current(owner, previous_current)
+                raise ValueError("source entry not found in this conversation")
+            source_id = source_id or uuid.uuid4().hex
+            if not submission.get("source_entry_id"):
+                conversation["sourceEntries"].append({"id": source_id, "name": submission["prompt"][:24]})
+            turn_id = uuid.uuid4().hex
+            now = _now_iso()
+            task_ids = [f"{turn_id}-{index}" for index in range(submission["count"])]
+            turn = {key: copy.deepcopy(submission[key]) for key in
+                    ("prompt", "model", "size", "quality", "count", "ratio", "tier", "referenceImages")}
+            turn.update(id=turn_id, sourceEntryId=source_id, mode=mode, createdAt=now,
+                        task_ids=task_ids, request_id=request_id)
+            conversation["turns"].append(turn)
+            conversation["updatedAt"] = now
+            if len(conversation["turns"]) == 1:
+                conversation["title"] = submission["prompt"][:24]
+            for task_id in task_ids:
+                self._tasks[_task_key(owner, task_id)] = {
+                    **self._new_task(owner, task_id, mode, payload),
+                    "image_conversation_id": conversation["id"], "turn_id": turn_id, "source_entry_id": source_id,
+                    "prompt": submission["prompt"],
+                }
+            self._current[owner] = conversation["id"]
+            try:
+                self._save_locked()
+            except Exception:
+                for task_id in task_ids:
+                    self._tasks.pop(_task_key(owner, task_id), None)
+                if previous_conversation is None:
+                    del self._conversations[conversation["id"]]
+                else:
+                    self._conversations[conversation["id"]] = previous_conversation
+                self._restore_current(owner, previous_current)
+                raise
+        for task_id in task_ids:
+            self._start_task(_task_key(owner, task_id), mode, payload, identity)
+        return self.get_conversation(identity, conversation["id"])
+
+    def _new_task(self, owner: str, task_id: str, mode: str, payload: dict[str, Any]) -> dict[str, Any]:
+        now = _now_iso()
+        return {"id": task_id, "owner_id": owner, "status": TASK_STATUS_QUEUED, "mode": mode, "managed": True,
+                "model": _clean(payload.get("model"), "gpt-image-2"), "size": _clean(payload.get("size")),
+                "quality": _clean(payload.get("quality"), "auto"), "prompt": payload.get("prompt", ""),
+                "created_at": now, "updated_at": now, "created_ts": time.time()}
+
+    def _start_task(self, key: str, mode: str, payload: dict[str, Any], identity: dict[str, object]) -> None:
+        thread = threading.Thread(target=self._run_task,
+                                  args=(key, mode, payload, dict(identity), _clean(payload.get("model"), "gpt-image-2")),
+                                  name=f"image-task-{key[-16:]}", daemon=True)
+        try:
+            thread.start()
+        except Exception as exc:
+            self._record_failure(key, exc)
 
     def submit_generation(
         self,
@@ -204,8 +426,6 @@ class ImageTaskService:
             raise ValueError("client_task_id is required")
         owner = _owner_id(identity)
         key = _task_key(owner, task_id)
-        now = _now_iso()
-        should_start = False
         with self._lock:
             cleaned = self._cleanup_locked()
             task = self._tasks.get(key)
@@ -213,30 +433,16 @@ class ImageTaskService:
                 if cleaned:
                     self._save_locked()
                 return _public_task(task)
-            task = {
-                "id": task_id,
-                "owner_id": owner,
-                "status": TASK_STATUS_QUEUED,
-                "mode": mode,
-                "model": _clean(payload.get("model"), "gpt-image-2"),
-                "size": _clean(payload.get("size")),
-                "quality": _clean(payload.get("quality"), "auto"),
-                "created_at": now,
-                "updated_at": now,
-                "created_ts": time.time(),
-            }
+            image_storage_service.check_writable(verify_destinations=True)
+            task = self._new_task(owner, task_id, mode, payload)
             self._tasks[key] = task
-            self._save_locked()
-            should_start = True
+            try:
+                self._save_locked()
+            except Exception:
+                self._tasks.pop(key, None)
+                raise
 
-        if should_start:
-            thread = threading.Thread(
-                target=self._run_task,
-                args=(key, mode, payload, dict(identity), _clean(payload.get("model"), "gpt-image-2")),
-                name=f"image-task-{task_id[:16]}",
-                daemon=True,
-            )
-            thread.start()
+        self._start_task(key, mode, payload, identity)
         return _public_task(task)
 
     def _run_task(
@@ -248,7 +454,6 @@ class ImageTaskService:
         model: str,
     ) -> None:
         started = time.time()
-        self._update_task(key, status=TASK_STATUS_RUNNING, error="")
         # 创建进度回调，每个步骤完成后更新任务状态
         def progress_callback(step: str) -> None:
             if step == "image_stream_resolve_start":
@@ -257,8 +462,13 @@ class ImageTaskService:
         # 将进度回调添加到 payload 中（handler 会提取并传递给 ConversationRequest）
         payload_with_progress = {**payload, "progress_callback": progress_callback}
         try:
+            image_storage_service.check_writable()
+            self._update_task(key, status=TASK_STATUS_RUNNING, error="")
             handler = self.edit_handler if mode == "edit" else self.generation_handler
-            result = handler(payload_with_progress)
+            with image_storage_service.owner_scope(_owner_id(identity)):
+                result = handler(payload_with_progress)
+                if isinstance(result, dict) and isinstance(result.get("data"), list):
+                    result = {**result, "data": self._store_task_images(result["data"], identity, payload.get("base_url", ""))}
             if not isinstance(result, dict):
                 raise RuntimeError("image task returned streaming result unexpectedly")
             data = result.get("data")
@@ -291,9 +501,8 @@ class ImageTaskService:
             account_email = _clean(getattr(exc, "account_email", ""))
             conversation_id = _clean(getattr(exc, "conversation_id", ""))
             duration_ms = int((time.time() - started) * 1000)
-            self._update_task(key, status=TASK_STATUS_ERROR, error=error_message, data=[],
-                              duration_ms=duration_ms,
-                              **({"conversation_id": conversation_id} if conversation_id else {}))
+            self._record_failure(key, exc, duration_ms=duration_ms,
+                                 **({"conversation_id": conversation_id} if conversation_id else {}))
             self._log_call(
                 identity,
                 mode,
@@ -305,6 +514,33 @@ class ImageTaskService:
                 error=error_message,
                 account_email=account_email,
             )
+
+    def _store_task_images(self, data: list[dict[str, Any]], identity: dict[str, object], base_url: str) -> list[dict[str, Any]]:
+        stored = []
+        for image in data:
+            item = dict(image)
+            if item.get("b64_json"):
+                if not item.get("url"):
+                    item["url"] = image_storage_service.save(base64.b64decode(item["b64_json"], validate=True), base_url).url
+                item.pop("b64_json", None)
+            path = urlsplit(item.get("url", "")).path
+            if path.startswith("/images/"):
+                image_storage_service.require_owner(path.removeprefix("/images/"), identity)
+            stored.append(item)
+        return stored
+
+    def _record_failure(self, key: str, exc: Exception, **updates: Any) -> None:
+        updates.update(status=TASK_STATUS_ERROR, error=str(exc) or "image task failed")
+        try:
+            self._update_task(key, **updates)
+        except Exception as save_error:
+            # Preserve the actual failure in live reads even if the disk remains unwritable.
+            # On restart the last durable unfinished record is reported as interrupted.
+            with self._lock:
+                task = self._tasks.get(key)
+                if task is not None:
+                    task.update(updates, error=f"{updates['error']}；保存失败：{save_error}")
+            print(f"[image-task] {key}: {updates['error']}; cannot persist failure: {save_error}")
 
     def _log_call(
         self,
@@ -351,18 +587,20 @@ class ImageTaskService:
             task = self._tasks.get(key)
             if task is None:
                 return
-            task.update(updates)
-            task["updated_at"] = _now_iso()
-            task["updated_ts"] = time.time()
-            self._save_locked()
+            self._tasks[key] = {**task, **updates, "updated_at": _now_iso(), "updated_ts": time.time()}
+            try:
+                self._save_locked()
+            except Exception:
+                self._tasks[key] = task
+                raise
 
     def _load_locked(self) -> dict[str, dict[str, Any]]:
         if not self.path.exists():
             return {}
-        try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
+        raw = json.loads(self.path.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            self._conversations = raw.get("conversations", {})
+            self._current = raw.get("current", {})
         raw_items = raw.get("tasks") if isinstance(raw, dict) else raw
         if not isinstance(raw_items, list):
             return {}
@@ -378,6 +616,7 @@ class ImageTaskService:
             if status not in {TASK_STATUS_QUEUED, TASK_STATUS_RUNNING, TASK_STATUS_SUCCESS, TASK_STATUS_ERROR}:
                 status = TASK_STATUS_ERROR
             task = {
+                **item,
                 "id": task_id,
                 "owner_id": owner,
                 "status": status,
@@ -405,10 +644,9 @@ class ImageTaskService:
         return tasks
 
     def _save_locked(self) -> None:
-        items = sorted(self._tasks.values(), key=lambda item: str(item.get("updated_at") or ""), reverse=True)
-        tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp_path.write_text(json.dumps({"tasks": items}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        tmp_path.replace(self.path)
+        # ponytail: single-process JSON snapshot under one lock; use transactional row storage for larger histories/multiple workers.
+        snapshot = {"tasks": list(self._tasks.values()), "conversations": self._conversations, "current": self._current}
+        write_json_atomic(self.path, snapshot)
 
     def _recover_unfinished_locked(self) -> bool:
         changed = False
@@ -429,7 +667,7 @@ class ImageTaskService:
         removed_keys = [
             key
             for key, task in self._tasks.items()
-            if task.get("status") in TERMINAL_STATUSES and _timestamp(task.get("updated_at")) < cutoff
+            if not task.get("managed") and task.get("status") in TERMINAL_STATUSES and _timestamp(task.get("updated_at")) < cutoff
         ]
         for key in removed_keys:
             self._tasks.pop(key, None)
@@ -468,7 +706,10 @@ class ImageTaskService:
             name=f"image-resume-{_clean(task_id)[:16]}",
             daemon=True,
         )
-        thread.start()
+        try:
+            thread.start()
+        except Exception as exc:
+            self._record_failure(key, exc)
         return _public_task(task)
 
     def _run_resume_poll(
@@ -507,18 +748,8 @@ class ImageTaskService:
                 {"b64_json": __import__("base64").b64encode(image_data).decode("ascii")}
                 for image_data in backend.download_image_bytes(image_urls)
             ]
-            # 获取 task 的原始 prompt（从 _public_task 的 mode 判断）
-            with self._lock:
-                task = self._tasks.get(key)
-                quality = _clean(task.get("quality"), "auto") if task else "auto"
-                size = _clean(task.get("size")) if task else None
-            data = format_image_result(
-                image_items,
-                "",  # prompt 已不重要，结果已经拿到了
-                "b64_json",
-                "",
-                int(time.time()),
-            )["data"]
+            with image_storage_service.owner_scope(_owner_id(identity)):
+                data = format_image_result(image_items, "", "url", "", int(time.time()))["data"]
             self._update_task(key, status=TASK_STATUS_SUCCESS, data=data, error="", duration_ms=int((time.time() - started) * 1000))
             self._log_call(
                 identity,
@@ -532,7 +763,7 @@ class ImageTaskService:
         except Exception as exc:
             error_message = str(exc) or "resume poll failed"
             duration_ms = int((time.time() - started) * 1000)
-            self._update_task(key, status=TASK_STATUS_ERROR, error=error_message, data=[], duration_ms=duration_ms)
+            self._record_failure(key, exc, duration_ms=duration_ms)
             self._log_call(
                 identity,
                 mode,

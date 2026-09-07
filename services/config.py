@@ -520,10 +520,14 @@ class ConfigStore:
         cutoff = time.time() - self.image_retention_days * 86400
         removed = 0
         for path in self.images_dir.rglob("*"):
+            if path.relative_to(self.images_dir).parts[0].lower() == "managed":
+                continue
             if path.is_file() and path.stat().st_mtime < cutoff:
                 path.unlink()
                 removed += 1
         for path in sorted((p for p in self.images_dir.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+            if path.relative_to(self.images_dir).parts[0].lower() == "managed":
+                continue
             try:
                 path.rmdir()
             except OSError:

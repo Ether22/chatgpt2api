@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageOps
 
 from services.config import config
-from services.image_storage_service import image_storage_service
+from services.image_storage_service import image_storage_service, is_managed_image, local_image_path
 from services.image_tags_service import load_tags, remove_tags
 from utils.log import logger
 
@@ -21,6 +21,8 @@ THUMBNAIL_SIZE = (320, 320)
 
 def _cleanup_empty_dirs(root: Path) -> None:
     for path in sorted((p for p in root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+        if is_managed_image(path.relative_to(root).as_posix()):
+            continue
         try:
             path.rmdir()
         except OSError:
@@ -38,13 +40,7 @@ def _safe_relative_path(path: str) -> str:
 
 
 def _safe_image_path(relative_path: str) -> Path:
-    rel = _safe_relative_path(relative_path)
-    root = config.images_dir.resolve()
-    path = (root / rel).resolve()
-    try:
-        path.relative_to(root)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="image not found") from exc
+    path = local_image_path(relative_path)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="image not found")
     return path
@@ -148,18 +144,19 @@ def cleanup_image_thumbnails() -> int:
     _cleanup_empty_dirs(thumbnails_root)
     return removed
 
-def list_images(base_url: str, start_date: str = "", end_date: str = "") -> dict[str, object]:
+def list_images(base_url: str, start_date: str = "", end_date: str = "", identity: dict[str, object] | None = None) -> dict[str, object]:
     config.cleanup_old_images()
     cleanup_image_thumbnails()
     all_tags = load_tags()
     items = [
         {
-            **item,
+            **{key: value for key, value in item.items() if key != "remote_url"},
             "url": str(item.get("url") or f"{base_url.rstrip('/')}/images/{item['path']}"),
             "thumbnail_url": thumbnail_url(base_url, str(item["path"])),
             "tags": all_tags.get(str(item["path"]), []),
         }
         for item in image_storage_service.list_items(base_url, start_date, end_date)
+        if image_storage_service.can_access(str(item["path"]), identity)
     ]
     groups: dict[str, list[dict[str, object]]] = {}
     for item in items:
@@ -175,6 +172,8 @@ def delete_images(paths: list[str] | None = None, start_date: str = "", end_date
     ] if all_matching else (paths or [])
     removed = 0
     for item in targets:
+        if is_managed_image(item):
+            continue
         path = (root / item).resolve()
         try:
             path.relative_to(root)
@@ -256,7 +255,7 @@ def compress_images(quality: int = 60) -> dict:
     saved = 0
     count = 0
     for p in sorted(config.images_dir.rglob("*.png")):
-        if not p.is_file():
+        if not p.is_file() or is_managed_image(p.relative_to(config.images_dir).as_posix()):
             continue
         try:
             orig = p.stat().st_size
@@ -284,7 +283,8 @@ def delete_to_target(target_free_mb: int, dry_run: bool = False) -> dict:
         return {"removed": 0, "current_free_mb": current_free, "target_free_mb": target_free_mb, "done": True}
 
     files = sorted(
-        (p for p in config.images_dir.rglob("*.png") if p.is_file()),
+        (p for p in config.images_dir.rglob("*.png") if p.is_file()
+         and not is_managed_image(p.relative_to(config.images_dir).as_posix())),
         key=lambda p: p.stat().st_mtime,
     )
     removed = 0

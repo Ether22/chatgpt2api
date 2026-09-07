@@ -6,6 +6,7 @@ import { Clock3, Download, EyeOff, LoaderCircle, RotateCcw, Sparkles, Trash2 } f
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ImageConversation, ImageTurnStatus, StoredImage, StoredReferenceImage } from "@/store/image-conversations";
+import { fetchStoredImageBlob, useImageSource } from "@/store/image-conversations";
 
 export type ImageLightboxItem = {
   id: string;
@@ -57,21 +58,12 @@ async function downloadStoredImage(image: StoredImage, index: number) {
       blob = new Blob([bytes], { type: "image/png" });
     } else if (image.url) {
       // 确保 URL 是绝对路径
-      const url = image.url.startsWith("http") ? image.url : `${window.location.origin}${image.url}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-      blob = await res.blob();
+      blob = await fetchStoredImageBlob(image.url);
     } else {
       return;
     }
   } catch (err) {
     console.error("Failed to download image:", err);
-    // 如果 fetch 失败，尝试直接在新窗口打开
-    if (image.url) {
-      window.open(image.url, "_blank");
-    }
     return;
   }
   const url = URL.createObjectURL(blob);
@@ -120,7 +112,7 @@ export function ImageResults({
     }
   };
 
-  if (!selectedConversation) {
+  if (!selectedConversation || selectedConversation.turns.length === 0) {
     return (
       <div className="flex h-full min-h-[260px] items-center justify-center text-center sm:min-h-[420px]">
         <div className="w-full max-w-4xl">
@@ -138,7 +130,7 @@ export function ImageResults({
               fontFamily: '"Palatino Linotype","Book Antiqua","URW Palladio L","Times New Roman",serif',
             }}
           >
-            在同一窗口里保留本地历史与任务状态，并从已有结果图继续发起新的无状态编辑。
+            会话与任务保存在服务器，同一身份换浏览器后可以继续查看和生成。
           </p>
         </div>
       </div>
@@ -550,6 +542,7 @@ const LazyImage = memo(function LazyImage({ src, alt, className, onLoad, onOpen 
   onOpen?: () => void;
 }) {
   const [isVisible, setIsVisible] = useState(false);
+  const imageSource = useImageSource(isVisible ? src : undefined);
   const imgRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -578,7 +571,7 @@ const LazyImage = memo(function LazyImage({ src, alt, className, onLoad, onOpen 
           className={className}
         >
           <img
-            src={src}
+            src={imageSource}
             alt={alt}
             className="block h-full w-full object-cover transition duration-200 group-hover:brightness-90 sm:h-auto sm:object-contain"
             onLoad={onLoad}

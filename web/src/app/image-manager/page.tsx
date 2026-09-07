@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { compressAllImages, deleteImageTag, deleteManagedImages, deleteToTarget, downloadImages, downloadSingleImage, fetchImageStorage, fetchImageTags, fetchManagedImages, setImageTags, type ImageStorageStats, type ManagedImage } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
+import { useImageSource } from "@/store/image-conversations";
 
 const LONG_PRESS_MS = 800;
 const IMAGE_MANAGER_CHECKBOX_CLASS = "border-stone-300 bg-white/80 dark:border-white/35 dark:bg-white/5 data-[state=checked]:border-stone-950 dark:data-[state=checked]:border-white";
@@ -25,6 +26,12 @@ function formatSize(size: number) {
 
 function imageKey(item: ManagedImage) {
   return item.rel || item.url;
+}
+
+function ImagePreview({ src, fallback, alt, className }: { src: string; fallback: string; alt: string; className: string }) {
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const imageSource = useImageSource(failedSource === src ? fallback : src);
+  return <img src={imageSource} alt={alt} className={className} onError={() => setFailedSource(src)} />;
 }
 
 function useLongPress(onLongPress: () => void, ms = LONG_PRESS_MS) {
@@ -486,15 +493,11 @@ function ImageManagerContent() {
                       setLightboxOpen(true);
                     }}
                   >
-                    <img
+                    <ImagePreview
                       src={item.thumbnail_url || item.url}
+                      fallback={item.url}
                       alt={item.name}
                       className="h-full w-full object-cover transition group-hover:scale-[1.02]"
-                      onError={(event) => {
-                        if (event.currentTarget.src !== item.url) {
-                          event.currentTarget.src = item.url;
-                        }
-                      }}
                     />
                     <span className="absolute right-2 bottom-2 rounded-full bg-black/50 p-2 text-white opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
                       <Maximize2 className="size-4" />
@@ -643,11 +646,11 @@ function ImageManagerContent() {
           </p>
           {deleteTarget ? (
             <div className="flex items-center gap-3 overflow-hidden rounded-xl border border-stone-200 bg-stone-50 p-3">
-              <img
+              <ImagePreview
                 src={deleteTarget.thumbnail_url || deleteTarget.url}
+                fallback={deleteTarget.url}
                 alt=""
                 className="size-16 shrink-0 rounded-lg object-cover"
-                onError={(e) => { if (e.currentTarget.src !== deleteTarget.url) e.currentTarget.src = deleteTarget.url; }}
               />
               <div className="min-w-0 overflow-hidden text-xs text-stone-500">
                 <div className="truncate font-medium text-stone-700">{deleteTarget.name}</div>

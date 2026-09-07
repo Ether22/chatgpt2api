@@ -21,7 +21,7 @@ from services.image_service import (
     list_images,
     storage_stats,
 )
-from services.image_storage_service import ImageStorageError, image_storage_service
+from services.image_storage_service import ImageStorageError, image_storage_service, is_managed_image
 from services.image_tags_service import delete_tag, get_all_tags, set_tags
 from services.log_service import log_service
 from services.proxy_service import proxy_settings, test_clearance, test_proxy
@@ -96,25 +96,43 @@ def create_router(app_version: str) -> APIRouter:
 
     @router.get("/api/images")
     async def get_images(request: Request, start_date: str = "", end_date: str = "", authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        return list_images(resolve_image_base_url(request), start_date=start_date.strip(), end_date=end_date.strip())
+        identity = require_admin(authorization)
+        return list_images(resolve_image_base_url(request), start_date=start_date.strip(), end_date=end_date.strip(), identity=identity)
 
     @router.get("/images/{image_path:path}", include_in_schema=False)
-    async def get_image(image_path: str):
-        return get_image_response(image_path)
+    async def get_image(image_path: str, authorization: str | None = Header(default=None)):
+        if is_managed_image(image_path):
+            image_storage_service.require_owner(image_path, require_identity(authorization))
+        response = get_image_response(image_path)
+        if is_managed_image(image_path):
+            response.headers["Cache-Control"] = "private, no-store"
+            response.headers["Vary"] = "Authorization"
+        return response
 
     @router.get("/image-thumbnails/{image_path:path}", include_in_schema=False)
-    async def get_image_thumbnail(image_path: str):
-        return get_thumbnail_response(image_path)
+    async def get_image_thumbnail(image_path: str, authorization: str | None = Header(default=None)):
+        if is_managed_image(image_path):
+            image_storage_service.require_owner(image_path, require_identity(authorization))
+        response = get_thumbnail_response(image_path)
+        if is_managed_image(image_path):
+            response.headers["Cache-Control"] = "private, no-store"
+            response.headers["Vary"] = "Authorization"
+        return response
 
     @router.post("/api/images/delete")
     async def delete_images_endpoint(body: ImageDeleteRequest, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
+        identity = require_admin(authorization)
+        for path in body.paths:
+            image_storage_service.require_owner(path, identity)
+            if is_managed_image(path):
+                raise HTTPException(status_code=409, detail={"error": "受管理图片请通过生图会话管理"})
         return delete_images(body.paths, start_date=body.start_date.strip(), end_date=body.end_date.strip(), all_matching=body.all_matching)
 
     @router.post("/api/images/download")
     async def download_images_endpoint(body: ImageDownloadRequest, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
+        identity = require_admin(authorization)
+        for path in body.paths:
+            image_storage_service.require_owner(path, identity)
         buf = download_images_zip(body.paths)
         return StreamingResponse(
             buf,
@@ -124,7 +142,7 @@ def create_router(app_version: str) -> APIRouter:
 
     @router.get("/api/images/download/{image_path:path}")
     async def download_single_image_endpoint(image_path: str, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
+        image_storage_service.require_owner(image_path, require_identity(authorization))
         return get_image_download_response(image_path)
 
     @router.get("/api/logs")
@@ -256,22 +274,21 @@ def create_router(app_version: str) -> APIRouter:
 
     @router.get("/api/images/tags")
     async def list_image_tags(authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        return {"tags": get_all_tags()}
+        return {"tags": get_all_tags(require_admin(authorization))}
 
     @router.post("/api/images/tags")
     async def update_image_tags(body: ImageTagsRequest, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
+        identity = require_admin(authorization)
         rel = body.path.strip().lstrip("/")
         if not rel:
             raise HTTPException(status_code=400, detail={"error": "path is required"})
+        image_storage_service.require_owner(rel, identity)
         tags = set_tags(rel, body.tags)
         return {"ok": True, "tags": tags}
 
     @router.delete("/api/images/tags/{tag}")
     async def delete_image_tag(tag: str, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        count = delete_tag(tag)
+        count = delete_tag(tag, require_admin(authorization))
         return {"ok": True, "removed_from": count}
 
     @router.get("/api/images/storage")

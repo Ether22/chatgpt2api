@@ -3,7 +3,13 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
+import shutil
+import tempfile
 import time
+import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +25,15 @@ from services.config import DATA_DIR, config
 IMAGE_INDEX_FILE = DATA_DIR / "image_index.json"
 IMAGE_INDEX_LOCK = Lock()
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+_IMAGE_OWNER: ContextVar[str | None] = ContextVar("image_owner", default=None)
+
+
+def is_managed_image(rel: str) -> bool:
+    return _safe_relative_path(rel).split("/")[0].lower() == "managed"
+
+
+def _owner_namespace(owner: str) -> str:
+    return hashlib.sha256(owner.encode()).hexdigest()
 
 
 class ImageStorageError(RuntimeError):
@@ -46,7 +61,7 @@ def _safe_relative_path(path: str) -> str:
     if not value:
         raise HTTPException(status_code=404, detail="image not found")
     parts = Path(value).parts
-    if any(part in {"", ".", ".."} for part in parts):
+    if any(part in {"", ".", ".."} or part.rstrip(" .") != part or ":" in part for part in parts):
         raise HTTPException(status_code=404, detail="image not found")
     return Path(*parts).as_posix()
 
@@ -67,12 +82,22 @@ def _is_image_rel(path: str) -> bool:
     return Path(safe_rel).suffix.lower() in IMAGE_EXTENSIONS
 
 
-def _local_image_path(relative_path: str) -> Path:
+def _without_windows_namespace(path: Path) -> Path:
+    # realpath may preserve the extended namespace for a long, not-yet-created Windows path.
+    value = str(path)
+    if value.startswith("\\\\?\\UNC\\"):
+        value = "\\\\" + value[8:]
+    else:
+        value = value.removeprefix("\\\\?\\")
+    return Path(value)
+
+
+def local_image_path(relative_path: str) -> Path:
     rel = _safe_relative_path(relative_path)
     root = config.images_dir.resolve()
     path = (root / rel).resolve()
     try:
-        path.relative_to(root)
+        _without_windows_namespace(path).relative_to(_without_windows_namespace(root))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="image not found") from exc
     return path
@@ -83,16 +108,35 @@ def _read_json_object(path: Path) -> dict[str, object]:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ImageStorageError("图片索引损坏，请先修复存储") from exc
+    if not isinstance(data, dict):
+        raise ImageStorageError("图片索引格式错误，请先修复存储")
+    return data
 
 
-def _write_json_object(path: Path, data: dict[str, object]) -> None:
+def write_json_atomic(path: Path, data: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp_path.replace(path)
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=path.name + ".", suffix=".tmp", delete=False) as output:
+            tmp_path = Path(output.name)
+            json.dump(data, output, ensure_ascii=False)
+            output.flush()
+            os.fsync(output.fileno())
+        # Windows readers may briefly deny replacement. Permanent failures retain their original cause.
+        for attempt in range(5):
+            try:
+                tmp_path.replace(path)
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.025 * (attempt + 1))
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 
 class WebDAVClient:
@@ -169,6 +213,43 @@ class ImageStorageService:
         self.index_file = index_file
         self._index_lock = IMAGE_INDEX_LOCK
 
+    @contextmanager
+    def owner_scope(self, owner: str):
+        token = _IMAGE_OWNER.set(owner)
+        try:
+            yield
+        finally:
+            _IMAGE_OWNER.reset(token)
+
+    def require_owner(self, rel: str, identity: dict[str, object]) -> None:
+        if not self.can_access(rel, identity):
+            raise HTTPException(status_code=404, detail="image not found")
+
+    def can_access(self, rel: str, identity: dict[str, object] | None = None) -> bool:
+        safe_rel = _safe_relative_path(rel)
+        if not is_managed_image(safe_rel):
+            return True
+        parts = safe_rel.split("/")
+        return bool(identity and len(parts) >= 3 and parts[1] == _owner_namespace(str(identity["id"])))
+
+    def check_writable(self, *, verify_destinations: bool = False) -> None:
+        """Check known local capacity before sending a paid generation request."""
+        for directory in {config.images_dir, self.index_file.parent}:
+            directory.mkdir(parents=True, exist_ok=True)
+            if shutil.disk_usage(directory).free < 500 * 1024 * 1024:
+                raise OSError("图片存储剩余空间不足 500 MB，请手动释放空间后重试")
+            with tempfile.TemporaryFile(dir=directory) as probe:
+                probe.write(b"image-storage-probe")
+                probe.flush()
+                os.fsync(probe.fileno())
+        if verify_destinations:
+            with self._index_lock:
+                self._save_index(self._load_clean_index())
+            if self.mode() in {"webdav", "both"}:
+                result = WebDAVClient(self.settings()).test()
+                if not result.get("ok"):
+                    raise ImageStorageError(f"图片远程存储不可写：{result.get('error') or 'WebDAV probe failed'}")
+
     def settings(self) -> dict[str, object]:
         return config.get_image_storage_settings()
 
@@ -179,6 +260,8 @@ class ImageStorageService:
         raw = _read_json_object(self.index_file)
         items = raw.get("items")
         if not isinstance(items, dict):
+            if raw:
+                raise ImageStorageError("图片索引格式错误，请先修复存储")
             return {}
         return {str(key): value for key, value in items.items() if isinstance(value, dict)}
 
@@ -187,23 +270,27 @@ class ImageStorageService:
         return {rel: item for rel, item in items.items() if _is_image_rel(rel)}
 
     def _save_index(self, items: dict[str, dict[str, object]]) -> None:
-        _write_json_object(self.index_file, {"items": items})
+        write_json_atomic(self.index_file, {"items": items})
 
     def _public_url(self, rel: str, base_url: str | None = None) -> str:
         settings = self.settings()
         public_base_url = _clean(settings.get("public_base_url"))
-        if public_base_url:
+        if public_base_url and not is_managed_image(rel):
             return f"{public_base_url.rstrip('/')}/{_safe_relative_path(rel)}"
         return f"{(base_url or config.base_url).rstrip('/')}/images/{_safe_relative_path(rel)}"
 
     def make_relative_path(self, image_data: bytes) -> str:
+        owner = _IMAGE_OWNER.get()
+        if owner is not None:
+            return f"managed/{_owner_namespace(owner)}/{time.strftime('%Y/%m/%d')}/{uuid.uuid4().hex}.png"
         file_hash = hashlib.md5(image_data).hexdigest()
         filename = f"{int(time.time())}_{file_hash}.png"
         relative_dir = Path(time.strftime("%Y"), time.strftime("%m"), time.strftime("%d"))
         return f"{relative_dir.as_posix()}/{filename}"
 
     def save(self, image_data: bytes, base_url: str | None = None) -> StoredImage:
-        config.cleanup_old_images()
+        if _IMAGE_OWNER.get() is None:
+            config.cleanup_old_images()
         rel = self.make_relative_path(image_data)
         mode = self.mode()
         if mode not in {"local", "webdav", "both"}:
@@ -213,7 +300,7 @@ class ImageStorageService:
         remote_url = ""
 
         if mode in {"local", "both"}:
-            path = _local_image_path(rel)
+            path = local_image_path(rel)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(image_data)
             stored_local = True
@@ -227,7 +314,7 @@ class ImageStorageService:
             "rel": rel,
             "path": rel,
             "name": Path(rel).name,
-            "date": "-".join(rel.split("/")[:3]),
+            "date": time.strftime("%Y-%m-%d"),
             "size": len(image_data),
             "created_at": _now_iso(),
             "storage": "both" if stored_local and stored_webdav else ("webdav" if stored_webdav else "local"),
@@ -235,6 +322,8 @@ class ImageStorageService:
             "webdav": stored_webdav,
             "remote_url": remote_url,
         }
+        if _IMAGE_OWNER.get() is not None:
+            item["owner_id"] = _IMAGE_OWNER.get()
         if dimensions:
             item["width"], item["height"] = dimensions
         with self._index_lock:
@@ -247,7 +336,7 @@ class ImageStorageService:
         safe_rel = _safe_relative_path(rel)
         if not _is_image_rel(safe_rel):
             raise HTTPException(status_code=404, detail="image not found")
-        path = _local_image_path(safe_rel)
+        path = local_image_path(safe_rel)
         if path.is_file():
             return path.read_bytes()
         item = self._load_clean_index().get(safe_rel, {})
@@ -259,14 +348,14 @@ class ImageStorageService:
         safe_rel = _safe_relative_path(rel)
         if not _is_image_rel(safe_rel):
             return False
-        if _local_image_path(safe_rel).is_file():
+        if local_image_path(safe_rel).is_file():
             return True
         item = self._load_clean_index().get(safe_rel, {})
         return bool(item.get("webdav"))
 
     def has_local(self, rel: str) -> bool:
         safe_rel = _safe_relative_path(rel)
-        return _is_image_rel(safe_rel) and _local_image_path(safe_rel).is_file()
+        return _is_image_rel(safe_rel) and local_image_path(safe_rel).is_file()
 
     def list_items(self, base_url: str, start_date: str = "", end_date: str = "") -> list[dict[str, object]]:
         with self._index_lock:
@@ -304,7 +393,7 @@ class ImageStorageService:
                     indexed.pop(rel, None)
                     changed = True
                     continue
-                local = _local_image_path(rel).is_file()
+                local = local_image_path(rel).is_file()
                 webdav = bool(item.get("webdav"))
                 if not local and not webdav:
                     indexed.pop(rel, None)
@@ -338,7 +427,7 @@ class ImageStorageService:
     def delete(self, rel: str) -> bool:
         safe_rel = _safe_relative_path(rel)
         removed = False
-        path = _local_image_path(safe_rel)
+        path = local_image_path(safe_rel)
         if path.is_file():
             path.unlink()
             removed = True
