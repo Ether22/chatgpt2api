@@ -87,4 +87,3 @@ if __name__ == "__main__":
         app.mount("/", StaticFiles(directory=export, html=True), name="web")
         with patch("services.openai_backend_api.OpenAIBackendAPI.list_models", return_value={"data": [{"id": "gpt-image-2"}]}):
             uvicorn.run(app, host="127.0.0.1", port=43170)
-
