@@ -178,6 +178,7 @@ function ImageManagerContent() {
       setItems((prev) => prev.map((i) => i.rel === item.rel ? { ...i, tags: result.tags } : i));
       const tagsData = await fetchImageTags();
       setAllTags(tagsData.tags);
+      if (selectedTags.length) await loadImages();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "设置标签失败");
     }

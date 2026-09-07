@@ -38,7 +38,6 @@ import {
   updateTurnVisibility,
   deleteImageConversation,
   getImageConversationStats,
-  listImageConversations,
   renameImageConversation,
   type ImageConversation,
   type ImageConversationMode,
@@ -59,12 +58,13 @@ const IMAGE_QUALITY_STORAGE_KEY = "chatgpt2api:image_last_quality";
 const IMAGE_MODEL_STORAGE_KEY = "chatgpt2api:image_last_model";
 const IMAGE_COUNT_STORAGE_KEY = "chatgpt2api:image_last_count";
 const SCROLL_POSITIONS_STORAGE_KEY = "chatgpt2api:image_scroll_positions";
+const PAGE_OFFSETS_STORAGE_KEY = "chatgpt2api:image_page_offsets";
 const SCROLL_TO_LATEST_THRESHOLD = 160;
 
-function loadScrollPositions(): Map<string, number> {
+function loadScrollPositions(storageKey = SCROLL_POSITIONS_STORAGE_KEY): Map<string, number> {
   if (typeof window === "undefined") return new Map();
   try {
-    const raw = window.sessionStorage.getItem(SCROLL_POSITIONS_STORAGE_KEY);
+    const raw = window.sessionStorage.getItem(storageKey);
     if (!raw) return new Map();
     const parsed = JSON.parse(raw) as Record<string, number>;
     return new Map(Object.entries(parsed));
@@ -73,12 +73,12 @@ function loadScrollPositions(): Map<string, number> {
   }
 }
 
-function saveScrollPositions(positions: Map<string, number>) {
+function saveScrollPositions(positions: Map<string, number>, storageKey = SCROLL_POSITIONS_STORAGE_KEY) {
   if (typeof window === "undefined") return;
   try {
     const obj: Record<string, number> = {};
     positions.forEach((value, key) => { obj[key] = value; });
-    window.sessionStorage.setItem(SCROLL_POSITIONS_STORAGE_KEY, JSON.stringify(obj));
+    window.sessionStorage.setItem(storageKey, JSON.stringify(obj));
   } catch {
     // sessionStorage may be full or unavailable
   }
@@ -154,10 +154,13 @@ function sortImageConversations(conversations: ImageConversation[]) {
 function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const didLoadQuotaRef = useRef(false);
   const conversationsRef = useRef<ImageConversation[]>([]);
+  const imageDimensionsRef = useRef(new Map<string, { width: number; height: number }>());
   const historyReadVersionRef = useRef(0);
   const selectedIdRef = useRef<string | null>(null);
   const pageOffsetRef = useRef<number | undefined>(undefined);
+  const pageOffsetsRef = useRef<Map<string, number>>(loadScrollPositions(PAGE_OFFSETS_STORAGE_KEY));
   const firstPageIdsRef = useRef(new Set<string>());
+  const historyTotalRef = useRef(0);
   const pendingSubmissionRef = useRef<{ signature: string; turn: ImageTurn; conversationId: string | null } | null>(null);
   const pendingDraftRef = useRef<string | null>(null);
   const pendingRegenerationsRef = useRef(new Map<string, ImageTurn>());
@@ -303,7 +306,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       }
 
       // 恢复滚动位置期间不处理滚动事件
-      if (isRestoringScrollRef.current) {
+      if (isRestoringScrollRef.current || lastConversationIdRef.current !== selectedIdRef.current) {
         return;
       }
 
@@ -361,7 +364,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       const readVersion = ++historyReadVersionRef.current;
       const history = await fetchImageHistory();
       const nextSelectedConversationId = history.current_conversation_id ?? pickFallbackConversationId(history.items);
-      const detail = nextSelectedConversationId ? await fetchImageConversation(nextSelectedConversationId) : null;
+      const offset = nextSelectedConversationId ? pageOffsetsRef.current.get(nextSelectedConversationId) : undefined;
+      const detail = nextSelectedConversationId ? await fetchImageConversation(nextSelectedConversationId, { offset }) : null;
       const normalizedItems = detail ? [...history.items.filter((item) => item.id !== detail.id), detail] : history.items;
       if (loadCancelledRef.current || readVersion !== historyReadVersionRef.current) {
         return;
@@ -372,7 +376,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       setHistoryNextOffset(history.pagination.next_offset);
       setActiveTaskCount(history.stats.queued + history.stats.running);
       firstPageIdsRef.current = new Set(history.items.map((item) => item.id));
-      pageOffsetRef.current = undefined;
+      historyTotalRef.current = history.pagination.total;
+      pageOffsetRef.current = offset;
       setSelectedConversationId(nextSelectedConversationId);
     } catch (error) {
       const message = error instanceof Error ? error.message : "读取会话记录失败";
@@ -489,6 +494,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       if (btn) btn.style.display = "none";
       return;
     }
+    if (!selectedConversation.pagination) return;
 
     const element = resultsViewportRef.current;
     if (!element) {
@@ -501,12 +507,6 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       // 递增 generation，使之前未完成的 rAF 回调失效
       scrollRestoreGenerationRef.current += 1;
 
-      // 先保存旧会话的滚动位置（lastConversationIdRef 还是旧值）
-      const oldConvId = lastConversationIdRef.current;
-      if (oldConvId) {
-        scrollPositionsRef.current.set(oldConvId, element.scrollTop);
-        saveScrollPositions(scrollPositionsRef.current);
-      }
       // 更新为新会话 ID
       lastConversationIdRef.current = selectedConversation.id;
 
@@ -517,11 +517,11 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
         isRestoringScrollRef.current = true;
       }
     }
-  }, [selectedConversation?.id]);
+  }, [selectedConversation?.id, selectedConversation?.pagination?.offset]);
 
   // 恢复滚动位置或跟随最新内容
   useEffect(() => {
-    if (!selectedConversation) {
+    if (!selectedConversation?.pagination) {
       return;
     }
 
@@ -559,6 +559,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     }
 
     // 无保存位置，按正常逻辑处理
+    isRestoringScrollRef.current = false;
+    element.style.visibility = "";
     const shouldFollowLatest =
       shouldStickToBottomRef.current ||
       getResultsDistanceFromBottom(element) <= SCROLL_TO_LATEST_THRESHOLD;
@@ -570,7 +572,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
     const btn = scrollToLatestBtnRef.current;
     if (btn) btn.style.display = "";
-  }, [selectedConversation?.id, selectedConversation?.updatedAt, selectedConversation?.turns.length, scrollResultsToLatest]);
+  }, [selectedConversation?.id, selectedConversation?.updatedAt, selectedConversation?.turns.length, selectedConversation?.pagination?.offset, scrollResultsToLatest]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -619,24 +621,32 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     const detail = id ? await fetchImageConversation(id, { offset }) : null;
     if (!loadCancelledRef.current && readVersion === historyReadVersionRef.current) {
       const freshIds = new Set(history.items.map((item) => item.id));
-      const previous = conversationsRef.current.filter((item) => history.pagination.next_offset !== null &&
-        !firstPageIdsRef.current.has(item.id) && !freshIds.has(item.id) && item.id !== detail?.id)
+      const firstPageChanged = history.pagination.total !== historyTotalRef.current ||
+        freshIds.size !== firstPageIdsRef.current.size || [...freshIds].some((id) => !firstPageIdsRef.current.has(id));
+      historyTotalRef.current = history.pagination.total;
+      const previous = conversationsRef.current.filter((item) => !firstPageChanged && history.pagination.next_offset !== null &&
+        !freshIds.has(item.id) && item.id !== detail?.id)
         .map((item) => ({ ...item, turns: [], pagination: undefined, sourceEntries: undefined }));
       firstPageIdsRef.current = freshIds;
       conversationsRef.current = sortImageConversations([...previous, ...history.items.filter((item) => item.id !== detail?.id), ...(detail ? [detail] : [])]);
       setConversations(conversationsRef.current);
       if (followLatest) {
         pageOffsetRef.current = undefined;
+        if (id) {
+          pageOffsetsRef.current.delete(id);
+          scrollPositionsRef.current.delete(id);
+          saveScrollPositions(pageOffsetsRef.current, PAGE_OFFSETS_STORAGE_KEY);
+        }
         setSelectedConversationId(id);
       }
       setActiveTaskCount(history.stats.queued + history.stats.running);
       setIsLoadingPage(false);
-      if (history.pagination.next_offset === null) setHistoryNextOffset(null);
+      if (firstPageChanged || history.pagination.next_offset === null) setHistoryNextOffset(history.pagination.next_offset);
     }
     return history;
   }, []);
 
-  const loadConversationPage = useCallback(async (id: string, offset?: number) => {
+  const loadConversationPage = useCallback(async (id: string, offset?: number, restorePosition = false) => {
     const readVersion = ++historyReadVersionRef.current;
     pageOffsetRef.current = offset;
     setIsLoadingPage(true);
@@ -645,12 +655,20 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     try {
       const detail = await fetchImageConversation(id, { offset });
       if (loadCancelledRef.current || readVersion !== historyReadVersionRef.current) return;
+      if (offset === undefined) pageOffsetsRef.current.delete(id);
+      else pageOffsetsRef.current.set(id, offset);
+      saveScrollPositions(pageOffsetsRef.current, PAGE_OFFSETS_STORAGE_KEY);
+      if (!restorePosition) {
+        scrollPositionsRef.current.delete(id);
+        saveScrollPositions(scrollPositionsRef.current);
+        shouldStickToBottomRef.current = offset === undefined;
+      }
       conversationsRef.current = sortImageConversations([
         ...conversationsRef.current.filter((item) => item.id !== id)
           .map((item) => ({ ...item, turns: [], pagination: undefined, sourceEntries: undefined })), detail,
       ]);
       setConversations(conversationsRef.current);
-      if (resultsViewportRef.current) resultsViewportRef.current.scrollTop = 0;
+      if (!restorePosition && resultsViewportRef.current) resultsViewportRef.current.scrollTop = 0;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "读取结果失败");
     } finally {
@@ -660,7 +678,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
   useEffect(() => {
     if (selectedConversationId && !conversationsRef.current.find((item) => item.id === selectedConversationId)?.pagination) {
-      void loadConversationPage(selectedConversationId);
+      void loadConversationPage(selectedConversationId, pageOffsetsRef.current.get(selectedConversationId), true);
     }
   }, [selectedConversationId, loadConversationPage]);
 
@@ -728,13 +746,21 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const handleSelectConversation = async (id: string) => {
+    if (selectedConversationId && resultsViewportRef.current) {
+      scrollPositionsRef.current.set(selectedConversationId, resultsViewportRef.current.scrollTop);
+      saveScrollPositions(scrollPositionsRef.current);
+    }
+    if (id !== selectedConversationId) {
+      isRestoringScrollRef.current = true;
+      ++scrollRestoreGenerationRef.current;
+    }
     ++historyReadVersionRef.current;
-    pageOffsetRef.current = undefined;
+    pageOffsetRef.current = pageOffsetsRef.current.get(id);
     setLightboxOpen(false);
     setLightboxImages([]);
     setIsLoadingPage(false);
     setSelectedConversationId(id);
-    if (conversationsRef.current.find((item) => item.id === id)?.pagination) void loadConversationPage(id);
+    if (conversationsRef.current.find((item) => item.id === id)?.pagination) void loadConversationPage(id, pageOffsetRef.current, true);
     try {
       await selectImageConversation(id);
     } catch (error) {
@@ -753,19 +779,18 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
     try {
       await deleteImageConversation(id);
+      await refreshHistory(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "删除会话失败";
       toast.error(message);
-      const items = await listImageConversations();
-      conversationsRef.current = items;
-      setConversations(items);
+      await refreshHistory(false);
     }
   };
 
   const handleDeleteTurnPart = async (conversationId: string, turnId: string, part: "prompt" | "results") => {
     try {
       await updateTurnVisibility(conversationId, turnId, part === "prompt" ? { promptDeleted: true } : { resultsDeleted: true });
-      await refreshHistory();
+      await refreshHistory(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "更新记录失败");
     }
@@ -774,6 +799,13 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const handleClearHistory = async () => {
     try {
       await clearImageConversations();
+      ++historyReadVersionRef.current;
+      pageOffsetsRef.current.clear();
+      scrollPositionsRef.current.clear();
+      saveScrollPositions(pageOffsetsRef.current, PAGE_OFFSETS_STORAGE_KEY);
+      saveScrollPositions(scrollPositionsRef.current);
+      setHistoryNextOffset(null);
+      setActiveTaskCount(0);
       conversationsRef.current = [];
       setConversations([]);
       setSelectedConversationId(null);
@@ -1139,6 +1171,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
               <ImageResults
                 key={`${selectedConversation?.id}:${selectedConversation?.pagination?.offset}`}
                 selectedConversation={selectedConversation}
+                imageDimensions={imageDimensionsRef.current}
                 onOpenLightbox={openLightbox}
                 onContinueEdit={handleContinueEdit}
                 onDeletePrompt={openDeletePromptConfirm}

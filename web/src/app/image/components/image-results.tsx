@@ -19,6 +19,7 @@ export type ImageLightboxItem = {
 
 type ImageResultsProps = {
   selectedConversation: ImageConversation | null;
+  imageDimensions: Map<string, { width: number; height: number }>;
   onOpenLightbox: (images: ImageLightboxItem[], index: number) => void;
   onContinueEdit: (conversationId: string, image: StoredImage | StoredReferenceImage) => void;
   onDeletePrompt: (conversationId: string, turnId: string) => void;
@@ -65,6 +66,7 @@ async function downloadStoredImage(image: StoredImage, index: number) {
 
 export function ImageResults({
   selectedConversation,
+  imageDimensions,
   onOpenLightbox,
   onContinueEdit,
   onDeletePrompt,
@@ -76,7 +78,6 @@ export function ImageResults({
   onDismissErrors,
   formatConversationTime,
 }: ImageResultsProps) {
-  const imageDimensionsRef = useRef<Record<string, string>>({});
   const [currentTime, setCurrentTime] = useState(Date.now());
   
   // 仅在存在 loading 图片时启动定时器，避免空闲时无谓重渲染
@@ -92,11 +93,13 @@ export function ImageResults({
   }, [hasLoadingImages]);
 
   const updateImageDimensions = (id: string, width: number, height: number) => {
-    const dimensions = formatImageDimensions(width, height);
-    // 使用 ref 存储，不触发 React 重渲染，消除级联重渲染
-    if (imageDimensionsRef.current[id] !== dimensions) {
-      imageDimensionsRef.current[id] = dimensions;
-    }
+    imageDimensions.set(id, { width, height });
+    // ponytail: retain geometry for 400 recent images; use server dimensions if older-page restoration needs it.
+    if (imageDimensions.size > 400) imageDimensions.delete(imageDimensions.keys().next().value!);
+  };
+  const dimensionsLabel = (id: string) => {
+    const size = imageDimensions.get(id);
+    return size ? formatImageDimensions(size.width, size.height) : undefined;
   };
 
   if (!selectedConversation || selectedConversation.turns.length === 0) {
@@ -140,14 +143,14 @@ export function ImageResults({
                   id: image.id,
                   src,
                   sizeLabel: image.b64_json ? formatBase64ImageSize(image.b64_json) : undefined,
-                  dimensions: imageDimensionsRef.current[image.id],
+                  dimensions: dimensionsLabel(image.id),
                 },
               ]
             : [];
         });
 
         return (
-          <div key={turn.id} className="flex flex-col gap-3 sm:gap-4">
+          <div key={turn.id} data-turn-id={turn.id} className="flex flex-col gap-3 sm:gap-4">
             {!turn.promptDeleted ? (
               <div className="flex justify-end">
                 <div className="max-w-[90%] px-1 py-1 text-[14px] leading-6 text-stone-900 sm:max-w-[82%] sm:text-[15px] sm:leading-7">
@@ -231,7 +234,7 @@ export function ImageResults({
                       if (image.status === "success" && imageSrc) {
                         const currentIndex = successfulTurnImages.findIndex((item) => item.id === image.id);
                         const sizeLabel = image.b64_json ? formatBase64ImageSize(image.b64_json) : "";
-                        const dimensions = imageDimensionsRef.current[image.id];
+                        const dimensions = dimensionsLabel(image.id);
                         const imageMeta = [sizeLabel, dimensions].filter(Boolean).join(" · ");
 
                         return (
@@ -241,6 +244,7 @@ export function ImageResults({
                           >
                             <LazyImage
                               src={imageSrc}
+                              dimensions={imageDimensions.get(image.id)}
                               alt={`Generated result ${index + 1}`}
                               className="group block aspect-square w-full cursor-zoom-in overflow-hidden rounded-xl sm:aspect-auto"
                               onLoad={(event) => {
@@ -256,7 +260,7 @@ export function ImageResults({
                               <div className="min-w-0 text-stone-500">
                                 <span>结果 {index + 1}</span>
                                 {image.durationMs != null ? <span className="text-stone-400 sm:ml-2">{formatDuration(image.durationMs)}</span> : null}
-                                {imageMeta ? <span className="block text-stone-400">{imageMeta}</span> : null}
+                                <span className="block min-h-[1lh] text-stone-400">{imageMeta || "\u00a0"}</span>
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <Button
@@ -517,14 +521,16 @@ function formatImageDimensions(width: number, height: number) {
   return `${width} x ${height}`;
 }
 
-const LazyImage = memo(function LazyImage({ src, alt, className, onLoad, onOpen }: {
+const LazyImage = memo(function LazyImage({ src, alt, className, dimensions, onLoad, onOpen }: {
   src: string;
   alt: string;
   className: string;
+  dimensions?: { width: number; height: number };
   onLoad?: (event: React.SyntheticEvent<HTMLImageElement>) => void;
   onOpen?: () => void;
 }) {
   const [isVisible, setIsVisible] = useState(false);
+  const [size, setSize] = useState(dimensions);
   const placeholderHeightRef = useRef(280);
   const imageSource = useImageSource(isVisible ? src : undefined);
   const imgRef = useRef<HTMLDivElement>(null);
@@ -546,7 +552,7 @@ const LazyImage = memo(function LazyImage({ src, alt, className, onLoad, onOpen 
 
   return (
     <div ref={imgRef} className="relative" data-image-frame>
-      {isVisible ? (
+      {isVisible && imageSource ? (
         <button
           type="button"
           onClick={onOpen}
@@ -556,11 +562,17 @@ const LazyImage = memo(function LazyImage({ src, alt, className, onLoad, onOpen 
             src={imageSource}
             alt={alt}
             className="block h-full w-full object-cover transition duration-200 group-hover:brightness-90 sm:h-auto sm:object-contain"
-            onLoad={onLoad}
+            onLoad={(event) => {
+              setSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight });
+              onLoad?.(event);
+            }}
           />
         </button>
       ) : (
-        <div style={{ height: placeholderHeightRef.current }} className={`rounded-xl bg-stone-100 ${className}`} />
+        <div
+          style={size ? { "--image-ratio": `${size.width} / ${size.height}` } as React.CSSProperties : { height: placeholderHeightRef.current }}
+          className={cn("rounded-xl bg-stone-100", className, size && "sm:aspect-[var(--image-ratio)]")}
+        />
       )}
     </div>
   );
