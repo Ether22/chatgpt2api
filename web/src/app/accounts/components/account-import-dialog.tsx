@@ -563,8 +563,9 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
             </ol>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-stone-700">邮箱（可选预填）</label>
+            <label htmlFor="oauth-email" className="text-sm font-medium text-stone-700">邮箱（可选预填）</label>
             <input
+              id="oauth-email"
               type="email"
               placeholder="you@example.com"
               value={oauthEmailHint}
@@ -585,7 +586,12 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
             </Button>
           ) : (
             <div className="space-y-3">
-              <div className="rounded-2xl border border-stone-200 bg-white p-3 text-xs leading-6 text-stone-600 break-all font-mono">
+              <div
+                tabIndex={0}
+                role="region"
+                aria-label="授权 URL"
+                className="max-h-24 overflow-y-auto overscroll-contain rounded-2xl border border-stone-200 bg-white p-3 text-xs leading-6 text-stone-600 break-all font-mono"
+              >
                 {oauthSession.authorize_url}
               </div>
               <div className="flex flex-wrap gap-2">
@@ -620,8 +626,9 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
                 </Button>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-stone-700">粘贴 callback URL（或仅 code）</label>
+                <label htmlFor="oauth-callback" className="text-sm font-medium text-stone-700">粘贴 callback URL（或仅 code）</label>
                 <Textarea
+                  id="oauth-callback"
                   placeholder={"https://platform.openai.com/auth/callback?code=...&state=..."}
                   value={oauthCallbackInput}
                   onChange={(event) => setOauthCallbackInput(event.target.value)}
@@ -781,39 +788,44 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
           <Upload className="size-4" />
           导入
         </Button>
-        <DialogContent showCloseButton={false} className="rounded-2xl p-6">
-          <DialogHeader className="gap-2">
-            <DialogTitle>
-              {method === "menu"
-                ? "导入账户"
-                : method === "token"
-                  ? "导入 Access Token"
-                  : method === "session"
-                    ? "导入 Session JSON"
-                    : method === "codex-auth"
-                      ? "导入 Codex 认证 JSON"
-                    : method === "oauth"
-                      ? "OAuth 登录已有账号"
-                      : "导入账号 JSON"}
-            </DialogTitle>
-            <DialogDescription className="text-sm leading-6">
-              {method === "menu"
-                ? "选择一种导入方式。导入成功后会自动拉取邮箱、类型和额度。"
-                : method === "token"
-                  ? "支持手动粘贴或从 TXT 文件导入，一行一个 Token。"
-                  : method === "session"
-                    ? "粘贴完整 Session JSON，系统会自动提取 accessToken。"
-                    : method === "codex-auth"
-                      ? "粘贴 Codex 认证 JSON，系统会按 codex 来源导入。"
-                    : method === "oauth"
-                      ? "用浏览器跑一遍 OpenAI 标准 OAuth，拿回 refresh_token 后系统会自动续期。"
-                      : "支持读取本项目导出的单账号对象或全部账号数组，并在提交前做数量确认。"}
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent showCloseButton={false} className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-2xl p-4 sm:p-6">
+          <div
+            className="-m-1 min-h-0 space-y-4 overflow-y-auto overscroll-contain p-1 [overflow-wrap:anywhere]"
+            onFocusCapture={(event) => event.target.scrollIntoView({ block: "nearest" })}
+          >
+            <DialogHeader className="gap-2">
+              <DialogTitle>
+                {method === "menu"
+                  ? "导入账户"
+                  : method === "token"
+                    ? "导入 Access Token"
+                    : method === "session"
+                      ? "导入 Session JSON"
+                      : method === "codex-auth"
+                        ? "导入 Codex 认证 JSON"
+                      : method === "oauth"
+                        ? "OAuth 登录已有账号"
+                        : "导入账号 JSON"}
+              </DialogTitle>
+              <DialogDescription className="text-sm leading-6">
+                {method === "menu"
+                  ? "选择一种导入方式。导入成功后会自动拉取邮箱、类型和额度。"
+                  : method === "token"
+                    ? "支持手动粘贴或从 TXT 文件导入，一行一个 Token。"
+                    : method === "session"
+                      ? "粘贴完整 Session JSON，系统会自动提取 accessToken。"
+                      : method === "codex-auth"
+                        ? "粘贴 Codex 认证 JSON，系统会按 codex 来源导入。"
+                      : method === "oauth"
+                        ? "用浏览器跑一遍 OpenAI 标准 OAuth，拿回 refresh_token 后系统会自动续期。"
+                        : "支持读取本项目导出的单账号对象或全部账号数组，并在提交前做数量确认。"}
+              </DialogDescription>
+            </DialogHeader>
 
-          {renderMethodBody()}
+            {renderMethodBody()}
+          </div>
 
-          <DialogFooter className="pt-2">
+          <DialogFooter className="shrink-0 pt-2">
             <Button
               variant="secondary"
               className="h-10 rounded-xl bg-stone-100 px-5 text-stone-700 hover:bg-stone-200"
