@@ -170,13 +170,18 @@ def create_router() -> APIRouter:
                                        offset, limit, turn_id, image_id, navigation)
 
     @router.patch("/api/image-conversations/{conversation_id}")
-    async def update_conversation(conversation_id: str, body: ConversationUpdateRequest, authorization: str | None = Header(default=None)):
-        return await conversation_call(image_task_service.update_conversation, require_identity(authorization), conversation_id,
-                                       body.model_dump(exclude_none=True))
+    async def update_conversation(conversation_id: str, body: ConversationUpdateRequest, background: BackgroundTasks, authorization: str | None = Header(default=None)):
+        identity = require_identity(authorization)
+        result = await conversation_call(image_task_service.update_conversation, identity, conversation_id, body.model_dump(exclude_none=True))
+        if any(turn.resultsDeleted for turn in body.turns):
+            background.add_task(image_task_service.cleanup_results, identity)
+        return result
 
     @router.delete("/api/image-conversations/{conversation_id}")
-    async def delete_conversation(conversation_id: str, authorization: str | None = Header(default=None)):
-        await conversation_call(image_task_service.delete_conversations, require_identity(authorization), conversation_id)
+    async def delete_conversation(conversation_id: str, background: BackgroundTasks, authorization: str | None = Header(default=None)):
+        identity = require_identity(authorization)
+        await conversation_call(image_task_service.delete_conversations, identity, conversation_id)
+        background.add_task(image_task_service.cleanup_results, identity)
         return {"ok": True}
 
     @router.delete("/api/image-conversations/{conversation_id}/turns/{turn_id}/images/{task_id}")
@@ -188,8 +193,22 @@ def create_router() -> APIRouter:
         return result
 
     @router.delete("/api/image-conversations")
-    async def clear_conversations(authorization: str | None = Header(default=None)):
-        await conversation_call(image_task_service.delete_conversations, require_identity(authorization))
+    async def clear_conversations(background: BackgroundTasks, authorization: str | None = Header(default=None)):
+        identity = require_identity(authorization)
+        await conversation_call(image_task_service.delete_conversations, identity)
+        background.add_task(image_task_service.cleanup_results, identity)
+        return {"ok": True}
+
+    @router.get("/api/image-cleanups")
+    async def list_cleanups(authorization: str | None = Header(default=None), offset: int = Query(default=0, ge=0),
+                            limit: int = Query(default=50, ge=1, le=100)):
+        return await conversation_call(image_task_service.list_cleanups, require_identity(authorization), offset, limit)
+
+    @router.post("/api/image-cleanups/{task_id}/retry")
+    async def retry_cleanup(task_id: str, background: BackgroundTasks, authorization: str | None = Header(default=None)):
+        identity = require_identity(authorization)
+        await conversation_call(image_task_service.retry_cleanup, identity, task_id)
+        background.add_task(image_task_service.cleanup_result, identity, task_id)
         return {"ok": True}
 
     @router.get("/api/image-tasks")

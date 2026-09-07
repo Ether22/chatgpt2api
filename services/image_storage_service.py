@@ -27,6 +27,7 @@ IMAGE_INDEX_FILE = DATA_DIR / "image_index.json"
 IMAGE_INDEX_LOCK = Lock()
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 _IMAGE_OWNER: ContextVar[str | None] = ContextVar("image_owner", default=None)
+_IMAGE_WRITE_INTENT: ContextVar = ContextVar("image_write_intent", default=None)
 
 
 def is_managed_image(rel: str) -> bool:
@@ -215,15 +216,18 @@ class ImageStorageService:
         self._index_lock = IMAGE_INDEX_LOCK
 
     @contextmanager
-    def owner_scope(self, owner: str):
+    def owner_scope(self, owner: str, before_save=None):
         token = _IMAGE_OWNER.set(owner)
+        write_token = _IMAGE_WRITE_INTENT.set(before_save)
         try:
             yield
         finally:
             _IMAGE_OWNER.reset(token)
+            _IMAGE_WRITE_INTENT.reset(write_token)
 
     def require_owner(self, rel: str, identity: dict[str, object]) -> None:
-        if not self.can_access(rel, identity) or (image_rows.get(self.index_file, "images", _safe_relative_path(rel)) or {}).get("deleting"):
+        item = image_rows.get(self.index_file, "images", _safe_relative_path(rel)) or {}
+        if not self.can_access(rel, identity) or item.get("deleting") or item.get("writing"):
             raise HTTPException(status_code=404, detail="image not found")
 
     def can_access(self, rel: str, identity: dict[str, object] | None = None) -> bool:
@@ -318,6 +322,8 @@ class ImageStorageService:
         mode = storage_mode or self.mode()
         if mode not in {"local", "webdav", "both"}:
             mode = "local"
+        if not reference and _IMAGE_WRITE_INTENT.get() is not None:
+            _IMAGE_WRITE_INTENT.get()(rel, mode)
         stored_local = False
         stored_webdav = False
         remote_url = ""
@@ -354,13 +360,15 @@ class ImageStorageService:
         if dimensions:
             item["width"], item["height"] = dimensions
         with self._index_lock:
+            previous = image_rows.get(self.index_file, "images", rel) or {}
+            item.update({key: previous[key] for key in ("deleting", "result_hidden") if key in previous})
             image_rows.save(self.index_file, {"images": {rel: item}})
         return StoredImage(rel=rel, url=self._public_url(rel, base_url), storage=str(item["storage"]), size=len(image_data))
 
     def get_bytes(self, rel: str) -> bytes:
         safe_rel = _safe_relative_path(rel)
         item = image_rows.get(self.index_file, "images", safe_rel) or {}
-        if not _is_image_rel(safe_rel) or item.get("deleting"):
+        if not _is_image_rel(safe_rel) or item.get("deleting") or item.get("writing"):
             raise HTTPException(status_code=404, detail="image not found")
         path = local_image_path(safe_rel)
         if path.is_file():
@@ -391,7 +399,7 @@ class ImageStorageService:
         with self._index_lock:
             indexed = self._load_clean_index()
         items = [(rel, item) for rel, item in indexed.items()
-                 if not item.get("deleting") and not item.get("result_hidden") and item.get("kind") != "reference" and "/references/" not in rel
+                 if not item.get("deleting") and not item.get("writing") and not item.get("result_hidden") and item.get("kind") != "reference" and "/references/" not in rel
                  and self.can_access(rel, identity)
                  and (not start_date or str(item.get("date", "")) >= start_date)
                  and (not end_date or str(item.get("date", "")) <= end_date)
@@ -480,15 +488,8 @@ class ImageStorageService:
             if item and not item.get("result_hidden"):
                 image_rows.save(self.index_file, {"images": {safe_rel: {**item, "result_hidden": True}}})
 
-    def delete(self, rel: str, *, reference_storage_mode: str | None = None) -> bool:
-        from services.image_tags_service import remove_tags
-
-        safe_rel = _safe_relative_path(rel)
+    def _delete_files(self, safe_rel: str, item: dict, reference_storage_mode: str | None = None):
         removed = False
-        with self._index_lock:
-            item = image_rows.get(self.index_file, "images", safe_rel) or {}
-            item = {**item, "deleting": True}
-            image_rows.save(self.index_file, {"images": {safe_rel: item}})
         errors = []
         path = local_image_path(safe_rel)
         try:
@@ -510,15 +511,45 @@ class ImageStorageService:
                 thumbnail.unlink(missing_ok=True)
             except OSError as exc:
                 errors.append(f"缩略图：{exc}")
-        try:
-            remove_tags(safe_rel)
-        except (OSError, ValueError) as exc:
-            errors.append(f"标签：{exc}")
-        with self._index_lock:
-            image_rows.save(self.index_file, {"images": {safe_rel: item if errors else None}})
-        if errors:
-            raise ImageStorageError("；".join(errors))
-        return removed
+        return item, errors, removed
+
+    def delete_many(self, paths, *, reference_storage_mode: str | None = None):
+        """Yield durable batches; remote copies use four workers, local files use one batch loop."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from services.image_tags_service import remove_tags_many
+
+        paths = list(dict.fromkeys(_safe_relative_path(path) for path in paths))
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="image-cleanup") as executor:
+            for offset in range(0, len(paths), 64):
+                batch = paths[offset:offset + 64]
+                with self._index_lock:
+                    indexed = image_rows.get_many(self.index_file, "images", batch)
+                    indexed = {path: {**indexed.get(path, {}), "deleting": True} for path in batch}
+                    image_rows.save(self.index_file, {"images": indexed})
+                remote = any(item.get("webdav") for item in indexed.values()) or reference_storage_mode in {"both", "webdav"}
+                if remote:
+                    futures = {executor.submit(self._delete_files, path, item, reference_storage_mode): path
+                               for path, item in indexed.items()}
+                    groups = ([ (futures[future], future.result()) ] for future in as_completed(futures))
+                else:
+                    groups = [[(path, self._delete_files(path, item)) for path, item in indexed.items()]]
+                for group in groups:
+                    try:
+                        remove_tags_many(path for path, _ in group)
+                    except (OSError, ValueError) as exc:
+                        for _, (_, errors, _) in group:
+                            errors.append(f"标签：{exc}")
+                    with self._index_lock:
+                        image_rows.save(self.index_file, {"images": {path: item if errors else None
+                                        for path, (item, errors, _) in group}})
+                    yield {path: {"error": "；".join(errors), "removed": removed}
+                           for path, (_, errors, removed) in group}
+
+    def delete(self, rel: str, *, reference_storage_mode: str | None = None) -> bool:
+        result = next(self.delete_many([rel], reference_storage_mode=reference_storage_mode))[_safe_relative_path(rel)]
+        if result["error"]:
+            raise ImageStorageError(result["error"])
+        return result["removed"]
 
     def sync_all(self) -> dict[str, int]:
         settings = self.settings()

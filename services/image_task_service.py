@@ -116,6 +116,10 @@ class TaskServiceStopped(BaseException):
     """Leave the last durable checkpoint for the next service instance."""
 
 
+class TaskDeleted(BaseException):
+    """Stop before sending without being mistaken for a retryable upstream failure."""
+
+
 class ImageTaskService:
     def __init__(
         self,
@@ -135,7 +139,7 @@ class ImageTaskService:
         self._current: dict[str, str] = {}
         self._references: dict[str, dict[str, Any]] = {}
         self._reference_locks: dict[str, threading.RLock] = {}
-        self._result_cleanup_locks: dict[str, threading.Lock] = {}
+        self._cleanup_lock = threading.RLock()
         self._stopping = threading.Event()
         self._workers: dict[str, threading.Thread] = {}
         self._deleted_tasks: set[str] = set()
@@ -161,6 +165,19 @@ class ImageTaskService:
                     self._start_task(key, task["mode"], payload, task.get("identity") or {"id": task["owner_id"]})
                 elif task.get("dispatch_state") in {"sent", "unknown"}:
                     self._start_recovery(key, task.get("identity") or {"id": task["owner_id"]}, 30)
+            owners = {task["owner_id"] for task in self._tasks.values()
+                      if task.get("result_deleted") and task["result_cleanup"]["state"] == "pending"}
+            if owners and "cleanup" not in self._workers:
+                def cleanup():
+                    try:
+                        for owner in owners:
+                            self.cleanup_results({"id": owner})
+                    finally:
+                        with self._lock:
+                            self._workers.pop("cleanup", None)
+                thread = threading.Thread(target=cleanup, name="image-cleanup-recovery", daemon=True)
+                self._workers["cleanup"] = thread
+                thread.start()
 
     def shutdown(self, timeout: float = 1.0) -> None:
         self._stopping.set()
@@ -334,6 +351,7 @@ class ImageTaskService:
         with self._lock:
             current = self._owned_conversation(identity, conversation_id)
             updated = copy.deepcopy(current)
+            deleted_keys = set()
             if "title" in updates:
                 updated["title"] = updates["title"]
             for visibility in updates.get("turns", []):
@@ -342,12 +360,17 @@ class ImageTaskService:
                     raise KeyError("turn not found")
                 for flag in ("promptDeleted", "resultsDeleted"):
                     if flag in visibility:
-                        turn[flag] = bool(visibility[flag])
+                        turn[flag] = bool(visibility[flag]) or bool(turn.get(flag))
+                if visibility.get("resultsDeleted"):
+                    deleted_keys.update(_task_key(current["owner_id"], task_id) for task_id in turn["task_ids"])
                 if "dismissedImageIds" in visibility:
                     if not set(visibility["dismissedImageIds"]).issubset(turn["task_ids"]):
                         raise ValueError("image not found in this turn")
                     turn["dismissedImageIds"] = visibility["dismissedImageIds"]
             updated["updatedAt"] = _now_iso()
+            if deleted_keys:
+                self._mark_results_deleted(identity, deleted_keys, {conversation_id: updated})
+                return self._public_conversation(updated)
             self._conversations[conversation_id] = updated
             try:
                 self._save_locked(conversations=[conversation_id])
@@ -361,18 +384,65 @@ class ImageTaskService:
         with self._lock:
             targets = ([self._owned_conversation(identity, conversation_id)] if conversation_id else
                        [item for item in self._conversations.values() if item["owner_id"] == owner and not item.get("deleted")])
-            previous_current = self._current.get(owner)
-            for item in targets:
-                item["deleted"] = True
-                if self._current.get(owner) == item["id"]:
-                    self._current.pop(owner, None)
-            try:
-                self._save_locked(conversations=[item["id"] for item in targets], current=[owner])
-            except Exception:
-                for item in targets:
-                    item.pop("deleted", None)
-                self._restore_current(owner, previous_current)
-                raise
+            changes = {item["id"]: {**item, "deleted": True, "updatedAt": _now_iso()} for item in targets}
+            keys = {_task_key(owner, task_id) for item in targets for turn in item["turns"] for task_id in turn["task_ids"]}
+            current = {owner: None} if self._current.get(owner) in changes else {}
+            self._mark_results_deleted(identity, keys, changes, current)
+
+    def _mark_results_deleted(self, identity, keys, conversations=None, current=None, *, retry=False):
+        """Caller holds the send-checkpoint lock; publish only after both databases commit."""
+        now = _now_iso()
+        tasks = {}
+        snapshots = {_task_key(item["owner_id"], turn["task_ids"][0]): [ref["id"] for ref in turn.get("referenceImages", [])]
+                     for item in (conversations or {}).values() if item.get("deleted")
+                     for turn in item["turns"] if turn["task_ids"] and turn.get("referenceImages")}
+        for key in keys:
+            task = self._tasks[key]
+            if task.get("result_deleted") and key not in snapshots and not retry:
+                continue
+            task = {**task, "result_deleted": True, "updated_at": now, "updated_ts": time.time(),
+                    "result_cleanup": {**task.get("result_cleanup", {}), "state": "pending", "updated_at": now}}
+            if key in snapshots:
+                task["result_cleanup"]["snapshot_references"] = snapshots[key]
+            if task["status"] in UNFINISHED_STATUSES and task.get("dispatch_state") in {"pending", "rejected"}:
+                task.update(status=TASK_STATUS_ERROR, dispatch_state="cancelled", error="已删除，未发送任务已停止",
+                            can_resume=False, retryable=False, waiting=None)
+            tasks[key] = task
+        generated, held = self._result_holders(exclude_keys=keys)
+        paths = {path for key in keys for path in self._result_paths(self._tasks[key])}
+        if any(not is_managed_image(path) or not image_storage_service.can_access(path, identity) for path in paths):
+            raise ImageStorageError("结果文件不属于当前登录身份")
+        with image_storage_service._index_lock:
+            indexed = image_rows.get_many(image_storage_service.index_file, "images", paths)
+            visibility = {path: {**indexed.get(path, {}), "result_hidden": True, "deleting": path not in held}
+                          for path in paths - generated}
+            image_rows.save_deletions(self.path, {"tasks": tasks, "conversations": conversations or {}, "current": current or {}},
+                                      image_storage_service.index_file, visibility)
+        self._tasks.update(tasks)
+        self._conversations.update(conversations or {})
+        for owner, value in (current or {}).items():
+            self._restore_current(owner, value)
+
+    def list_cleanups(self, identity, offset=0, limit=50):
+        owner = _owner_id(identity)
+        with self._lock:
+            tasks = [task for task in self._tasks.values() if task["owner_id"] == owner and task.get("result_deleted")]
+            stats = {state: sum(task["result_cleanup"]["state"] == state for task in tasks)
+                     for state in ("pending", "complete", "retained", "error")}
+            remaining = [task for task in tasks if task["result_cleanup"]["state"] != "complete"]
+            items = []
+            for task in remaining[offset:offset + limit]:
+                conversation = self._conversations.get(task.get("image_conversation_id"), {})
+                turn_number, ordinal = 0, 0
+                for number, turn in enumerate(conversation.get("turns", []), 1):
+                    if turn["id"] == task.get("turn_id"):
+                        turn_number, ordinal = number, turn["task_ids"].index(task["id"]) + 1
+                        break
+                items.append({"id": task["id"], "conversation_id": conversation.get("id"), "turn_id": task.get("turn_id"),
+                              "conversation_title": conversation.get("title", "生成任务"), "turn_number": turn_number,
+                              "ordinal": ordinal, **copy.deepcopy(task["result_cleanup"])})
+            return {"stats": stats, "pagination": self._page(len(remaining), offset, limit, 100),
+                    "items": items}
 
     def delete_result(self, identity: dict[str, object], conversation_id: str, turn_id: str, task_id: str) -> dict[str, Any]:
         """Commit invisibility before scheduling physical cleanup; retries use the same task tombstone."""
@@ -386,71 +456,171 @@ class ImageTaskService:
             if task["status"] != TASK_STATUS_SUCCESS:
                 raise ValueError("仅支持删除已完成的单张结果")
             if not task.get("result_deleted") or task["result_cleanup"]["state"] in {"error", "retained"}:
-                now = _now_iso()
-                updated = {**task, "result_deleted": True, "updated_at": now, "updated_ts": time.time(),
-                           "result_cleanup": {"state": "pending", "updated_at": now}}
-                generated_holders, held = self._result_holders(exclude_key=key)
-                with image_storage_service._index_lock:
-                    visibility = {}
-                    for path in self._result_paths(task):
-                        if not is_managed_image(path) or not image_storage_service.can_access(path, identity):
-                            raise ImageStorageError("结果文件不属于当前登录身份")
-                        if path not in generated_holders:
-                            item = image_rows.get(image_storage_service.index_file, "images", path) or {}
-                            visibility[path] = {**item, "result_hidden": True, "deleting": path not in held}
-                    image_rows.save_result_deletion(self.path, key, updated, image_storage_service.index_file, visibility)
-                self._tasks[key] = updated
+                self._mark_results_deleted(identity, {key}, retry=True)
             return {"id": task_id, **copy.deepcopy(self._tasks[key]["result_cleanup"])}
 
     @staticmethod
     def _result_paths(task: dict[str, Any]) -> set[str]:
-        return {urlsplit(image.get("url", "")).path.removeprefix("/images/")
+        return set(task.get("result_storage_paths", [])) | {urlsplit(image.get("url", "")).path.removeprefix("/images/")
                 for image in task.get("data", []) if urlsplit(image.get("url", "")).path.startswith("/images/")}
 
-    def _result_holders(self, *, exclude_key: str = "") -> tuple[set[str], set[str]]:
-        # ponytail: scan existing holders on single deletion; add a reverse index if bulk profiling requires it.
-        generated = {path for key, task in self._tasks.items() if key != exclude_key and not task.get("result_deleted")
+    def _record_result_storage(self, key, path, mode):
+        """Persist ownership before either the protocol or the task adapter writes result bytes."""
+        with self._lock:
+            if self._stopping.is_set():
+                raise TaskServiceStopped()
+            task = self._tasks[key]
+            if task.get("dispatch_state") == "cancelled":
+                raise TaskDeleted()
+            updated = {**task, "result_storage_paths": list(dict.fromkeys([*task.get("result_storage_paths", []), path]))}
+            item = {"rel": path, "path": path, "owner_id": task["owner_id"], "writing": True,
+                    "local": mode in {"local", "both"}, "webdav": mode in {"webdav", "both"},
+                    "storage_target": image_storage_service.storage_target()}
+            if task.get("result_deleted"):
+                item.update(result_hidden=True, deleting=True)
+            with image_storage_service._index_lock:
+                image_rows.save_deletions(self.path, {"tasks": {key: updated}}, image_storage_service.index_file, {path: item})
+            self._tasks[key] = updated
+
+    def _result_holders(self, *, exclude_key: str = "", exclude_keys=()) -> tuple[set[str], set[str]]:
+        excluded = set(exclude_keys) | {exclude_key}
+        generated = {path for key, task in self._tasks.items() if key not in excluded and not task.get("result_deleted")
                      for path in self._result_paths(task)}
         return generated, generated | {ref["path"] for ref in self._references.values()
                                        if ref.get("path") and not ref.get("deleted") and (ref["input_scopes"] or ref["turn_ids"])}
 
     def cleanup_result(self, identity: dict[str, object], task_id: str) -> None:
-        owner = _owner_id(identity)
-        key = _task_key(owner, task_id)
-        with self._lock:
-            lock = self._result_cleanup_locks.setdefault(key, threading.Lock())
-        with lock:
+        self.cleanup_results(identity, [task_id])
+
+    def cleanup_results(self, identity, task_ids=None) -> None:
+        try:
+            self._cleanup_results(identity, task_ids)
+        except Exception as exc:
+            owner = _owner_id(identity)
             with self._lock:
-                task = self._tasks.get(key)
-                if not task or not task.get("result_deleted"):
-                    raise KeyError("deleted result not found")
-                if task["result_cleanup"]["state"] == "complete":
-                    return
-                paths = self._result_paths(task)
-                generated_holders, held = self._result_holders()
-            try:
-                if not paths and task.get("data"):
-                    raise ImageStorageError("结果没有可验证的服务器文件位置，无法确认物理清理")
-                for path in paths:
-                    # Ownership is checked against server-held task data, never a client-supplied file path.
-                    if not is_managed_image(path) or not image_storage_service.can_access(path, identity):
-                        raise ImageStorageError("结果文件不属于当前登录身份")
-                    if path not in generated_holders:
-                        image_storage_service.hide_result(path)
-                    if path not in held:
-                        image_storage_service.delete(path)
-                cleanup = {"state": "retained" if paths & held else "complete", "updated_at": _now_iso()}
-            except Exception as exc:
-                cleanup = {"state": "error", "error": redact(str(exc), [config.auth_key]), "updated_at": _now_iso()}
-            with self._lock:
-                previous = self._tasks[key]
-                self._tasks[key] = {**previous, "result_cleanup": cleanup,
-                                    "updated_at": cleanup["updated_at"], "updated_ts": time.time()}
+                changes = {}
+                for key, task in self._tasks.items():
+                    if (task["owner_id"] == owner and task.get("result_deleted")
+                            and (task_ids is None or task["id"] in task_ids) and task["result_cleanup"]["state"] != "complete"):
+                        now = _now_iso()
+                        changes[key] = {**task, "updated_at": now, "updated_ts": time.time(),
+                                        "result_cleanup": {**task["result_cleanup"], "state": "error", "updated_at": now,
+                                                           "error": redact(f"清理未能完成：{exc}", [config.auth_key])}}
+                self._tasks.update(changes)
                 try:
-                    self._save_locked(tasks=[key])
+                    image_rows.save(self.path, {"tasks": changes})
                 except Exception:
-                    self._tasks[key] = previous
-                    raise
+                    # Keep a real live error; durable tombstones and path intents remain retryable after restart.
+                    pass
+
+    def _cleanup_results(self, identity, task_ids=None) -> None:
+        owner = _owner_id(identity)
+        requested = set(task_ids) if task_ids is not None else None
+        # One coordinator; file I/O uses four workers and never holds the task lock.
+        with self._cleanup_lock:
+            with self._lock:
+                selected = {key: task for key, task in self._tasks.items()
+                            if task["owner_id"] == owner and task.get("result_deleted")
+                            and (requested is None or task["id"] in requested)
+                            and task["result_cleanup"]["state"] != "complete"}
+                if not selected:
+                    return
+                references, reference_tasks, waiting = {}, {}, set()
+                for key, task in selected.items():
+                    if task.get("dispatch_state") in {"sent", "unknown"}:
+                        waiting.add(key)
+                    snapshot = task["result_cleanup"].get("snapshot_references", [])
+                    if not snapshot:
+                        continue
+                    conversation = self._conversations[task["image_conversation_id"]]
+                    turn = next(turn for turn in conversation["turns"] if turn["id"] == task["turn_id"])
+                    if any(self._tasks[_task_key(owner, tid)].get("dispatch_state") in {"sent", "unknown"}
+                           or self._tasks[_task_key(owner, tid)]["status"] not in TERMINAL_STATUSES for tid in turn["task_ids"]):
+                        waiting.add(key)
+                        continue
+                    for reference_id in snapshot:
+                        reference = references.get(reference_id) or self._references.get(reference_id)
+                        if not reference or reference.get("deleted"):
+                            continue
+                        references[reference_id] = {**reference, "turn_ids": [tid for tid in reference["turn_ids"] if tid != task["turn_id"]]}
+                        reference_tasks.setdefault(reference_id, set()).add(key)
+                if references:
+                    image_rows.save(self.path, {"references": references})
+                    self._references.update(references)
+                generated, held = self._result_holders()
+                paths_by_task = {key: self._result_paths(task) if key not in waiting or task["status"] == TASK_STATUS_ERROR else set()
+                                 for key, task in selected.items()}
+                for reference_id, keys in reference_tasks.items():
+                    reference = references[reference_id]
+                    if reference.get("path") and not reference["turn_ids"] and not reference["input_scopes"]:
+                        for key in keys:
+                            paths_by_task[key].add(reference["path"])
+                paths = set().union(*paths_by_task.values()) if paths_by_task else set()
+                invalid = {path for path in paths if not is_managed_image(path) or not image_storage_service.can_access(path, identity)}
+                with image_storage_service._index_lock:
+                    indexed = image_rows.get_many(image_storage_service.index_file, "images", paths - invalid)
+                    image_rows.save(image_storage_service.index_file, {"images": {
+                        path: {**indexed.get(path, {}), "result_hidden": True, "deleting": path not in held}
+                        for path in paths - generated - invalid}})
+            results = {path: {"error": "结果文件不属于当前登录身份"} for path in invalid}
+            results.update({path: {"retained": True} for path in paths & held})
+            pending = set(selected)
+
+            def persist_ready():
+                ready = {}
+                for key in list(pending):
+                    task = selected[key]
+                    if not paths_by_task[key].issubset(results):
+                        continue
+                    if key in waiting:
+                        cleanup = {"state": "pending", "error": "等待已发送的上游结果，返回后自动清理"}
+                        if task["status"] == TASK_STATUS_ERROR:
+                            cleanup = {"state": "error", "error": task.get("error") or "上游结果未知，请重试核实并清理"}
+                    else:
+                        errors = [results[path]["error"] for path in paths_by_task[key] if results[path].get("error")]
+                        if not paths_by_task[key] and task.get("data"):
+                            errors.append("结果没有可验证的服务器文件位置，无法确认物理清理")
+                        cleanup = ({"state": "error", "error": redact("；".join(errors), [config.auth_key])} if errors else
+                                   {"state": "retained" if paths_by_task[key] & held else "complete"})
+                    with self._lock:
+                        previous = self._tasks[key]
+                        now = _now_iso()
+                        ready[key] = {**previous, "result_cleanup": {**previous["result_cleanup"], **cleanup, "updated_at": now},
+                                      "updated_at": now, "updated_ts": time.time()}
+                        if "error" not in cleanup:
+                            ready[key]["result_cleanup"].pop("error", None)
+                    pending.remove(key)
+                if ready:
+                    with self._lock:
+                        # Preserve a newer late-result checkpoint while this batch was cleaning older files.
+                        ready = {key: value for key, value in ready.items()
+                                 if self._result_paths(self._tasks[key]) == self._result_paths(selected[key])}
+                        image_rows.save(self.path, {"tasks": ready})
+                        self._tasks.update(ready)
+
+            persist_ready()
+            for batch in image_storage_service.delete_many(paths - held - invalid):
+                results.update(batch)
+                persist_ready()
+            with self._lock:
+                finished = {rid: {**self._references[rid], "deleted": True} for rid, ref in references.items()
+                            if not ref["input_scopes"] and not ref["turn_ids"]
+                            and (not ref.get("path") or ref["path"] in results and not results[ref["path"]].get("error"))}
+                if finished:
+                    image_rows.save(self.path, {"references": finished})
+                    self._references.update(finished)
+
+    def retry_cleanup(self, identity, task_id):
+        with self._lock:
+            key = _task_key(_owner_id(identity), task_id)
+            task = self._tasks.get(key)
+            if not task or not task.get("result_deleted"):
+                raise KeyError("deleted result not found")
+            if task["result_cleanup"]["state"] == "complete":
+                return
+            self._update_task(key, result_cleanup={**task["result_cleanup"], "state": "pending", "updated_at": _now_iso()})
+            if task.get("dispatch_state") in {"sent", "unknown"}:
+                self._start_recovery(key, identity, 30)
 
     def _owned_reference(self, identity: dict[str, object], reference_id: str) -> dict[str, Any]:
         reference = self._references.get(reference_id)
@@ -1057,13 +1227,25 @@ class ImageTaskService:
         def lifecycle_callback(event: str, checkpoint: dict[str, Any]) -> None:
             if self._stopping.is_set():
                 raise TaskServiceStopped()
+            if event in {"ready", "waiting", "sending", "retry_rejected"}:
+                with self._lock:
+                    if self._tasks[key].get("result_deleted"):
+                        raise TaskDeleted()
             if event == "ready":
-                remaining = max(0, float(self._tasks[key].get("retry_not_before") or 0) - time.time())
-                if self._stopping.wait(remaining):
-                    raise TaskServiceStopped()
+                while True:
+                    with self._lock:
+                        if self._tasks[key].get("result_deleted"):
+                            raise TaskDeleted()
+                        remaining = max(0, float(self._tasks[key].get("retry_not_before") or 0) - time.time())
+                    if not remaining:
+                        break
+                    if self._stopping.wait(min(remaining, .2)):
+                        raise TaskServiceStopped()
             elif event == "sending":
                 image_storage_service.check_writable()
                 with self._lock:
+                    if self._tasks[key].get("result_deleted"):
+                        raise TaskDeleted()
                     if self._tasks[key].get("dispatch_state") != "pending":
                         raise RuntimeError("图片请求已经发送，不能重复消费")
                     self._update_task(key, dispatch_state="sent", status=TASK_STATUS_RUNNING, waiting=None,
@@ -1094,16 +1276,17 @@ class ImageTaskService:
             self._update_task(key, progress=step)
         # 将进度回调添加到 payload 中（handler 会提取并传递给 ConversationRequest）
         try:
+            lifecycle_callback("ready", {})
             payload = self._prepare_payload(payload, identity)
             lifecycle_callback("ready", {})
             payload_with_progress = {**payload, "progress_callback": progress_callback, "lifecycle_callback": lifecycle_callback}
             image_storage_service.check_writable()
             self._update_task(key, error="")
             handler = self.edit_handler if mode == "edit" else self.generation_handler
-            with image_storage_service.owner_scope(_owner_id(identity)):
+            with image_storage_service.owner_scope(_owner_id(identity), lambda path, mode: self._record_result_storage(key, path, mode)):
                 result = handler(payload_with_progress)
                 if isinstance(result, dict) and isinstance(result.get("data"), list):
-                    result = {**result, "data": self._store_task_images(result["data"], identity, payload.get("base_url", ""))}
+                    result = {**result, "data": self._store_task_images(result["data"], identity, payload.get("base_url", ""), key)}
             if not isinstance(result, dict):
                 raise RuntimeError("image task returned streaming result unexpectedly")
             data = result.get("data")
@@ -1134,6 +1317,12 @@ class ImageTaskService:
                 urls=_collect_image_urls(data),
                 account_email=account_email,
             )
+        except TaskDeleted:
+            with self._lock:
+                if self._tasks[key].get("dispatch_state") in {"pending", "rejected"}:
+                    self._update_task(key, status=TASK_STATUS_ERROR, dispatch_state="cancelled",
+                                      error="已删除，未发送任务已停止", waiting=None, retryable=False, can_resume=False)
+            return
         except TaskServiceStopped:
             return
         except Exception as exc:
@@ -1154,6 +1343,10 @@ class ImageTaskService:
                 error=error_message,
                 account_email=account_email,
             )
+
+        finally:
+            if self._tasks[key].get("result_deleted") and not self._stopping.is_set():
+                self.cleanup_results(identity)
 
     def _cleanup_completed_upstream(self, key: str) -> None:
         if not (config.image_remove_conversation_always or config.image_remove_conversation_after_result):
@@ -1177,7 +1370,7 @@ class ImageTaskService:
             if backend is not None:
                 backend.close()
 
-    def _store_task_images(self, data: list[dict[str, Any]], identity: dict[str, object], base_url: str) -> list[dict[str, Any]]:
+    def _store_task_images(self, data: list[dict[str, Any]], identity: dict[str, object], base_url: str, key: str = "") -> list[dict[str, Any]]:
         stored = []
         for image in data:
             item = dict(image)
@@ -1187,7 +1380,9 @@ class ImageTaskService:
                 item.pop("b64_json", None)
             path = urlsplit(item.get("url", "")).path
             if path.startswith("/images/"):
-                image_storage_service.require_owner(path.removeprefix("/images/"), identity)
+                relative = path.removeprefix("/images/")
+                if relative not in self._tasks.get(key, {}).get("result_storage_paths", []):
+                    image_storage_service.require_owner(relative, identity)
             stored.append(item)
         return stored
 
@@ -1271,11 +1466,24 @@ class ImageTaskService:
             task = self._tasks.get(key)
             if task is None:
                 return
+            if task.get("dispatch_state") == "cancelled" and "result_cleanup" not in updates:
+                return
             if all(task.get(field) == value for field, value in updates.items()):
                 return
             self._tasks[key] = {**task, **updates, "updated_at": _now_iso(), "updated_ts": time.time()}
             try:
-                self._save_locked(tasks=[key])
+                if task.get("result_deleted") and "data" in updates:
+                    updated = self._tasks[key]
+                    updated["result_cleanup"] = {**task["result_cleanup"], "state": "pending", "updated_at": _now_iso()}
+                    generated, held = self._result_holders()
+                    paths = self._result_paths(updated)
+                    with image_storage_service._index_lock:
+                        indexed = image_rows.get_many(image_storage_service.index_file, "images", paths)
+                        image_rows.save_deletions(self.path, {"tasks": {key: updated}}, image_storage_service.index_file,
+                            {path: {**indexed.get(path, {}), "result_hidden": True, "deleting": path not in held}
+                             for path in paths - generated})
+                else:
+                    self._save_locked(tasks=[key])
             except Exception:
                 self._tasks[key] = task
                 raise
@@ -1426,7 +1634,7 @@ class ImageTaskService:
                 {"b64_json": __import__("base64").b64encode(image_data).decode("ascii")}
                 for image_data in backend.download_image_bytes(image_urls)
             ]
-            with image_storage_service.owner_scope(_owner_id(identity)):
+            with image_storage_service.owner_scope(_owner_id(identity), lambda path, mode: self._record_result_storage(key, path, mode)):
                 data = format_image_result(image_items, task.get("prompt", ""), "url",
                                            task.get("request", {}).get("base_url", ""), int(time.time()))["data"]
             self._update_task(key, status=TASK_STATUS_SUCCESS, dispatch_state="complete", data=data, error="",
@@ -1460,6 +1668,8 @@ class ImageTaskService:
         finally:
             if backend is not None:
                 backend.close()
+            if self._tasks[key].get("result_deleted") and not self._stopping.is_set():
+                self.cleanup_results(identity)
 
 
 image_task_service = ImageTaskService(DATA_DIR / "image_tasks.json")

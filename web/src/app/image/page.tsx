@@ -5,6 +5,7 @@ import { ArrowDown, History, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ImageComposer } from "@/app/image/components/image-composer";
+import { ImageCleanups } from "@/app/image/components/image-cleanups";
 import { ImageImportDialog } from "@/app/image/components/image-import-dialog";
 import { ImageResults, type ImageLightboxItem } from "@/app/image/components/image-results";
 import { ImageSidebar } from "@/app/image/components/image-sidebar";
@@ -36,6 +37,7 @@ import {
   createImageConversation,
   fetchImageHistory,
   fetchImageConversation,
+  fetchExistingImageConversation,
   fetchImageConversationMetadata,
   fetchStoredImageBlob,
   selectImageConversation,
@@ -150,6 +152,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const conversationsRef = useRef<ImageConversation[]>([]);
   const imageDimensionsRef = useRef(new Map<string, { width: number; height: number }>());
   const historyReadVersionRef = useRef(0);
+  const deletionRequestsRef = useRef(0);
   const selectedIdRef = useRef<string | null>(null);
   const pageOffsetRef = useRef<number | undefined>(undefined);
   const pageOffsetsRef = useRef<Map<string, number>>(loadScrollPositions(PAGE_OFFSETS_STORAGE_KEY));
@@ -289,13 +292,13 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
             : "";
   const deleteConfirmDescription =
     deleteConfirm?.type === "image" ? "确认删除这张生成结果吗？图片将立即隐藏，后台清理原图、缩略图、标签和存储副本。其他轮次或素材仍使用的文件会保留。" : deleteConfirm?.type === "all"
-      ? "确认删除全部图片历史记录吗？删除后无法恢复。"
+      ? "确认删除当前登录身份的全部会话和生成结果吗？未发送任务将停止，已发送结果返回后自动清理。当前导入素材和输入参考图会保留。清理进度及失败重试可在“删除清理”查看。"
       : deleteConfirm?.type === "prompt"
         ? "确认删除这条提示词记录吗？对应生成结果会保留。"
         : deleteConfirm?.type === "results"
-          ? "确认删除这条生成结果吗？对应提示词记录会保留。"
+          ? "确认删除本轮全部生成结果吗？未发送任务将停止，已发送结果返回后自动清理。提示词及参考图快照保留供复用，其他轮次不受影响。"
           : deleteConfirm?.type === "one"
-            ? "确认删除这条图片对话吗？删除后无法恢复。"
+            ? "确认仅删除这条会话及其全部生成结果吗？未发送任务将停止，已发送结果返回后自动清理。其他会话、当前导入素材和输入参考图会保留。清理失败可在“删除清理”重试。"
             : "";
 
   useEffect(() => {
@@ -391,7 +394,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       const offset = nextSelectedConversationId ? pageOffsetsRef.current.get(nextSelectedConversationId) : undefined;
       const detail = nextSelectedConversationId ? await fetchImageConversation(authKey, nextSelectedConversationId, { offset }) : null;
       const normalizedItems = detail ? [...history.items.filter((item) => item.id !== detail.id), detail] : history.items;
-      if (loadCancelledRef.current || readVersion !== historyReadVersionRef.current) {
+      if (loadCancelledRef.current || deletionRequestsRef.current || readVersion !== historyReadVersionRef.current) {
         return;
       }
 
@@ -642,10 +645,14 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const refreshHistory = useCallback(async (followLatest = true) => {
     const readVersion = ++historyReadVersionRef.current;
     const history = await fetchImageHistory(authKey);
-    const id = (followLatest ? history.current_conversation_id : selectedIdRef.current) ?? history.current_conversation_id;
+    let id = (followLatest ? history.current_conversation_id : selectedIdRef.current) ?? history.current_conversation_id;
     const offset = followLatest ? undefined : pageOffsetRef.current;
-    const detail = id ? await fetchImageConversation(authKey, id, { offset }) : null;
-    if (!loadCancelledRef.current && readVersion === historyReadVersionRef.current) {
+    let detail = id ? await fetchExistingImageConversation(authKey, id, offset) : null;
+    if (id && !detail) {
+      id = history.current_conversation_id === id ? null : history.current_conversation_id;
+      detail = id ? await fetchExistingImageConversation(authKey, id) : null;
+    }
+    if (!loadCancelledRef.current && !deletionRequestsRef.current && readVersion === historyReadVersionRef.current) {
       const freshIds = new Set(history.items.map((item) => item.id));
       const firstPageChanged = history.pagination.total !== historyTotalRef.current ||
         freshIds.size !== firstPageIdsRef.current.size || [...freshIds].some((id) => !firstPageIdsRef.current.has(id));
@@ -656,6 +663,11 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       firstPageIdsRef.current = freshIds;
       conversationsRef.current = sortImageConversations([...previous, ...history.items.filter((item) => item.id !== detail?.id), ...(detail ? [detail] : [])]);
       setConversations(conversationsRef.current);
+      if (selectedIdRef.current && !detail && !history.items.some((item) => item.id === selectedIdRef.current)) {
+        setSelectedConversationId(id);
+        setLightboxOpen(false);
+        setLightboxImages([]);
+      }
       if (followLatest) {
         pageOffsetRef.current = undefined;
         if (id) {
@@ -680,7 +692,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     setLightboxImages([]);
     try {
       const detail = await fetchImageConversation(authKey, id, { offset });
-      if (loadCancelledRef.current || readVersion !== historyReadVersionRef.current) return;
+      if (loadCancelledRef.current || deletionRequestsRef.current || readVersion !== historyReadVersionRef.current) return;
       if (offset === undefined) pageOffsetsRef.current.delete(id);
       else pageOffsetsRef.current.set(id, offset);
       saveScrollPositions(pageOffsetsRef.current, PAGE_OFFSETS_STORAGE_KEY);
@@ -734,7 +746,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        if (document.visibilityState === "visible" && !isLoadingPage) {
+        if (document.visibilityState === "visible" && !isLoadingPage && !deletionRequestsRef.current) {
           const version = historyReadVersionRef.current;
           const selected = conversationsRef.current.find((item) => item.id === selectedIdRef.current);
           const active = selected?.turns.flatMap((turn) => turn.images) ?? [];
@@ -744,8 +756,8 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
               Object.fromEntries(active.map((image) => [image.id, image.updatedAt ?? ""]))) : Promise.resolve({ items: [] }),
             selected ? fetchImageConversationMetadata(authKey, selected.id) : Promise.resolve(null),
           ]);
-          if (cancelled || loadCancelledRef.current || version !== historyReadVersionRef.current) return;
-          if (metadata && metadata.updatedAt !== selected?.updatedAt || history.pagination.total !== historyTotalRef.current || changes.items.some((task) => task.result_deleted)) {
+          if (cancelled || loadCancelledRef.current || deletionRequestsRef.current || version !== historyReadVersionRef.current) return;
+          if (selected && !metadata || metadata && metadata.updatedAt !== selected?.updatedAt || history.pagination.total !== historyTotalRef.current || changes.items.some((task) => task.result_deleted)) {
             await refreshHistory(false);
           } else {
             const changed = new Map(changes.items.map((task) => [task.id, task]));
@@ -842,36 +854,65 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   };
 
   const handleDeleteConversation = async (id: string) => {
+    ++historyReadVersionRef.current;
+    ++deletionRequestsRef.current;
+    setLightboxOpen(false);
+    setLightboxImages([]);
     const nextConversations = conversations.filter((item) => item.id !== id);
     conversationsRef.current = nextConversations;
     setConversations(nextConversations);
     if (selectedConversationId === id) {
+      selectedIdRef.current = pickFallbackConversationId(nextConversations);
       setSelectedConversationId(pickFallbackConversationId(nextConversations));
-      resetComposer();
     }
 
     try {
       await deleteImageConversation(authKey, id);
-      await refreshHistory(false);
     } catch (error) {
       if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       const message = error instanceof Error ? error.message : "删除会话失败";
       toast.error(message);
-      await refreshHistory(false);
+    } finally {
+      --deletionRequestsRef.current;
+      ++historyReadVersionRef.current;
+      if (!loadCancelledRef.current) await refreshHistory(false);
     }
   };
 
   const handleDeleteTurnPart = async (conversationId: string, turnId: string, part: "prompt" | "results") => {
+    ++historyReadVersionRef.current;
+    ++deletionRequestsRef.current;
+    if (part === "results") {
+      setLightboxOpen(false);
+      setLightboxImages([]);
+    }
+    conversationsRef.current = conversationsRef.current.map((conversation) => conversation.id !== conversationId ? conversation : {
+      ...conversation, turns: conversation.turns.map((turn) => turn.id !== turnId ? turn : {
+        ...turn, ...(part === "prompt" ? { promptDeleted: true } : { resultsDeleted: true, images: [] }),
+      }),
+    });
+    setConversations(conversationsRef.current);
     try {
       await updateTurnVisibility(authKey, conversationId, turnId, part === "prompt" ? { promptDeleted: true } : { resultsDeleted: true });
-      await refreshHistory(false);
     } catch (error) {
       if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       toast.error(error instanceof Error ? error.message : "更新记录失败");
+    } finally {
+      --deletionRequestsRef.current;
+      ++historyReadVersionRef.current;
+      if (!loadCancelledRef.current) await refreshHistory(false);
     }
   };
 
   const handleClearHistory = async () => {
+    ++historyReadVersionRef.current;
+    ++deletionRequestsRef.current;
+    selectedIdRef.current = null;
+    conversationsRef.current = [];
+    setConversations([]);
+    setSelectedConversationId(null);
+    setLightboxOpen(false);
+    setLightboxImages([]);
     try {
       await clearImageConversations(authKey);
       ++historyReadVersionRef.current;
@@ -884,12 +925,15 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       conversationsRef.current = [];
       setConversations([]);
       setSelectedConversationId(null);
-      resetComposer();
-      toast.success("已清空历史记录");
+      toast.success("已删除当前身份的历史，文件正在后台清理");
     } catch (error) {
       if (loadCancelledRef.current || error instanceof IdentityChanged) return;
       const message = error instanceof Error ? error.message : "清空历史记录失败";
       toast.error(message);
+    } finally {
+      --deletionRequestsRef.current;
+      ++historyReadVersionRef.current;
+      if (!loadCancelledRef.current) await refreshHistory(false);
     }
   };
 
@@ -1252,6 +1296,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
         </Dialog>
 
         <div className="flex min-h-0 flex-col gap-2 sm:gap-4">
+          <ImageCleanups authKey={authKey} />
           <div className="flex items-center justify-between gap-2 px-1 lg:hidden">
             <Button
               variant="outline"
@@ -1272,6 +1317,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
               variant="outline"
               className="h-10 rounded-2xl border-stone-200 bg-white/85 px-3 text-stone-600 shadow-sm"
               onClick={openClearHistoryConfirm}
+              aria-label="清空当前身份全部历史"
               disabled={conversations.length === 0}
             >
               <Trash2 className="size-4" />

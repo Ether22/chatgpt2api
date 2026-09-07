@@ -49,6 +49,23 @@ def save(path: Path, changes: dict[str, dict[str, Any]]) -> None:
 
 def save_result_deletion(path: Path, task_key: str, task: dict[str, Any],
                          index_path: Path, images: dict[str, Any]) -> None:
+    save_deletions(path, {"tasks": {task_key: task}}, index_path, images)
+
+
+def get_many(path: Path, namespace: str, keys) -> dict[str, Any]:
+    keys = list(dict.fromkeys(keys))
+    result = {}
+    with connect(path) as connection:
+        for offset in range(0, len(keys), 400):
+            batch = keys[offset:offset + 400]
+            placeholders = ",".join("?" for _ in batch)
+            result.update((key, json.loads(value)) for key, value in connection.execute(
+                f"SELECT key, value FROM image_rows WHERE namespace = ? AND key IN ({placeholders})", [namespace, *batch]))
+    return result
+
+
+def save_deletions(path: Path, changes: dict[str, dict[str, Any]],
+                   index_path: Path, images: dict[str, Any]) -> None:
     """SQLite's attached rollback-journal databases commit the tombstone and visibility together."""
     with connect(path) as connection:
         connection.execute("ATTACH DATABASE ? AS result_index", (str(index_path.with_suffix(".sqlite3")),))
@@ -61,7 +78,7 @@ def save_result_deletion(path: Path, task_key: str, task: dict[str, Any],
                            "namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, "
                            "PRIMARY KEY (namespace, key))")
         connection.execute("BEGIN IMMEDIATE")
-        _write_rows(connection, "main.image_rows", {"tasks": {task_key: task}})
+        _write_rows(connection, "main.image_rows", changes)
         _write_rows(connection, "result_index.image_rows", {"images": images})
 
 

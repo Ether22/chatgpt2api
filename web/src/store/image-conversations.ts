@@ -122,6 +122,20 @@ export type ResultCleanup = {
   error?: string;
 };
 
+export type ImageCleanupPage = {
+  stats: Record<ResultCleanup["state"], number>;
+  pagination: ImagePagination;
+  items: Array<ResultCleanup & { conversation_id: string; turn_id: string; conversation_title: string; turn_number: number }>;
+};
+
+export function fetchImageCleanups(authKey: string, offset = 0) {
+  return identityRequest<ImageCleanupPage>(authKey, `/api/image-cleanups?offset=${offset}&limit=50`);
+}
+
+export function retryImageCleanup(authKey: string, taskId: string) {
+  return identityRequest(authKey, `/api/image-cleanups/${encodeURIComponent(taskId)}/retry`, { method: "POST" });
+}
+
 export function deleteImageResult(authKey: string, conversationId: string, turnId: string, imageId: string) {
   return identityRequest<Omit<ResultCleanup, "ordinal">>(authKey, `/api/image-conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}/images/${encodeURIComponent(imageId)}`, {
     method: "DELETE",
@@ -171,7 +185,19 @@ export function fetchImageConversation(authKey: string, id: string, options: { o
 }
 
 export function fetchImageConversationMetadata(authKey: string, id: string) {
-  return identityRequest<ImageConversation>(authKey, `/api/image-conversations/${encodeURIComponent(id)}/metadata`);
+  return fetchExistingConversation(authKey, `/api/image-conversations/${encodeURIComponent(id)}/metadata`);
+}
+
+async function fetchExistingConversation(authKey: string, url: string) {
+  const response = await request.get<ImageConversation>(url, {
+    ...await identityAuth(authKey), validateStatus: (status) => status === 200 || status === 404,
+  });
+  await identityAuth(authKey);
+  return response.status === 404 ? null : response.data;
+}
+
+export function fetchExistingImageConversation(authKey: string, id: string, offset?: number) {
+  return fetchExistingConversation(authKey, `/api/image-conversations/${encodeURIComponent(id)}${offset === undefined ? "" : `?offset=${offset}`}`);
 }
 
 export function fetchImageNavigation(authKey: string, id: string, offset = 0) {

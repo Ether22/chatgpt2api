@@ -243,6 +243,7 @@ def test_shared_conversations_and_inflight_task_keep_snapshot_until_settled(envi
         time.sleep(.01)
     entered, finish = threading.Event(), threading.Event()
     def slow_upstream(payload):
+        payload["lifecycle_callback"]("sending", {"protocol": "controlled"})
         entered.set()
         assert finish.wait(5)
         return env["upstream"](payload)

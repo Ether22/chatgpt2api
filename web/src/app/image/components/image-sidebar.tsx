@@ -81,6 +81,7 @@ export function ImageSidebar({
               variant="outline"
               className="h-10 rounded-xl border-stone-200 bg-white/85 px-3 text-stone-600 hover:bg-white"
               onClick={() => void onClearHistory()}
+              aria-label="清空当前身份全部历史"
               disabled={conversations.length === 0}
             >
               <Trash2 className="size-4" />

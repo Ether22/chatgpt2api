@@ -53,10 +53,17 @@ def set_tags(image_rel: str, tags: list[str]) -> list[str]:
 
 
 def remove_tags(image_rel: str) -> None:
+    remove_tags_many([image_rel])
+
+
+def remove_tags_many(image_rels) -> None:
     with _TAGS_LOCK:
         # Cleanup must report unreadable/corrupt metadata instead of treating it as empty.
         data = load_tags()
-        if data.pop(image_rel, None) is not None:
+        changed = False
+        for image_rel in image_rels:
+            changed = data.pop(image_rel, None) is not None or changed
+        if changed:
             save_tags(data)
 
 
