@@ -45,6 +45,7 @@ async function eventually(check, label) {
     const row = page.locator(`[data-turn-id="${small.turn}"]`);
     await row.getByRole('img', { name: 'Generated result 1', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: '图片预览', exact: true });
+    await page.screenshot({path:path.join(output,'desktop-viewer.png')});
     const events = [];
     page.on('download', d => events.push(d));
     async function batch(expected, folder, target) {
@@ -100,6 +101,7 @@ async function eventually(check, label) {
     await dialog.locator('summary').click();
     const lastRetry = dialog.getByRole('button', { name: '再次下载', exact: true }).last();
     await lastRetry.scrollIntoViewIfNeeded(); assert.ok(await lastRetry.isVisible());
+    const retryBox = await lastRetry.boundingBox(); assert.ok(retryBox.y >= 0 && retryBox.y + retryBox.height <= 360);
     await page.screenshot({ path: path.join(output, 'batch-low-height.png') });
     await dialog.getByRole('button', { name: '关闭', exact: true }).click();
     assert.deepEqual(errors, []);

@@ -405,17 +405,6 @@ export function ImageLightbox({
           </DialogPrimitive.Title>
 
 
-          {hasPrev && transform.scale <= minScale && (
-            <button
-              type="button"
-              onClick={goPrev}
-              className="absolute left-4 z-10 inline-flex size-10 items-center justify-center rounded-full bg-black/40 text-white/90 transition hover:bg-black/60"
-              aria-label="上一张"
-            >
-              <ChevronLeft className="size-5" />
-            </button>
-          )}
-
           <div
             className="relative flex min-h-0 w-full flex-1 touch-none items-center justify-center overflow-hidden"
             onClick={() => onOpenChange(false)}
@@ -445,18 +434,29 @@ export function ImageLightbox({
             />
           </div>
 
-          {hasNext && transform.scale <= minScale && (
-            <button
-              type="button"
-              onClick={goNext}
-              className="absolute right-4 z-10 inline-flex size-10 items-center justify-center rounded-full bg-black/40 text-white/90 transition hover:bg-black/60"
-              aria-label="下一张"
-            >
-              <ChevronRight className="size-5" />
-            </button>
-          )}
           <div className="z-10 max-h-[55dvh] w-full shrink-0 overflow-y-auto overscroll-contain bg-black/80 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white">
             <div className="flex flex-wrap items-center justify-center gap-2">
+              {hasPrev && transform.scale <= minScale && (
+                <button
+                  type="button"
+                  onClick={goPrev}
+                  className="inline-flex size-9 items-center justify-center rounded-full bg-black/40 text-white/90 transition hover:bg-black/60 focus-visible:outline-2"
+                  aria-label="上一张"
+                >
+                  <ChevronLeft className="size-5" />
+                </button>
+              )}
+
+              {hasNext && transform.scale <= minScale && (
+                <button
+                  type="button"
+                  onClick={goNext}
+                  className="inline-flex size-9 items-center justify-center rounded-full bg-black/40 text-white/90 transition hover:bg-black/60 focus-visible:outline-2"
+                  aria-label="下一张"
+                >
+                  <ChevronRight className="size-5" />
+                </button>
+              )}
               <span className="text-xs">{dimensions?.id === current.id ? dimensions.value : current.dimensions} · 图片 {current.ordinal ?? currentIndex + 1}（{currentIndex + 1}/{images.length}）</span>
               <button type="button" disabled={downloading} onClick={() => void handleDownload([current])} className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 disabled:opacity-50 focus-visible:outline-2" aria-label="下载图片"><Download className="size-4" />下载</button>
               {roundImages && <button type="button" disabled={downloading || !roundImages.length} onClick={() => void handleDownload(roundImages, true)} className="min-h-9 rounded-full bg-white/10 px-3 text-sm disabled:opacity-50 focus-visible:outline-2" aria-label="下载本轮成功图片">下载本轮（{roundImages.length}）</button>}

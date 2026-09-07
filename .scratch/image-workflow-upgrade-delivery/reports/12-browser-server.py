@@ -1,8 +1,4 @@
-"""Serve ticket 08's production page with real temporary auth/task/image storage.
-
-Only the upstream generator/model catalog are controlled. No real accounts,
-OAuth, remote storage, or application lifespan workers are used.
-"""
+"""Ticket 12 production UI/HTTP with temporary storage and a controlled upstream."""
 import hashlib
 import base64
 import io
@@ -22,7 +18,6 @@ os.environ["CHATGPT2API_AUTH_KEY"] = "ticket12-bootstrap-only"
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw
-from PIL.PngImagePlugin import PngInfo
 import uvicorn
 
 from api import accounts, ai, image_imports, image_tasks, support, system
@@ -37,7 +32,6 @@ from services.log_service import log_service
 
 sequence = itertools.count(1)
 consumed = []
-upload_entered, release_upload = Event(), Event()
 
 
 originals = {}
@@ -71,9 +65,6 @@ if __name__ == "__main__":
     assert (export / "image" / "index.html").is_file(), "Build web/out first"
     temporary_parent = ROOT / "data" / "ticket12"
     temporary_parent.mkdir(parents=True, exist_ok=True)
-    metadata = PngInfo()
-    metadata.add_text("test", "ticket12-slow")
-    Image.new("RGB", (24, 16), "blue").save(temporary_parent / "slow.png", pnginfo=metadata)
     with tempfile.TemporaryDirectory(dir=temporary_parent) as temporary:
         directory = Path(temporary)
         config_module.DATA_DIR = directory
@@ -109,30 +100,11 @@ if __name__ == "__main__":
             return {"saved": True}
         @app.get("/ticket12-state")
         def consumption():
-            return {"count": len(consumed), "calls": consumed, "upload_entered": upload_entered.is_set(), "originals": originals}
+            return {"count": len(consumed), "calls": consumed, "originals": originals}
         @app.post("/ticket12-release-result")
         def finish_result():
             release_result.set()
             return {"released": True}
-        @app.post("/ticket12-release-upload")
-        def release():
-            release_upload.set()
-            return {"released": True}
-        @app.post("/ticket12-restart")
-        def restart():
-            image_tasks.image_task_service.shutdown(5)
-            image_tasks.image_task_service = ImageTaskService(directory / "tasks.json", generation_handler=controlled_upstream, edit_handler=controlled_upstream)
-            ai.image_task_service = image_tasks.image_task_service
-            image_imports.image_import_service = ImageImportService(directory / 'imports', image_tasks.image_task_service)
-            image_tasks.image_task_service.start()
-            return {"restarted": True}
-        real_save = image_storage_service.image_storage_service.save
-        def save(data, *args, **kwargs):
-            if kwargs.get("reference") and b"ticket12-slow" in data:
-                upload_entered.set()
-                assert release_upload.wait(120), "controlled slow upload timed out"
-            return real_save(data, *args, **kwargs)
-        image_storage_service.image_storage_service.save = save
         app.mount("/", StaticFiles(directory=export, html=True), name="web")
         with patch("services.openai_backend_api.OpenAIBackendAPI.list_models", return_value={"data": [{"id": "gpt-image-2"}]}):
             uvicorn.run(app, host="127.0.0.1", port=43220)

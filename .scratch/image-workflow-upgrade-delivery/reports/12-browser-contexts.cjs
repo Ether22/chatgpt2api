@@ -104,6 +104,7 @@ async function eventually(check, label) {
       assert.ok(d.suggestedFilename().endsWith('.gif'), d.suggestedFilename());
       assert.deepEqual(await fs.readFile(path.join(files, label + '.gif')), gif.bytes);
       evidence[label] = d.suggestedFilename();
+      if (label === 'imports') await page.screenshot({path:path.join(output,'reference-low-height.png')});
       await dialog.getByRole('button', { name: '关闭', exact: true }).click();
     }
     await page.locator('input[type="file"][accept="image/*"]').setInputFiles({ name: referenceName, mimeType: 'image/gif', buffer: gif.bytes });
@@ -139,17 +140,18 @@ async function eventually(check, label) {
     await page.getByTitle('预览图片', { exact: true }).first().click();
     await referenceViewer('logs');
     await page.goto(origin + '/image/');
-    await row.locator('[data-image-frame]').first().scrollIntoViewIfNeeded();
-    await row.getByRole('img', { name: 'Generated result 1', exact: true }).click();
+    await page.getByRole('button', { name: '预览参考图 ' + referenceName, exact: true }).click();
     let releaseIdentityRead, identityReadEntered;
     const heldIdentityRead = new Promise(resolve => { releaseIdentityRead = resolve; });
     const enteredIdentityRead = new Promise(resolve => { identityReadEntered = resolve; });
-    await page.route('**' + firstPath, async r => { identityReadEntered(); await heldIdentityRead; await r.continue().catch(() => {}); });
+    await page.route('**' + new URL(ref.url, origin).pathname, async r => { identityReadEntered(); await heldIdentityRead; await r.continue().catch(() => {}); });
     const beforeIdentity = downloaded.length;
     await dialog.getByRole('button', { name: '下载图片', exact: true }).click();
     await enteredIdentityRead;
     const other = await context.newPage();
-    await other.goto(origin + '/login/'); await other.getByLabel('密钥', { exact: true }).fill('ticket12-B');
+    await other.goto(origin + '/accounts/');
+    await other.getByRole('button', {name:'退出',exact:true}).click(); await other.waitForURL('**/login/');
+    await other.getByLabel('密钥', { exact: true }).fill('ticket12-B');
     await other.getByRole('button', { name: '登录', exact: true }).click(); await other.waitForURL('**/accounts/');
     releaseIdentityRead(); await pause(500);
     assert.equal(downloaded.length, beforeIdentity);

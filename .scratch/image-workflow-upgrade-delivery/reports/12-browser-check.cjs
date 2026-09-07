@@ -29,6 +29,7 @@ const output = path.join(__dirname, '12-evidence');
     const downloadEvent = page.waitForEvent('download');
     await dialog.getByRole('button', { name: '下载本轮成功图片', exact: true }).click();
     const download = await downloadEvent;
+    assert.match(download.suggestedFilename(), /^Ticket12 download_1\.(png|jpg|gif)$/);
     await download.saveAs(path.join(output, download.suggestedFilename()));
     assert.equal(await download.failure(), null);
     const img = await dialog.locator('img').boundingBox();
@@ -38,6 +39,8 @@ const output = path.join(__dirname, '12-evidence');
     }
     assert.deepEqual(errors, []);
     await page.screenshot({ path: path.join(output, 'low-height.png') });
-    console.log('PASS one round original download and reachable bottom controls');
+    await page.keyboard.press('Delete'); await page.getByRole('button', {name:'确认删除',exact:true}).waitFor();
+    await page.keyboard.press('Enter'); await dialog.waitFor({state:'detached'});
+    console.log('PASS one round original download, bottom controls and last-image deletion closes viewer');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
