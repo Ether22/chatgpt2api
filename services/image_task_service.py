@@ -360,7 +360,7 @@ class ImageTaskService:
                     raise KeyError("turn not found")
                 for flag in ("promptDeleted", "resultsDeleted"):
                     if flag in visibility:
-                        turn[flag] = bool(visibility[flag]) or bool(turn.get(flag))
+                        turn[flag] = bool(visibility[flag]) or (flag == "resultsDeleted" and bool(turn.get(flag)))
                 if visibility.get("resultsDeleted"):
                     deleted_keys.update(_task_key(current["owner_id"], task_id) for task_id in turn["task_ids"])
                 if "dismissedImageIds" in visibility:
@@ -516,7 +516,8 @@ class ImageTaskService:
     def _cleanup_results(self, identity, task_ids=None) -> None:
         owner = _owner_id(identity)
         requested = set(task_ids) if task_ids is not None else None
-        # One coordinator; file I/O uses four workers and never holds the task lock.
+        # ponytail: cleanup is serial across identities; use per-owner coordinators if cross-owner waits become a bottleneck.
+        # File I/O uses four workers and never holds the task lock.
         with self._cleanup_lock:
             with self._lock:
                 selected = {key: task for key, task in self._tasks.items()

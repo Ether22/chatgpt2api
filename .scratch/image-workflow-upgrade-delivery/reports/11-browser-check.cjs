@@ -135,7 +135,7 @@ async function eventually(check, label, timeout = 15000) {
     await eventually(async () => (await page.getByRole('dialog').innerText()).includes('等待 3'), 'visible pending jobs');
     await page.screenshot({ path: path.join(output, 'remote-pending.png'), fullPage: true });
     await eventually(async () => (await get('/api/image-cleanups')).stats.error === 1, 'partial remote failure');
-    assert.equal((await get('/api/image-cleanups')).stats.complete, 2);
+    await clean(2);
     await post('/ticket11/restart');
     await page.reload();
     await page.setViewportSize({ width: 390, height: 700 });
@@ -172,8 +172,11 @@ async function eventually(check, label, timeout = 15000) {
     const faultTurn = await post('/api/image-conversations/turns', { request_id: 'browser-fault', conversation_id: 'a-0', prompt: 'Late checkpoint fault', model: 'gpt-image-2', count: 1 });
     await eventually(async () => (await state()).consumed === 1, 'fault upstream sent');
     await page.reload();
+    const faultDeletion = page.waitForResponse(response => response.request().method() === 'DELETE' && response.url() === `${origin}/api/image-conversations`);
     await page.getByRole('button', { name: '清空当前身份全部历史', exact: true }).last().click();
     await confirm();
+    assert.equal((await faultDeletion).status(), 200);
+    await clean(6);
     await post('/ticket11/control', { hold: false, data_failure: true, unlink_failure: true });
     await eventually(async () => (await get('/api/image-cleanups')).stats.error > 0, 'checkpoint failure visible');
     await page.getByRole('button', { name: /^删除清理/ }).click();

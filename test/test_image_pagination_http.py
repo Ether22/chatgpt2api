@@ -115,8 +115,12 @@ def test_navigation_and_image_targets_follow_saved_visibility(environment):
     assert client.get(url + f"?image_id={image_id}", headers=headers).status_code == 404
     assert client.get(url + f"?turn_id={turn['id']}", headers=headers).status_code == 200
     assert client.patch(url, headers=headers, json={"turns": [{"id": turn["id"], "resultsDeleted": False, "promptDeleted": True}]}).status_code == 200
-    assert client.get(url + f"?image_id={image_id}", headers=headers).status_code == 200
-    assert len(client.get(url + "?navigation=true", headers=headers).json()["turns"][0]["images"]) == 1
-    assert client.patch(url, headers=headers, json={"turns": [{"id": turn["id"], "resultsDeleted": True}]}).status_code == 200
+    # Result deletion is now physical and final, including requests from older clients.
+    assert client.get(url + f"?image_id={image_id}", headers=headers).status_code == 404
+    assert client.get(url + "?navigation=true", headers=headers).json()["turns"] == []
+    assert client.patch(url, headers=headers, json={"turns": [{"id": turn["id"], "promptDeleted": False}]}).status_code == 200
+    assert client.get(url + "?navigation=true", headers=headers).json()["turns"][0]["images"] == []
+    assert client.get(url + f"?turn_id={turn['id']}", headers=headers).status_code == 200
+    assert client.patch(url, headers=headers, json={"turns": [{"id": turn["id"], "promptDeleted": True}]}).status_code == 200
     assert client.get(url + "?navigation=true", headers=headers).json()["turns"] == []
     assert client.get(url + f"?turn_id={turn['id']}", headers=headers).status_code == 404

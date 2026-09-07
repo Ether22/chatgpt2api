@@ -38,6 +38,7 @@ directory = None
 service = None
 reference = None
 original_rglob, original_unlink, original_connect = Path.rglob, Path.unlink, sqlite3.connect
+original_save_tags = tags.save_tags
 
 
 class Remote:
@@ -103,6 +104,13 @@ def unlink(path, *args, **kwargs):
     if control["unlink_failure"] and path.is_relative_to(config_module.config.images_dir):
         raise PermissionError("受控本地副本删除失败")
     return original_unlink(path, *args, **kwargs)
+
+
+def save_tags(data):
+    original_save_tags(data)
+    if metrics.get("active"):
+        metrics["tag_writes"] += 1
+        metrics["tag_written_bytes"] += tags.TAGS_FILE.stat().st_size
 
 
 def attach_service(restored):
@@ -191,7 +199,7 @@ def seed(count=6, mode="local"):
 if __name__ == "__main__":
     parent = ROOT / "data" / "ticket11"
     parent.mkdir(parents=True, exist_ok=True)
-    auth_storage = JSONStorageBackend(parent / f"synthetic-accounts-{os.getpid()}.json")
+    auth_storage = JSONStorageBackend(parent / f"synthetic-accounts-{os.getpid()}.json", parent / f"synthetic-auth-{os.getpid()}.json")
     auth = AuthService(auth_storage)
     identities = {}
     for label in ("A", "B"):
@@ -202,6 +210,7 @@ if __name__ == "__main__":
     accounts.account_service = AccountService(auth_storage)
     with patch.object(storage, "WebDAVClient", Remote), patch.object(sqlite3, "connect", connect), \
          patch.object(Path, "rglob", rglob), patch.object(Path, "unlink", unlink), \
+         patch.object(tags, "save_tags", save_tags), \
          patch("services.openai_backend_api.OpenAIBackendAPI.list_models", return_value={"data": [{"id": "gpt-image-2"}]}):
         seed()
         app = FastAPI()
@@ -224,6 +233,7 @@ if __name__ == "__main__":
         @app.post("/ticket11/measure")
         def measure():
             metrics.update(active=True, holder_builds=0, directory_scans=0, persist_rows=0, persist_json_bytes=0, deleted_rows=0,
+                           tag_writes=0, tag_written_bytes=0,
                            started_at=time.perf_counter())
             return {"ok": True}
         @app.get("/ticket11/state")

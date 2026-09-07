@@ -280,6 +280,15 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     [conversations, selectedConversationId, deletedResults],
   );
   selectedIdRef.current = selectedConversationId;
+  useEffect(() => {
+    const ids = new Set(selectedConversation?.turns.flatMap((turn) => turn.resultsDeleted ? [] : turn.images.map((image) => image.id)));
+    const remaining = lightboxImages.filter((image) => !image.turnId ||
+      image.conversationId === selectedConversation?.id && ids.has(image.id));
+    if (remaining.length === lightboxImages.length) return;
+    setLightboxImages(remaining);
+    setLightboxIndex((index) => Math.max(0, Math.min(index, remaining.length - 1)));
+    if (!remaining.length) setLightboxOpen(false);
+  }, [selectedConversation, lightboxImages]);
   const deleteConfirmTitle =
     deleteConfirm?.type === "image" ? `删除结果 ${deleteConfirm.ordinal}` : deleteConfirm?.type === "all"
       ? "清空历史记录"
@@ -663,7 +672,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       firstPageIdsRef.current = freshIds;
       conversationsRef.current = sortImageConversations([...previous, ...history.items.filter((item) => item.id !== detail?.id), ...(detail ? [detail] : [])]);
       setConversations(conversationsRef.current);
-      if (selectedIdRef.current && !detail && !history.items.some((item) => item.id === selectedIdRef.current)) {
+      if (selectedIdRef.current !== id) {
         setSelectedConversationId(id);
         setLightboxOpen(false);
         setLightboxImages([]);
@@ -727,7 +736,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     const version = historyReadVersionRef.current;
     try {
       const history = await fetchImageHistory(authKey, historyNextOffset);
-      if (loadCancelledRef.current || version !== historyReadVersionRef.current) return;
+      if (loadCancelledRef.current || deletionRequestsRef.current || version !== historyReadVersionRef.current) return;
       const known = new Set(conversationsRef.current.map((item) => item.id));
       conversationsRef.current = sortImageConversations([...conversationsRef.current, ...history.items.filter((item) => !known.has(item.id))]);
       setConversations(conversationsRef.current);
