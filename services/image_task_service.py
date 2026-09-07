@@ -547,7 +547,9 @@ class ImageTaskService:
                         reference_tasks.setdefault(reference_id, set()).add(key)
                 if references:
                     image_rows.save(self.path, {"references": references})
-                    self._references.update(references)
+                    # An active upload holds this record until its bytes are committed.
+                    for reference_id, reference in references.items():
+                        self._references[reference_id].update(reference)
                 generated, held = self._result_holders()
                 paths_by_task = {key: self._result_paths(task) if key not in waiting or task["status"] == TASK_STATUS_ERROR else set()
                                  for key, task in selected.items()}
@@ -609,7 +611,8 @@ class ImageTaskService:
                             and (not ref.get("path") or ref["path"] in results and not results[ref["path"]].get("error"))}
                 if finished:
                     image_rows.save(self.path, {"references": finished})
-                    self._references.update(finished)
+                    for reference_id, reference in finished.items():
+                        self._references[reference_id].update(reference)
 
     def retry_cleanup(self, identity, task_id):
         with self._lock:
