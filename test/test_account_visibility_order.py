@@ -59,6 +59,16 @@ class AccountVisibilityOrderTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertFalse(AccountService(self.storage).get_account("a")["hidden"])
 
+    def test_hiding_limited_accounts_keeps_order_when_legacy_removal_flags_are_enabled(self):
+        with patch.dict(config.data, {"auto_remove_invalid_accounts": True, "auto_remove_rate_limited_accounts": True}):
+            for mode in ("normal", "monitor", "disabled"):
+                self.service.add_account_items([{"access_token": mode, "usage_mode": mode, "status": "限流", "quota": 0}])
+                previous = self.service.get_account(mode)
+                response = self.client.post("/api/accounts/update", headers=self.headers,
+                                            json={"access_token": mode, "hidden": True})
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(AccountService(self.storage).get_account(mode), {**previous, "hidden": True})
+
     def test_group_moves_survive_reload_and_reject_cross_group_or_missing_targets(self):
         def move(source, target, position="before"):
             return self.client.post("/api/accounts/move", headers=self.headers,
