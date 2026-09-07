@@ -18,6 +18,9 @@ type ImageSidebarProps = {
   onRenameConversation: (id: string, title: string) => void | Promise<void>;
   formatConversationTime: (value: string) => string;
   hideActionButtons?: boolean;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
 };
 
 export function ImageSidebar({
@@ -31,6 +34,9 @@ export function ImageSidebar({
   onRenameConversation,
   formatConversationTime,
   hideActionButtons = false,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: ImageSidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -134,7 +140,7 @@ export function ImageSidebar({
                       )}
                     </div>
                     <div className={cn("mt-1 text-xs", active ? "text-stone-500" : "text-stone-400")}>
-                      {conversation.turns.length} 轮 · {formatConversationTime(conversation.updatedAt)}
+                      {conversation.turnCount ?? conversation.turns.length} 轮 · {formatConversationTime(conversation.updatedAt)}
                     </div>
                     {stats.running > 0 || stats.queued > 0 ? (
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
@@ -169,6 +175,9 @@ export function ImageSidebar({
               );
             })
           )}
+          {hasMore && <Button variant="ghost" className="w-full" disabled={isLoadingMore} onClick={onLoadMore}>
+            {isLoadingMore ? "读取中…" : "加载更多会话"}
+          </Button>}
         </div>
       </div>
     </aside>

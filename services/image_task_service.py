@@ -136,17 +136,62 @@ class ImageTaskService:
             if changed:
                 self._save_locked()
 
-    def list_conversations(self, identity: dict[str, object]) -> dict[str, Any]:
+    def list_conversations(self, identity: dict[str, object], offset: int = 0, limit: int = 30) -> dict[str, Any]:
         owner = _owner_id(identity)
         with self._lock:
-            items = [self._public_conversation(item) for item in self._conversations.values()
+            items = [item for item in self._conversations.values()
                      if item["owner_id"] == owner and not item.get("deleted")]
-            items.sort(key=lambda item: item["updatedAt"], reverse=True)
-            return {"items": items, "current_conversation_id": self._current.get(owner)}
+            items.sort(key=lambda item: (item["updatedAt"], item["id"]), reverse=True)
+            page = self._page(len(items), offset, limit, 100)
+            metadata = [self._conversation_metadata(item) for item in items]
+            return {"items": metadata[offset:offset + limit], "pagination": page,
+                    "stats": {key: sum(item["stats"][key] for item in metadata) for key in ("queued", "running")},
+                    "current_conversation_id": self._current.get(owner)}
 
-    def get_conversation(self, identity: dict[str, object], conversation_id: str) -> dict[str, Any]:
+    def get_conversation(self, identity: dict[str, object], conversation_id: str, offset: int | None = None,
+                         limit: int = 2, turn_id: str = "", image_id: str = "", navigation: bool = False) -> dict[str, Any]:
         with self._lock:
-            return self._public_conversation(self._owned_conversation(identity, conversation_id))
+            item = self._owned_conversation(identity, conversation_id)
+            target = None
+            if turn_id or image_id:
+                for index, turn in enumerate(item["turns"]):
+                    if turn.get("promptDeleted") and turn.get("resultsDeleted"):
+                        continue
+                    if ((not turn_id or turn["id"] == turn_id) and
+                            (not image_id or not turn.get("resultsDeleted") and image_id in turn["task_ids"]
+                             and image_id not in turn.get("dismissedImageIds", []))):
+                        offset = index // max(1, limit) * limit
+                        target = {"turn_id": turn["id"], "image_id": image_id or None}
+                        break
+                if target is None:
+                    raise KeyError("result not found")
+            result = self._public_conversation(item, offset, limit, navigation)
+            if target:
+                result["target"] = target
+            return result
+
+    @staticmethod
+    def _page(total: int, offset: int | None, limit: int, maximum: int = 10) -> dict[str, Any]:
+        if not 1 <= limit <= maximum or offset is not None and offset < 0:
+            raise ValueError("invalid pagination")
+        offset = max(0, (total - 1) // limit * limit) if offset is None else offset
+        return {"offset": offset, "limit": limit, "total": total,
+                "next_offset": offset + limit if offset + limit < total else None,
+                "previous_offset": max(0, offset - limit) if offset else None}
+
+    def _conversation_metadata(self, item: dict[str, Any]) -> dict[str, Any]:
+        stats = {"queued": 0, "running": 0}
+        for turn in item["turns"]:
+            if turn.get("resultsDeleted"):
+                continue
+            statuses = {self._tasks[_task_key(item["owner_id"], task_id)]["status"] for task_id in turn["task_ids"]
+                        if task_id not in turn.get("dismissedImageIds", [])}
+            if TASK_STATUS_RUNNING in statuses:
+                stats["running"] += 1
+            elif TASK_STATUS_QUEUED in statuses:
+                stats["queued"] += 1
+        return {**{key: item[key] for key in ("id", "title", "createdAt", "updatedAt")},
+                "turnCount": len(item["turns"]), "stats": stats, "turns": []}
 
     def _owned_conversation(self, identity: dict[str, object], conversation_id: str) -> dict[str, Any]:
         item = self._conversations.get(conversation_id)
@@ -154,13 +199,23 @@ class ImageTaskService:
             raise KeyError("conversation not found")
         return item
 
-    def _public_conversation(self, item: dict[str, Any]) -> dict[str, Any]:
-        result = {key: copy.deepcopy(item[key]) for key in ("id", "title", "createdAt", "updatedAt", "sourceEntries")}
-        result["turns"] = []
-        for saved in item["turns"]:
-            turn = {key: copy.deepcopy(value) for key, value in saved.items() if key not in {"task_ids", "request_id"}}
+    def _public_conversation(self, item: dict[str, Any], offset: int | None = None, limit: int = 2,
+                             navigation: bool = False) -> dict[str, Any]:
+        result = self._conversation_metadata(item)
+        page = self._page(len(item["turns"]), offset, limit)
+        result["pagination"] = page
+        selected = item["turns"][page["offset"]:page["offset"] + limit]
+        if navigation:
+            selected = [turn for turn in selected if not (turn.get("promptDeleted") and turn.get("resultsDeleted"))]
+        source_ids = {turn["sourceEntryId"] for turn in selected}
+        result["sourceEntries"] = [copy.deepcopy(source) for source in item["sourceEntries"] if source["id"] in source_ids]
+        for saved in selected:
+            turn = ({key: saved[key] for key in ("id", "sourceEntryId", "createdAt", "count")} if navigation else
+                    {key: copy.deepcopy(value) for key, value in saved.items() if key not in {"task_ids", "request_id"}})
+            if navigation:
+                turn.update(promptDeleted=bool(saved.get("promptDeleted")), resultsDeleted=bool(saved.get("resultsDeleted")))
             images = []
-            for task_id in saved["task_ids"]:
+            for task_id in ([] if saved.get("resultsDeleted") else saved["task_ids"]):
                 if task_id in saved.get("dismissedImageIds", []):
                     continue
                 task = _public_task(self._tasks[_task_key(item["owner_id"], task_id)])
@@ -169,11 +224,11 @@ class ImageTaskService:
                          "status": status if status in TERMINAL_STATUSES else "loading"}
                 if status not in TERMINAL_STATUSES:
                     image["taskStatus"] = status
-                if task.get("data"):
+                if task.get("data") and not navigation:
                     image.update(task["data"][0])
                 for source, target in (("error", "error"), ("progress", "progress"),
                                        ("elapsed_secs", "elapsedSecs"), ("duration_ms", "durationMs")):
-                    if task.get(source) is not None:
+                    if task.get(source) is not None and not navigation:
                         image[target] = task[source]
                 images.append(image)
             turn["images"] = images

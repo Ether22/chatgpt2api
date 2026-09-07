@@ -31,23 +31,8 @@ type ImageResultsProps = {
   formatConversationTime: (value: string) => string;
 };
 
-// Blob URL 缓存：避免 base64 超长字符串在 DOM 中，改用短小的 blob: URL
-const b64BlobUrlCache = new Map<string, string>();
-
 function getStoredImageSrc(image: StoredImage) {
-  if (image.b64_json) {
-    let url = b64BlobUrlCache.get(image.b64_json);
-    if (!url) {
-      const binary = atob(image.b64_json);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: "image/png" });
-      url = URL.createObjectURL(blob);
-      b64BlobUrlCache.set(image.b64_json, url);
-    }
-    return url;
-  }
-  return image.url || "";
+  return image.url || (image.b64_json ? `data:image/png;base64,${image.b64_json}` : "");
 }
 
 async function downloadStoredImage(image: StoredImage, index: number) {
@@ -167,7 +152,7 @@ export function ImageResults({
               <div className="flex justify-end">
                 <div className="max-w-[90%] px-1 py-1 text-[14px] leading-6 text-stone-900 sm:max-w-[82%] sm:text-[15px] sm:leading-7">
                   <div className="mb-1.5 flex flex-wrap justify-end gap-2 text-[11px] text-stone-400 sm:mb-2">
-                    <span>第 {turnIndex + 1} 轮</span>
+                    <span>第 {(selectedConversation.pagination?.offset ?? 0) + turnIndex + 1} 轮</span>
                     <span>
                       {turn.mode === "edit" ? "编辑图" : "文生图"}
                     </span>
@@ -514,23 +499,18 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-const base64SizeCache = new Map<string, string>();
 function formatBase64ImageSize(base64: string) {
-  let cached = base64SizeCache.get(base64);
-  if (cached !== undefined) return cached;
   const normalized = base64.replace(/\s/g, "");
   const padding = normalized.endsWith("==") ? 2 : normalized.endsWith("=") ? 1 : 0;
   const bytes = Math.max(0, Math.floor((normalized.length * 3) / 4) - padding);
 
   if (bytes >= 1024 * 1024) {
-    cached = `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
   } else if (bytes >= 1024) {
-    cached = `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1024).toFixed(1)} KB`;
   } else {
-    cached = `${bytes} B`;
+    return `${bytes} B`;
   }
-  base64SizeCache.set(base64, cached);
-  return cached;
 }
 
 function formatImageDimensions(width: number, height: number) {
@@ -545,6 +525,7 @@ const LazyImage = memo(function LazyImage({ src, alt, className, onLoad, onOpen 
   onOpen?: () => void;
 }) {
   const [isVisible, setIsVisible] = useState(false);
+  const placeholderHeightRef = useRef(280);
   const imageSource = useImageSource(isVisible ? src : undefined);
   const imgRef = useRef<HTMLDivElement>(null);
 
@@ -554,10 +535,8 @@ const LazyImage = memo(function LazyImage({ src, alt, className, onLoad, onOpen 
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-          observer.disconnect();
-        }
+        if (!entry.isIntersecting && entry.boundingClientRect.height > 0) placeholderHeightRef.current = entry.boundingClientRect.height;
+        setIsVisible(entry.isIntersecting);
       },
       { rootMargin: "400px" },
     );
@@ -566,7 +545,7 @@ const LazyImage = memo(function LazyImage({ src, alt, className, onLoad, onOpen 
   }, []);
 
   return (
-    <div ref={imgRef} className="relative">
+    <div ref={imgRef} className="relative" data-image-frame>
       {isVisible ? (
         <button
           type="button"
@@ -581,7 +560,7 @@ const LazyImage = memo(function LazyImage({ src, alt, className, onLoad, onOpen 
           />
         </button>
       ) : (
-        <div className={`animate-pulse rounded-xl bg-stone-100 min-h-[200px] sm:min-h-[280px] ${className}`} />
+        <div style={{ height: placeholderHeightRef.current }} className={`rounded-xl bg-stone-100 ${className}`} />
       )}
     </div>
   );

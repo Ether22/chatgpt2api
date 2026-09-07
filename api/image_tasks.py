@@ -130,8 +130,9 @@ def create_router() -> APIRouter:
         return await conversation_call(image_task_service.cancel_reference_upload, require_identity(authorization), request_id)
 
     @router.get("/api/image-conversations")
-    async def list_conversations(authorization: str | None = Header(default=None)):
-        return await conversation_call(image_task_service.list_conversations, require_identity(authorization))
+    async def list_conversations(authorization: str | None = Header(default=None),
+                                 offset: int = Query(default=0, ge=0), limit: int = Query(default=30, ge=1, le=100)):
+        return await conversation_call(image_task_service.list_conversations, require_identity(authorization), offset, limit)
 
     @router.post("/api/image-conversations")
     async def create_conversation(body: CreateConversationRequest, authorization: str | None = Header(default=None)):
@@ -149,8 +150,11 @@ def create_router() -> APIRouter:
         return await conversation_call(image_task_service.submit_turn, identity, body.model_dump(), resolve_image_base_url(request))
 
     @router.get("/api/image-conversations/{conversation_id}")
-    async def get_conversation(conversation_id: str, authorization: str | None = Header(default=None)):
-        return await conversation_call(image_task_service.get_conversation, require_identity(authorization), conversation_id)
+    async def get_conversation(conversation_id: str, authorization: str | None = Header(default=None),
+                               offset: int | None = Query(default=None, ge=0), limit: int = Query(default=2, ge=1, le=10),
+                               turn_id: str = "", image_id: str = "", navigation: bool = False):
+        return await conversation_call(image_task_service.get_conversation, require_identity(authorization), conversation_id,
+                                       offset, limit, turn_id, image_id, navigation)
 
     @router.patch("/api/image-conversations/{conversation_id}")
     async def update_conversation(conversation_id: str, body: ConversationUpdateRequest, authorization: str | None = Header(default=None)):

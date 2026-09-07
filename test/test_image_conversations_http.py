@@ -67,10 +67,17 @@ def submit(env, **overrides):
     })
 
 
+def read_history(client, headers):
+    history = client.get("/api/image-conversations", headers=headers).json()
+    history["items"] = [client.get(f"/api/image-conversations/{item['id']}?offset=0&limit=10", headers=headers).json()
+                        for item in history["items"]]
+    return history
+
+
 def wait_for_history(env, count=1):
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
-        history = env["client"].get("/api/image-conversations", headers=env["headers"]).json()
+        history = read_history(env["client"], env["headers"])
         images = [image for conv in history["items"] for turn in conv["turns"] for image in turn["images"]]
         if len(images) == count and all(image["status"] != "loading" for image in images):
             return history
@@ -94,8 +101,7 @@ def test_roundtrip_restores_configuration_tasks_and_current_conversation(environ
     reloaded = ImageTaskService(env["path"], generation_handler=env["upstream"])
     monkeypatch.setattr(image_tasks, "image_task_service", reloaded)
     with TestClient(env["app"]) as second_browser:
-        restored = second_browser.get("/api/image-conversations", headers=env["headers"])
-        assert restored.json() == history
+        assert read_history(second_browser, env["headers"]) == history
         assert second_browser.get("/api/image-conversations", headers=env["other"]).json()["items"] == []
         assert second_browser.get(f"/api/image-conversations/{conversation['id']}", headers=env["other"]).status_code == 404
         task_id = turn["images"][0]["taskId"]

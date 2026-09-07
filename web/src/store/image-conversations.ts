@@ -103,6 +103,18 @@ export type ImageConversation = {
   updatedAt: string;
   turns: ImageTurn[];
   sourceEntries?: Array<{ id: string; name: string }>;
+  turnCount?: number;
+  stats?: ImageConversationStats;
+  pagination?: ImagePagination;
+  target?: { turn_id: string; image_id: string | null };
+};
+
+export type ImagePagination = {
+  offset: number;
+  limit: number;
+  total: number;
+  next_offset: number | null;
+  previous_offset: number | null;
 };
 
 export type ImageConversationStats = {
@@ -113,10 +125,23 @@ export type ImageConversationStats = {
 export type ImageHistory = {
   items: ImageConversation[];
   current_conversation_id: string | null;
+  pagination: ImagePagination;
+  stats: ImageConversationStats;
 };
 
-export function fetchImageHistory() {
-  return httpRequest<ImageHistory>("/api/image-conversations");
+export function fetchImageHistory(offset = 0) {
+  return httpRequest<ImageHistory>(`/api/image-conversations?offset=${offset}&limit=30`);
+}
+
+export function fetchImageConversation(id: string, options: { offset?: number; limit?: number; turn_id?: string; image_id?: string } = {}) {
+  const params = new URLSearchParams(Object.entries(options).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
+  return httpRequest<ImageConversation>(`/api/image-conversations/${encodeURIComponent(id)}?${params}`);
+}
+
+export function fetchImageNavigation(id: string, offset = 0) {
+  return httpRequest<Pick<ImageConversation, "id" | "sourceEntries" | "pagination"> & {
+    turns: Array<Pick<ImageTurn, "id" | "sourceEntryId" | "createdAt" | "count" | "status" | "promptDeleted" | "resultsDeleted"> & { images: StoredImage[] }>;
+  }>(`/api/image-conversations/${encodeURIComponent(id)}?navigation=true&offset=${offset}&limit=10`);
 }
 
 export async function listImageConversations(): Promise<ImageConversation[]> {
@@ -192,6 +217,7 @@ export function useImageSource(src: string | undefined) {
   const [loaded, setLoaded] = useState<{ source: string; url: string } | null>(null);
   const managed = src && typeof window !== "undefined" ? managedImagePath(src) : null;
   useEffect(() => {
+    setLoaded(null);
     if (!src || !managed) return;
     const controller = new AbortController();
     let objectUrl = "";
@@ -211,6 +237,7 @@ export function useImageSource(src: string | undefined) {
 }
 
 export function getImageConversationStats(conversation: ImageConversation | null): ImageConversationStats {
+  if (conversation?.stats) return conversation.stats;
   return (conversation?.turns || []).reduce((stats, turn) => {
     if (!turn.resultsDeleted) {
       if (turn.status === "queued") stats.queued += 1;

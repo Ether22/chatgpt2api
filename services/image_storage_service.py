@@ -382,6 +382,29 @@ class ImageStorageService:
         safe_rel = _safe_relative_path(rel)
         return _is_image_rel(safe_rel) and local_image_path(safe_rel).is_file()
 
+    def list_page(self, base_url: str, identity: dict[str, object], start_date: str = "", end_date: str = "",
+                  offset: int = 0, limit: int = 12, matching_paths: set[str] | None = None,
+                  paths_only: bool = False) -> dict[str, object]:
+        if offset < 0 or not 1 <= limit <= 100:
+            raise ValueError("invalid pagination")
+        # Saved files are already indexed. Browsing must not reconcile every file or read image bytes.
+        with self._index_lock:
+            indexed = self._load_clean_index()
+        items = [(rel, item) for rel, item in indexed.items()
+                 if item.get("kind") != "reference" and "/references/" not in rel
+                 and self.can_access(rel, identity)
+                 and (not start_date or str(item.get("date", "")) >= start_date)
+                 and (not end_date or str(item.get("date", "")) <= end_date)
+                 and (matching_paths is None or rel in matching_paths)]
+        items.sort(key=lambda pair: (str(pair[1].get("created_at", "")), pair[0]), reverse=True)
+        total = len(items)
+        return {"items": [{"rel": rel} if paths_only else {**{key: value for key, value in item.items() if key not in {"remote_url", "owner_id"}},
+                           "rel": rel, "path": rel, "url": self._public_url(rel, base_url)}
+                          for rel, item in items[offset:offset + limit]],
+                "pagination": {"offset": offset, "limit": limit, "total": total,
+                               "next_offset": offset + limit if offset + limit < total else None,
+                               "previous_offset": max(0, offset - limit) if offset else None}}
+
     def list_items(self, base_url: str, start_date: str = "", end_date: str = "") -> list[dict[str, object]]:
         with self._index_lock:
             indexed = self._load_clean_index()

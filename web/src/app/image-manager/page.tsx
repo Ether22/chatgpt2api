@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { compressAllImages, deleteImageTag, deleteManagedImages, deleteToTarget, downloadImages, downloadSingleImage, fetchImageStorage, fetchImageTags, fetchManagedImages, setImageTags, type ImageStorageStats, type ManagedImage } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useImageSource } from "@/store/image-conversations";
+import type { ImageListPage } from "@/lib/api";
 
 const LONG_PRESS_MS = 800;
 const IMAGE_MANAGER_CHECKBOX_CLASS = "border-stone-300 bg-white/80 dark:border-white/35 dark:bg-white/5 data-[state=checked]:border-stone-950 dark:data-[state=checked]:border-white";
@@ -71,6 +72,11 @@ function ImageManagerContent() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [dateTotal, setDateTotal] = useState(0);
+  const loadVersionRef = useRef(0);
+  const selectionVersionRef = useRef(0);
+  const [selectingCount, setSelectingCount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [deleteStartDate, setDeleteStartDate] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ManagedImage | null>(null);
@@ -100,9 +106,7 @@ function ImageManagerContent() {
   const [deleteMode, setDeleteMode] = useState<"selected" | "filtered" | "byDate" | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  const filteredItems = selectedTags.length > 0
-    ? items.filter((item) => selectedTags.every((t) => (item.tags ?? []).includes(t)))
-    : items;
+  const filteredItems = items;
 
   const lightboxImages = filteredItems.map((item) => ({
     id: item.name,
@@ -111,29 +115,32 @@ function ImageManagerContent() {
     dimensions: item.width && item.height ? `${item.width} x ${item.height}` : undefined,
   }));
   const pageSize = 12;
-  const pageCount = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, pageCount);
-  const currentRows = filteredItems.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const currentRows = items;
   const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths]);
-  const selectedCount = deleteMode === "filtered" ? items.length : deleteMode === "byDate" ? 0 : selectedPaths.length;
+  const selectedCount = deleteMode === "filtered" ? dateTotal : deleteMode === "byDate" ? 0 : selectedPaths.length;
   const currentPageSelected = currentRows.length > 0 && currentRows.every((item) => selectedSet.has(imageKey(item)));
-  const allSelected = filteredItems.length > 0 && filteredItems.every((item) => selectedSet.has(imageKey(item)));
 
   const loadImages = async () => {
+    const version = ++loadVersionRef.current;
     setIsLoading(true);
+    setLightboxOpen(false);
     try {
       const [data, tagsData] = await Promise.all([
-        fetchManagedImages({ start_date: startDate, end_date: endDate }),
+        fetchManagedImages({ start_date: startDate, end_date: endDate, offset: (page - 1) * pageSize, limit: pageSize, tags: selectedTags }),
         fetchImageTags(),
       ]);
+      if (version !== loadVersionRef.current) return;
       setItems(data.items);
+      setTotal(data.pagination.total);
+      if (!selectedTags.length) setDateTotal(data.pagination.total);
       setAllTags(tagsData.tags);
-      setSelectedPaths((current) => current.filter((path) => data.items.some((item) => imageKey(item) === path)));
-      setPage(1);
+      if (page > Math.max(1, Math.ceil(data.pagination.total / pageSize))) setPage(Math.max(1, Math.ceil(data.pagination.total / pageSize)));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "加载图片失败");
     } finally {
-      setIsLoading(false);
+      if (version === loadVersionRef.current) setIsLoading(false);
     }
   };
 
@@ -156,6 +163,7 @@ function ImageManagerContent() {
       setItems((prev) => prev.filter((item) => item.rel !== deleteTarget.rel));
       setSelectedPaths((prev) => prev.filter((p) => p !== imageKey(deleteTarget)));
       toast.success("图片已删除");
+      await loadImages();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "删除失败");
     } finally {
@@ -235,11 +243,39 @@ function ImageManagerContent() {
     setStartDate("");
     setEndDate("");
     setSelectedTags([]);
+    setPage(1);
   };
 
   const togglePaths = (paths: string[], checked: boolean) => {
     setSelectedPaths((current) => checked ? Array.from(new Set([...current, ...paths])) : current.filter((path) => !paths.includes(path)));
   };
+
+  const selectAllResults = async () => {
+    const version = ++selectionVersionRef.current;
+    const paths = new Set<string>();
+    setSelectingCount(0);
+    try {
+      let offset: number | null = 0;
+      do {
+        const result: ImageListPage<Pick<ManagedImage, "rel">> = await fetchManagedImages({ start_date: startDate, end_date: endDate, tags: selectedTags, offset, limit: 100, paths_only: true });
+        if (version !== selectionVersionRef.current) return;
+        result.items.forEach((item) => paths.add(item.rel));
+        togglePaths([...paths], true);
+        setSelectingCount(paths.size);
+        offset = result.pagination.next_offset;
+      } while (offset !== null);
+    } catch (error) {
+      if (version === selectionVersionRef.current) toast.error(`选择未完成，已保留 ${paths.size} 张；${error instanceof Error ? error.message : "请重试"}`);
+    } finally {
+      if (version === selectionVersionRef.current) setSelectingCount(null);
+    }
+  };
+
+  useEffect(() => {
+    ++selectionVersionRef.current;
+    setSelectingCount(null);
+    return () => { ++selectionVersionRef.current; };
+  }, [startDate, endDate, selectedTags]);
 
   const confirmDelete = async () => {
     if (!deleteMode || selectedCount === 0) return;
@@ -277,7 +313,8 @@ function ImageManagerContent() {
 
   useEffect(() => {
     void loadImages();
-  }, [startDate, endDate]);
+    return () => { ++loadVersionRef.current; };
+  }, [startDate, endDate, page, selectedTags]);
 
   return (
     <section className="space-y-5">
@@ -287,7 +324,7 @@ function ImageManagerContent() {
           <h1 className="text-2xl font-semibold tracking-tight">图片管理</h1>
         </div>
         <div className="flex flex-wrap gap-2">
-          <DateRangeFilter startDate={startDate} endDate={endDate} onChange={(start, end) => { setStartDate(start); setEndDate(end); }} />
+          <DateRangeFilter startDate={startDate} endDate={endDate} onChange={(start, end) => { setStartDate(start); setEndDate(end); setPage(1); setSelectedTags([]); setSelectedPaths([]); }} />
           <Button variant="outline" onClick={clearFilters} className="h-10 rounded-xl border-stone-200 bg-white px-4 text-stone-700">
             清除筛选条件
           </Button>
@@ -449,16 +486,15 @@ function ImageManagerContent() {
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-5 py-4">
             <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600">
               <ImageIcon className="size-4" />
-              共 {filteredItems.length} 张
-              {selectedTags.length > 0 ? <span className="text-stone-400">（筛选自 {items.length} 张）</span> : null}
+              共 {total} 张
+              {selectedTags.length > 0 ? <span className="text-stone-400">（筛选自 {dateTotal} 张）</span> : null}
               <label className="flex items-center gap-2">
                 <Checkbox className={IMAGE_MANAGER_CHECKBOX_CLASS} checked={currentPageSelected} onCheckedChange={(checked) => togglePaths(currentRows.map(imageKey), Boolean(checked))} />
                 本页全选
               </label>
-              <label className="flex items-center gap-2">
-                <Checkbox className={IMAGE_MANAGER_CHECKBOX_CLASS} checked={allSelected} onCheckedChange={(checked) => togglePaths(filteredItems.map(imageKey), Boolean(checked))} />
-                全选结果
-              </label>
+              <Button variant="ghost" size="sm" disabled={isLoading || selectingCount !== null || !total} onClick={() => void selectAllResults()}>
+                {selectingCount === null ? "全选结果" : `选择中 ${selectingCount} / ${total}`}
+              </Button>
               {selectedPaths.length > 0 ? <span>已选 {selectedPaths.length} 张</span> : null}
             </div>
             <div className="flex items-center gap-2">
@@ -466,7 +502,7 @@ function ImageManagerContent() {
                 <RefreshCw className={`size-4 ${isLoading ? "animate-spin" : ""}`} />
                 刷新
               </Button>
-              <button type="button" className="text-sm text-stone-500 hover:text-stone-900 disabled:text-stone-300" onClick={() => setSelectedPaths([])} disabled={selectedPaths.length === 0 || isDeleting}>
+              <button type="button" className="text-sm text-stone-500 hover:text-stone-900 disabled:text-stone-300" onClick={() => { ++selectionVersionRef.current; setSelectingCount(null); setSelectedPaths([]); }} disabled={(selectedPaths.length === 0 && selectingCount === null) || isDeleting}>
                 取消选择
               </button>
               <Button variant="outline" className="h-8 rounded-lg border-stone-200 bg-white px-3 text-stone-600 hover:bg-stone-50" onClick={() => void handleBatchDownload()} disabled={selectedPaths.length === 0 || isDownloading || isDeleting}>
@@ -624,11 +660,11 @@ function ImageManagerContent() {
             )})}
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-stone-100 px-4 py-3 text-sm text-stone-500">
-            <span>第 {safePage} / {pageCount} 页，共 {filteredItems.length} 张</span>
-            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+            <span>第 {safePage} / {pageCount} 页，共 {total} 张</span>
+            <Button aria-label="图库上一页" variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={isLoading || safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
               <ChevronLeft className="size-4" />
             </Button>
-            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
+            <Button aria-label="图库下一页" variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={isLoading || safePage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
               <ChevronRight className="size-4" />
             </Button>
           </div>

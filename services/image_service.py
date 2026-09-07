@@ -145,10 +145,14 @@ def cleanup_image_thumbnails() -> int:
     _cleanup_empty_dirs(thumbnails_root)
     return removed
 
-def list_images(base_url: str, start_date: str = "", end_date: str = "", identity: dict[str, object] | None = None) -> dict[str, object]:
-    config.cleanup_old_images()
-    cleanup_image_thumbnails()
+def list_images(base_url: str, start_date: str = "", end_date: str = "", identity: dict[str, object] | None = None,
+                offset: int = 0, limit: int = 12, tags: list[str] | None = None,
+                paths_only: bool = False) -> dict[str, object]:
     all_tags = load_tags()
+    matching_paths = {rel for rel, values in all_tags.items() if all(tag in values for tag in tags)} if tags else None
+    page = image_storage_service.list_page(base_url, identity, start_date, end_date, offset, limit, matching_paths, paths_only)
+    if paths_only:
+        return page
     items = [
         {
             **{key: value for key, value in item.items() if key != "remote_url"},
@@ -156,13 +160,13 @@ def list_images(base_url: str, start_date: str = "", end_date: str = "", identit
             "thumbnail_url": thumbnail_url(base_url, str(item["path"])),
             "tags": all_tags.get(str(item["path"]), []),
         }
-        for item in image_storage_service.list_items(base_url, start_date, end_date)
-        if image_storage_service.can_access(str(item["path"]), identity)
+        for item in page["items"]
     ]
     groups: dict[str, list[dict[str, object]]] = {}
     for item in items:
         groups.setdefault(str(item["date"]), []).append(item)
-    return {"items": items, "groups": [{"date": key, "items": value} for key, value in groups.items()]}
+    return {"items": items, "pagination": page["pagination"],
+            "groups": [{"date": key, "items": value} for key, value in groups.items()]}
 
 
 def delete_images(paths: list[str] | None = None, start_date: str = "", end_date: str = "", all_matching: bool = False) -> dict[str, int]:

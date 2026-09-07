@@ -31,6 +31,7 @@ import {
   clearImageConversations,
   createImageConversation,
   fetchImageHistory,
+  fetchImageConversation,
   fetchStoredImageBlob,
   selectImageConversation,
   submitImageTurn,
@@ -139,9 +140,10 @@ async function fetchImageAsFile(url: string, fileName: string) {
 }
 
 function pickFallbackConversationId(conversations: ImageConversation[]) {
-  const activeConversation = conversations.find((conversation) =>
-    conversation.turns.some((turn) => turn.status === "queued" || turn.status === "generating"),
-  );
+  const activeConversation = conversations.find((conversation) => {
+    const stats = getImageConversationStats(conversation);
+    return stats.queued + stats.running > 0;
+  });
   return activeConversation?.id ?? conversations[0]?.id ?? null;
 }
 
@@ -153,6 +155,9 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const didLoadQuotaRef = useRef(false);
   const conversationsRef = useRef<ImageConversation[]>([]);
   const historyReadVersionRef = useRef(0);
+  const selectedIdRef = useRef<string | null>(null);
+  const pageOffsetRef = useRef<number | undefined>(undefined);
+  const firstPageIdsRef = useRef(new Set<string>());
   const pendingSubmissionRef = useRef<{ signature: string; turn: ImageTurn; conversationId: string | null } | null>(null);
   const pendingDraftRef = useRef<string | null>(null);
   const pendingRegenerationsRef = useRef(new Map<string, ImageTurn>());
@@ -223,6 +228,10 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const [conversations, setConversations] = useState<ImageConversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [isLoadingPage, setIsLoadingPage] = useState(false);
+  const [historyNextOffset, setHistoryNextOffset] = useState<number | null>(null);
+  const [isLoadingMoreHistory, setIsLoadingMoreHistory] = useState(false);
+  const [activeTaskCount, setActiveTaskCount] = useState(0);
   const [availableQuota, setAvailableQuota] = useState("加载中...");
   const [lightboxImages, setLightboxImages] = useState<ImageLightboxItem[]>([]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -240,14 +249,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     () => conversations.find((item) => item.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId],
   );
-  const activeTaskCount = useMemo(
-    () =>
-      conversations.reduce((sum, conversation) => {
-        const stats = getImageConversationStats(conversation);
-        return sum + stats.queued + stats.running;
-      }, 0),
-    [conversations],
-  );
+  selectedIdRef.current = selectedConversationId;
   const deleteConfirmTitle =
     deleteConfirm?.type === "all"
       ? "清空历史记录"
@@ -358,14 +360,19 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
       const readVersion = ++historyReadVersionRef.current;
       const history = await fetchImageHistory();
-      const normalizedItems = history.items;
+      const nextSelectedConversationId = history.current_conversation_id ?? pickFallbackConversationId(history.items);
+      const detail = nextSelectedConversationId ? await fetchImageConversation(nextSelectedConversationId) : null;
+      const normalizedItems = detail ? [...history.items.filter((item) => item.id !== detail.id), detail] : history.items;
       if (loadCancelledRef.current || readVersion !== historyReadVersionRef.current) {
         return;
       }
 
-      conversationsRef.current = normalizedItems;
-      setConversations(normalizedItems);
-      const nextSelectedConversationId = history.current_conversation_id ?? pickFallbackConversationId(normalizedItems);
+      conversationsRef.current = sortImageConversations(normalizedItems);
+      setConversations(conversationsRef.current);
+      setHistoryNextOffset(history.pagination.next_offset);
+      setActiveTaskCount(history.stats.queued + history.stats.running);
+      firstPageIdsRef.current = new Set(history.items.map((item) => item.id));
+      pageOffsetRef.current = undefined;
       setSelectedConversationId(nextSelectedConversationId);
     } catch (error) {
       const message = error instanceof Error ? error.message : "读取会话记录失败";
@@ -604,15 +611,76 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     }
   }, [conversations, selectedConversationId]);
 
-  const refreshHistory = useCallback(async () => {
+  const refreshHistory = useCallback(async (followLatest = true) => {
     const readVersion = ++historyReadVersionRef.current;
     const history = await fetchImageHistory();
+    const id = (followLatest ? history.current_conversation_id : selectedIdRef.current) ?? history.current_conversation_id;
+    const offset = followLatest ? undefined : pageOffsetRef.current;
+    const detail = id ? await fetchImageConversation(id, { offset }) : null;
     if (!loadCancelledRef.current && readVersion === historyReadVersionRef.current) {
-      conversationsRef.current = history.items;
-      setConversations(history.items);
+      const freshIds = new Set(history.items.map((item) => item.id));
+      const previous = conversationsRef.current.filter((item) => history.pagination.next_offset !== null &&
+        !firstPageIdsRef.current.has(item.id) && !freshIds.has(item.id) && item.id !== detail?.id)
+        .map((item) => ({ ...item, turns: [], pagination: undefined, sourceEntries: undefined }));
+      firstPageIdsRef.current = freshIds;
+      conversationsRef.current = sortImageConversations([...previous, ...history.items.filter((item) => item.id !== detail?.id), ...(detail ? [detail] : [])]);
+      setConversations(conversationsRef.current);
+      if (followLatest) {
+        pageOffsetRef.current = undefined;
+        setSelectedConversationId(id);
+      }
+      setActiveTaskCount(history.stats.queued + history.stats.running);
+      setIsLoadingPage(false);
+      if (history.pagination.next_offset === null) setHistoryNextOffset(null);
     }
     return history;
   }, []);
+
+  const loadConversationPage = useCallback(async (id: string, offset?: number) => {
+    const readVersion = ++historyReadVersionRef.current;
+    pageOffsetRef.current = offset;
+    setIsLoadingPage(true);
+    setLightboxOpen(false);
+    setLightboxImages([]);
+    try {
+      const detail = await fetchImageConversation(id, { offset });
+      if (loadCancelledRef.current || readVersion !== historyReadVersionRef.current) return;
+      conversationsRef.current = sortImageConversations([
+        ...conversationsRef.current.filter((item) => item.id !== id)
+          .map((item) => ({ ...item, turns: [], pagination: undefined, sourceEntries: undefined })), detail,
+      ]);
+      setConversations(conversationsRef.current);
+      if (resultsViewportRef.current) resultsViewportRef.current.scrollTop = 0;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "读取结果失败");
+    } finally {
+      if (readVersion === historyReadVersionRef.current) setIsLoadingPage(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedConversationId && !conversationsRef.current.find((item) => item.id === selectedConversationId)?.pagination) {
+      void loadConversationPage(selectedConversationId);
+    }
+  }, [selectedConversationId, loadConversationPage]);
+
+  const loadMoreHistory = async () => {
+    if (historyNextOffset === null || isLoadingMoreHistory) return;
+    setIsLoadingMoreHistory(true);
+    const version = historyReadVersionRef.current;
+    try {
+      const history = await fetchImageHistory(historyNextOffset);
+      if (loadCancelledRef.current || version !== historyReadVersionRef.current) return;
+      const known = new Set(conversationsRef.current.map((item) => item.id));
+      conversationsRef.current = sortImageConversations([...conversationsRef.current, ...history.items.filter((item) => !known.has(item.id))]);
+      setConversations(conversationsRef.current);
+      setHistoryNextOffset(history.pagination.next_offset);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "读取历史失败");
+    } finally {
+      setIsLoadingMoreHistory(false);
+    }
+  };
 
   useEffect(() => {
     if (isLoadingHistory) return;
@@ -620,7 +688,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        if (document.visibilityState === "visible") await refreshHistory();
+        if (document.visibilityState === "visible" && !isLoadingPage) await refreshHistory(false);
       } catch {
         // Keep the last server state visible; a later read can recover without resubmitting work.
       }
@@ -628,7 +696,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     };
     timer = setTimeout(poll, 2000);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [isLoadingHistory, refreshHistory]);
+  }, [isLoadingHistory, isLoadingPage, refreshHistory]);
 
   const clearComposerInputs = useCallback(() => {
     setImagePrompt("");
@@ -660,7 +728,13 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const handleSelectConversation = async (id: string) => {
+    ++historyReadVersionRef.current;
+    pageOffsetRef.current = undefined;
+    setLightboxOpen(false);
+    setLightboxImages([]);
+    setIsLoadingPage(false);
     setSelectedConversationId(id);
+    if (conversationsRef.current.find((item) => item.id === id)?.pagination) void loadConversationPage(id);
     try {
       await selectImageConversation(id);
     } catch (error) {
@@ -968,6 +1042,9 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
         <div className="hidden h-full min-h-0 border-r border-stone-200/70 pr-3 lg:block">
           <ImageSidebar
             conversations={conversations}
+            hasMore={historyNextOffset !== null}
+            isLoadingMore={isLoadingMoreHistory}
+            onLoadMore={() => void loadMoreHistory()}
             isLoadingHistory={isLoadingHistory}
             selectedConversationId={selectedConversationId}
             onCreateDraft={handleCreateDraft}
@@ -990,6 +1067,9 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8 sm:px-8">
               <ImageSidebar
                 conversations={conversations}
+                hasMore={historyNextOffset !== null}
+                isLoadingMore={isLoadingMoreHistory}
+                onLoadMore={() => void loadMoreHistory()}
                 isLoadingHistory={isLoadingHistory}
                 selectedConversationId={selectedConversationId}
                 onCreateDraft={() => {
@@ -1037,6 +1117,18 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             </Button>
           </div>
 
+          {selectedConversation?.pagination && selectedConversation.pagination.total > 0 && (
+            <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-stone-500" aria-label="结果分页">
+              <Button variant="ghost" size="sm" disabled={isLoadingPage || selectedConversation.pagination.previous_offset === null}
+                onClick={() => void loadConversationPage(selectedConversation.id, selectedConversation.pagination!.previous_offset!)}>较早结果</Button>
+              <span>第 {selectedConversation.pagination.offset + 1}–{Math.min(selectedConversation.pagination.total, selectedConversation.pagination.offset + selectedConversation.pagination.limit)} / {selectedConversation.pagination.total} 轮</span>
+              <Button variant="ghost" size="sm" disabled={isLoadingPage || selectedConversation.pagination.next_offset === null}
+                onClick={() => void loadConversationPage(selectedConversation.id, selectedConversation.pagination!.next_offset!)}>较新结果</Button>
+              <Button variant="ghost" size="sm" disabled={isLoadingPage || pageOffsetRef.current === undefined}
+                onClick={() => void loadConversationPage(selectedConversation.id)}>最新结果</Button>
+              {isLoadingPage && <LoaderCircle className="size-4 animate-spin" />}
+            </div>
+          )}
           <div className="relative min-h-0 flex-1">
             <div
               ref={resultsViewportRef}
@@ -1045,6 +1137,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
               style={{ contain: "layout style paint" }}
             >
               <ImageResults
+                key={`${selectedConversation?.id}:${selectedConversation?.pagination?.offset}`}
                 selectedConversation={selectedConversation}
                 onOpenLightbox={openLightbox}
                 onContinueEdit={handleContinueEdit}

@@ -586,11 +586,20 @@ export function getBackupDownloadUrl(key: string) {
   return `/api/backups/download?${params.toString()}`;
 }
 
-export async function fetchManagedImages(filters: { start_date?: string; end_date?: string }) {
+type ImageListFilters = { start_date?: string; end_date?: string; offset?: number; limit?: number; tags?: string[] };
+export type ImageListPage<T> = { items: T[]; pagination: { offset: number; limit: number; total: number; next_offset: number | null } };
+
+export function fetchManagedImages(filters: ImageListFilters & { paths_only: true }): Promise<ImageListPage<Pick<ManagedImage, "rel">>>;
+export function fetchManagedImages(filters: ImageListFilters & { paths_only?: false }): Promise<ImageListPage<ManagedImage>>;
+export async function fetchManagedImages(filters: ImageListFilters & { paths_only?: boolean }) {
   const params = new URLSearchParams();
   if (filters.start_date) params.set("start_date", filters.start_date);
   if (filters.end_date) params.set("end_date", filters.end_date);
-  return httpRequest<{ items: ManagedImage[]; groups: Array<{ date: string; items: ManagedImage[] }> }>(
+  if (filters.offset !== undefined) params.set("offset", String(filters.offset));
+  if (filters.limit !== undefined) params.set("limit", String(filters.limit));
+  filters.tags?.forEach((tag) => params.append("tag", tag));
+  if (filters.paths_only) params.set("paths_only", "true");
+  return httpRequest<ImageListPage<ManagedImage>>(
     `/api/images${params.toString() ? `?${params.toString()}` : ""}`,
   );
 }

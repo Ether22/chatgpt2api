@@ -95,15 +95,18 @@ def create_router(app_version: str) -> APIRouter:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
 
     @router.get("/api/images")
-    async def get_images(request: Request, start_date: str = "", end_date: str = "", authorization: str | None = Header(default=None)):
+    async def get_images(request: Request, start_date: str = "", end_date: str = "", authorization: str | None = Header(default=None),
+                         offset: int = Query(default=0, ge=0), limit: int = Query(default=12, ge=1, le=100),
+                         tag: list[str] = Query(default=[]), paths_only: bool = False):
         identity = require_admin(authorization)
-        return list_images(resolve_image_base_url(request), start_date=start_date.strip(), end_date=end_date.strip(), identity=identity)
+        return await run_in_threadpool(list_images, resolve_image_base_url(request), start_date.strip(), end_date.strip(),
+                                       identity, offset, limit, tag, paths_only)
 
     @router.get("/images/{image_path:path}", include_in_schema=False)
     async def get_image(image_path: str, authorization: str | None = Header(default=None)):
         if is_managed_image(image_path):
             image_storage_service.require_owner(image_path, require_identity(authorization))
-        response = get_image_response(image_path)
+        response = await run_in_threadpool(get_image_response, image_path)
         if is_managed_image(image_path):
             response.headers["Cache-Control"] = "private, no-store"
             response.headers["Vary"] = "Authorization"
@@ -113,7 +116,7 @@ def create_router(app_version: str) -> APIRouter:
     async def get_image_thumbnail(image_path: str, authorization: str | None = Header(default=None)):
         if is_managed_image(image_path):
             image_storage_service.require_owner(image_path, require_identity(authorization))
-        response = get_thumbnail_response(image_path)
+        response = await run_in_threadpool(get_thumbnail_response, image_path)
         if is_managed_image(image_path):
             response.headers["Cache-Control"] = "private, no-store"
             response.headers["Vary"] = "Authorization"
@@ -143,7 +146,7 @@ def create_router(app_version: str) -> APIRouter:
     @router.get("/api/images/download/{image_path:path}")
     async def download_single_image_endpoint(image_path: str, authorization: str | None = Header(default=None)):
         image_storage_service.require_owner(image_path, require_identity(authorization))
-        return get_image_download_response(image_path)
+        return await run_in_threadpool(get_image_download_response, image_path)
 
     @router.get("/api/logs")
     async def get_logs(type: str = "", start_date: str = "", end_date: str = "", authorization: str | None = Header(default=None)):
@@ -294,7 +297,7 @@ def create_router(app_version: str) -> APIRouter:
     @router.get("/api/images/storage")
     async def get_image_storage(authorization: str | None = Header(default=None)):
         require_admin(authorization)
-        return storage_stats()
+        return await run_in_threadpool(storage_stats)
 
     @router.post("/api/images/storage/compress")
     async def compress_all_images(authorization: str | None = Header(default=None)):
