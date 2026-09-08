@@ -1412,7 +1412,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
               ref={resultsViewportRef}
               onScroll={handleResultsScroll}
               className="hide-scrollbar h-full overscroll-contain overflow-y-auto px-1 py-2 sm:px-4 sm:py-4"
-              style={{ contain: "layout style paint" }}
+              style={{ contain: "layout style paint", overflowAnchor: "none" }}
             >
               <ImageResults
                 key={`${selectedConversation?.id}:${selectedConversation?.pagination?.offset}`}
