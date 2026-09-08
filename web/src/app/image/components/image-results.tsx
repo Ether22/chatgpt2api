@@ -594,6 +594,8 @@ const LazyImage = memo(function LazyImage({ src, alt, className, dimensions, onL
           <img
             src={imageSource}
             alt={alt}
+            width={size?.width}
+            height={size?.height}
             className="block h-full w-full object-cover transition duration-200 group-hover:brightness-90 sm:h-auto sm:object-contain"
             onLoad={(event) => {
               setSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight });
