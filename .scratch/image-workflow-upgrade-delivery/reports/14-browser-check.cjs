@@ -77,8 +77,8 @@ const headers = { Authorization: 'Bearer ticket13-A' };
     assert.equal((await context.request.patch(origin + '/api/image-conversations/gallery-0', { headers, data: { title: refreshedTitle } })).status(), 200);
     await page.getByRole('button', { name: new RegExp(refreshedTitle) }).waitFor();
     // A real layout shift after polling must keep the target aligned (as a late image decode does).
-    await viewport.evaluate(e => { e.firstElementChild.style.paddingTop = '40px'; }); await targetVisible(target);
-    await viewport.evaluate(e => { e.firstElementChild.style.paddingTop = ''; }); await targetVisible(target);
+    await viewport.evaluate(e => { e.firstElementChild.firstElementChild.style.paddingTop = '40px'; }); await targetVisible(target);
+    await viewport.evaluate(e => { e.firstElementChild.firstElementChild.style.paddingTop = ''; }); await targetVisible(target);
     metrics.refresh_keeps_target = true;
     // An older target response must not replace the newer target's highlight.
     const olderTarget = 'gallery-0-turn-000-0';

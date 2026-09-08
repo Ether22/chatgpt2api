@@ -4,7 +4,7 @@
 
 **Blocked by:** [08: 选择 MD 条目并随上传进度生成](08-selected-md-generation.md).
 
-**Status:** implemented-and-reviewed
+**Status:** integrated-and-verified
 
 **Parent:** [生图工作流、服务端历史与账号管理规格](../../image-workflow-upgrade/spec.md)
 
@@ -20,3 +20,5 @@
 2026-09-08：用户已批准本票所在的十八项拆分及阻塞关系。本轮仅发布任务，尚未实施应用代码。此前相关核查和确认保留在父规格的讨论记录中。
 
 2026-09-08：独立分支 codex/image-task-09 完成实施、11项新增HTTP回归、完整316项及7子场景、三组生产浏览器验收；Standards/Spec双独立审查0行动项。详见 [09报告](../reports/09.md)。待主任务逐个集成验证。
+
+2026-09-08 主对话最终集成：本票已在 codex/image-workflow-integration 集成并验证完成。详见[验收报告](../reports/09.md)及[统一进度](../PROGRESS.md)；以上发布/阶段状态保留为历史记录。

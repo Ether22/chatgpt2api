@@ -4,7 +4,7 @@
 
 **Blocked by:** [04: 普通参考图生成与独立快照](04-reference-upload-and-snapshots.md).
 
-**Status:** implemented
+**Status:** integrated-and-verified
 
 **Parent:** [生图工作流、服务端历史与账号管理规格](../../image-workflow-upgrade/spec.md)
 
@@ -21,3 +21,5 @@
 2026-09-08：用户已批准本票所在的十八项拆分及阻塞关系。本轮仅发布任务，尚未实施应用代码。此前相关核查和确认保留在父规格的讨论记录中。
 
 2026-09-08：本地实施与验收完成；独立素材版本服务复用04 imports引用接口。11项HTTP、真实浏览器及身份切换回归、tsc/build通过；完整离线217通过，仅05既有settle失败。实现、接口与双轴审查详见[06报告](../reports/06.md)，等待主对话按提交顺序集成。
+
+2026-09-08 主对话最终集成：本票已在 codex/image-workflow-integration 集成并验证完成。详见[验收报告](../reports/06.md)及[统一进度](../PROGRESS.md)；以上发布/阶段状态保留为历史记录。

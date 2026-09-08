@@ -4,7 +4,7 @@
 
 **Blocked by:** [04: 普通参考图生成与独立快照](04-reference-upload-and-snapshots.md).
 
-**Status:** implemented
+**Status:** integrated-and-verified
 
 **Parent:** [生图工作流、服务端历史与账号管理规格](../../image-workflow-upgrade/spec.md)
 
@@ -21,3 +21,5 @@
 2026-09-08：用户已批准本票所在的十八项拆分及阻塞关系。本轮仅发布任务，尚未实施应用代码。此前相关核查和确认保留在父规格的讨论记录中。
 
 2026-09-08：阶段A检查点由主任务集成后，在同步13/06基线完成B。应用提交61224fc；完整离线238项及7子场景、生产构建、两种3200真PNG浏览器、跨身份引用队列及双客户端恢复通过，Standards/Spec独立复审均零残留。详见 [验收报告](../reports/05.md)。
+
+2026-09-08 主对话最终集成：本票已在 codex/image-workflow-integration 集成并验证完成。详见[验收报告](../reports/05.md)及[统一进度](../PROGRESS.md)；以上发布/阶段状态保留为历史记录。

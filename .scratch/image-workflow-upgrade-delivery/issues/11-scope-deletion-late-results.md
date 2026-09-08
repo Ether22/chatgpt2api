@@ -4,7 +4,7 @@
 
 **Blocked by:** [05: 同会话排队、并发、恢复与失败详情](05-concurrent-queue-recovery-errors.md)；[10: 单张结果的真实删除与引用保护](10-single-result-deletion.md).
 
-**Status:** implemented-awaiting-main
+**Status:** integrated-and-verified
 
 **Parent:** [生图工作流、服务端历史与账号管理规格](../../image-workflow-upgrade/spec.md)
 
@@ -21,3 +21,5 @@
 2026-09-08：用户已批准本票所在的十八项拆分及阻塞关系。本轮仅发布任务，尚未实施应用代码。此前相关核查和确认保留在父规格的讨论记录中。
 
 2026-09-08：实现与本票验收完成，交主任务集成。完整离线 293 passed + 7 subtests，独立 tsc/生产构建通过；真实生产浏览器覆盖范围、迟到/故障和 3200 PNG，双轴复审均 0 残留。详见 [交付报告](../reports/11.md)。
+
+2026-09-08 主对话最终集成：本票已在 codex/image-workflow-integration 集成并验证完成。详见[验收报告](../reports/11.md)及[统一进度](../PROGRESS.md)；以上发布/阶段状态保留为历史记录。

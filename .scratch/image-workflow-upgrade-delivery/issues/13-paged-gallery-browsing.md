@@ -4,7 +4,7 @@
 
 **Blocked by:** [03: 普通生图在服务器保存并跨浏览器恢复](03-server-conversation-roundtrip.md).
 
-**Status:** ready-for-integration
+**Status:** integrated-and-verified
 
 **Parent:** [生图工作流、服务端历史与账号管理规格](../../image-workflow-upgrade/spec.md)
 
@@ -20,3 +20,5 @@
 2026-09-08：用户已批准本票所在的十八项拆分及阻塞关系。本轮仅发布任务，尚未实施应用代码。此前相关核查和确认保留在父规格的讨论记录中。
 
 2026-09-08：本票实施、隔离验收与双轴复审完成，详见 [13 报告](../reports/13.md)。代码固定提交 5e9b24a；两个真实 3,200 图浏览器场景通过。完整离线 187 通过，保留 VALIDATION.md 已分配给04／05的5项基线失败。交主任务集成，未更新主进度文件。
+
+2026-09-08 主对话最终集成：本票已在 codex/image-workflow-integration 集成并验证完成。详见[验收报告](../reports/13.md)及[统一进度](../PROGRESS.md)；以上发布/阶段状态保留为历史记录。
