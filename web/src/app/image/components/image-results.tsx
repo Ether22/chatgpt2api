@@ -573,7 +573,8 @@ const LazyImage = memo(function LazyImage({ src, alt, className, dimensions, onL
     if (!element) return;
 
     const observer = new IntersectionObserver(
-      ([entry]) => {
+      (entries) => {
+        const entry = entries.at(-1)!;
         if (!entry.isIntersecting && entry.boundingClientRect.height > 0) placeholderHeightRef.current = entry.boundingClientRect.height;
         setIsVisible(entry.isIntersecting);
       },
