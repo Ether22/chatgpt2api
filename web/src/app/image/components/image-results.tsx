@@ -584,7 +584,7 @@ const LazyImage = memo(function LazyImage({ src, alt, className, dimensions, onL
   }, []);
 
   return (
-    <div ref={imgRef} className="relative" data-image-frame>
+    <div ref={imgRef} className="relative" style={!size ? { minHeight: placeholderHeightRef.current } : undefined} data-image-frame>
       {isVisible && imageSource ? (
         <button
           type="button"
