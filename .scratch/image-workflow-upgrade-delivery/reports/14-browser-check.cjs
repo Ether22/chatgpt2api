@@ -119,6 +119,11 @@ const headers = { Authorization: 'Bearer ticket13-A' };
     await ready();
     await page.waitForFunction(() => [...document.querySelectorAll('[data-navigation-source]')].some(e => /当前位置.*图片 13/.test(e.textContent)));
     metrics.manual_highlight = true;
+    const manualScroll = await viewport.evaluate(e => e.scrollTop);
+    await page.setViewportSize({ width: 1420, height: 1000 }); await ready();
+    assert.equal(await viewport.evaluate(e => e.scrollTop), manualScroll, 'A later layout change must not pull manual scrolling back to the target');
+    await page.setViewportSize({ width: 1440, height: 1000 }); await ready();
+    metrics.manual_scroll_releases_target = true;
     // Expand the whole metadata outline. Scrolling it cannot move the result viewport.
     for (const button of await nav().getByRole('button', { name: /^展开或收起 (SUB|Source)/ }).all()) {
       if (await button.getAttribute('aria-expanded') === 'false') await button.click();

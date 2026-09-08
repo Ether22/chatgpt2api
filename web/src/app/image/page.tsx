@@ -575,9 +575,23 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     scrollRestoreGenerationRef.current += 1;
     isRestoringScrollRef.current = false;
     root.style.visibility = "";
-    root.scrollTop += element.getBoundingClientRect().top - root.getBoundingClientRect().top;
+    const alignTarget = () => {
+      root.scrollTop += element.getBoundingClientRect().top - root.getBoundingClientRect().top;
+      return root.scrollTop;
+    };
+    let anchoredScrollTop = alignTarget();
     element.focus({ preventScroll: true });
     shouldStickToBottomRef.current = false;
+    const observer = new ResizeObserver(() => {
+      // Stop holding the target once the user scrolls away from the applied position.
+      if (root.scrollTop !== anchoredScrollTop) {
+        observer.disconnect();
+        return;
+      }
+      anchoredScrollTop = alignTarget();
+    });
+    if (root.firstElementChild) observer.observe(root.firstElementChild);
+    return () => observer.disconnect();
   }, [selectedConversation]);
 
   // 恢复滚动位置或跟随最新内容
