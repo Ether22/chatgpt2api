@@ -174,6 +174,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const isRestoringScrollRef = useRef(false);
   const scrollRestoreGenerationRef = useRef(0);
   const pendingTargetRef = useRef<ResultTarget | null>(null);
+  const [navigationTarget, setNavigationTarget] = useState<ResultTarget | null>(null);
 
   const config = useSettingsStore((state) => state.config);
   const imageTimeoutRetrySecs = Number(config?.image_timeout_retry_secs || 30);
@@ -566,7 +567,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   }, [selectedConversation?.id, selectedConversation?.pagination?.offset]);
 
   useLayoutEffect(() => {
-    const target = pendingTargetRef.current;
+    const target = navigationTarget;
     const root = resultsViewportRef.current;
     if (!target || !root) return;
     const element = [...root.querySelectorAll<HTMLElement>(target.image_id ? "[data-image-id]" : "[data-turn-id]")]
@@ -584,7 +585,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     shouldStickToBottomRef.current = false;
     const observer = new ResizeObserver(() => {
       // Stop holding the target once the user scrolls away from the applied position.
-      if (root.scrollTop !== anchoredScrollTop) {
+      if (!element.isConnected || root.scrollTop !== anchoredScrollTop) {
         observer.disconnect();
         return;
       }
@@ -592,7 +593,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     });
     if (root.firstElementChild) observer.observe(root.firstElementChild);
     return () => observer.disconnect();
-  }, [selectedConversation]);
+  }, [selectedConversation?.id, selectedConversation?.pagination?.offset, navigationTarget]);
 
   // 恢复滚动位置或跟随最新内容
   useEffect(() => {
@@ -740,6 +741,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const loadConversationPage = useCallback(async (id: string, offset?: number, restorePosition = false, target?: ResultTarget) => {
     const readVersion = ++historyReadVersionRef.current;
     pendingTargetRef.current = null;
+    setNavigationTarget(null);
     scrollRestoreGenerationRef.current += 1;
     pageOffsetRef.current = offset;
     setIsLoadingPage(true);
@@ -752,6 +754,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
         offset = detail.pagination?.offset;
         pageOffsetRef.current = offset;
         pendingTargetRef.current = target;
+        setNavigationTarget(target);
       }
       if (offset === undefined) pageOffsetsRef.current.delete(id);
       else pageOffsetsRef.current.set(id, offset);
