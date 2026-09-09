@@ -54,6 +54,10 @@ class AccountRefreshRequest(BaseModel):
     access_tokens: list[str] = Field(default_factory=list)
 
 
+class AccountDeleteRequest(BaseModel):
+    tokens: list[str] = Field(default_factory=list)
+
+
 class AccountExportRequest(BaseModel):
     access_tokens: list[str] = Field(default_factory=list)
     format: Literal["json", "zip"] = "json"
@@ -64,7 +68,6 @@ class AccountUpdateRequest(BaseModel):
     type: str | None = None
     status: str | None = None
     usage_mode: Literal["normal", "monitor", "disabled"] | None = None
-    hidden: bool | None = None
     quota: int | None = None
     proxy: str | None = None
 
@@ -243,9 +246,12 @@ def create_router() -> APIRouter:
         }
 
     @router.delete("/api/accounts")
-    async def delete_accounts(authorization: str | None = Header(default=None)):
+    async def delete_accounts(body: AccountDeleteRequest, authorization: str | None = Header(default=None)):
         require_admin(authorization)
-        raise HTTPException(status_code=405, detail={"error": "account deletion is disabled"})
+        tokens = _unique_tokens(body.tokens)
+        if not tokens:
+            raise HTTPException(status_code=400, detail={"error": "access_tokens is required"})
+        return await run_in_threadpool(account_service.delete_accounts, tokens)
 
     @router.post("/api/accounts/refresh")
     async def refresh_accounts(body: AccountRefreshRequest, authorization: str | None = Header(default=None)):
@@ -312,7 +318,7 @@ def create_router() -> APIRouter:
         if not items:
             raise HTTPException(
                 status_code=400,
-                detail={"error": "没有可导出的完整账号，需要同时有 access_token、refresh_token 和 id_token"},
+                detail={"error": "没有可导出的账号"},
             )
 
         timestamp = _download_timestamp()

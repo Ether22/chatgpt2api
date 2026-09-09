@@ -27,7 +27,7 @@ class ClearImports(ImportMutation):
 
 class CandidateCorrection(ImportMutation):
     md_version: int = Field(ge=0, strict=True)
-    changes: dict = Field(min_length=1, max_length=7)
+    changes: dict = Field(min_length=1, max_length=8)
 
 
 class BatchEntry(BaseModel):
@@ -39,6 +39,7 @@ class BatchEntry(BaseModel):
 class SelectedBatch(ImportMutation):
     md_version: int = Field(ge=0, strict=True)
     conversation_id: str | None = Field(default=None, max_length=128)
+    draft_id: str | None = Field(default=None, min_length=1, max_length=128)
     model: str = Field(min_length=1, max_length=128)
     quality: str = Field(default="auto", pattern=r"^(auto|low|medium|high)$")
     count: int = Field(default=4, ge=1, le=100, strict=True)

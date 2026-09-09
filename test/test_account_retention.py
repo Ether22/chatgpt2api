@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from threading import Event
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -49,26 +50,50 @@ class AccountRetentionTests(unittest.TestCase):
         network.start()
         self.addCleanup(network.stop)
 
-    def test_legacy_delete_is_rejected_and_other_objects_can_still_be_deleted(self):
-        response = self.client.request("DELETE", "/api/accounts", headers=self.headers,
-                                       json={"tokens": ["retained"]})
-        self.assertEqual(response.status_code, 405, response.text)
-        self.assertIn("disabled", response.json()["detail"]["error"])
-        with self.assertRaisesRegex(ValueError, "disabled"):
-            self.service.delete_accounts(["retained"])
-        self.assertEqual(AccountService(self.storage).get_account("retained"), self.original)
-        self.assertEqual(self.client.get("/api/accounts", headers=self.headers).json()["items"][0]["access_token"], "retained")
-
+    def test_manual_delete_requires_admin_and_removes_selected_in_any_usage_mode(self):
+        self.service.add_account_items([{"access_token": "monitor", "usage_mode": "monitor"}, {"access_token": "disabled", "usage_mode": "disabled"}])
         auth = AuthService(self.storage)
-        key, _ = auth.create_key(role="user", name="temporary")
-        with patch.object(accounts_api, "auth_service", auth):
-            deleted = self.client.delete(f"/api/auth/users/{key['id']}", headers=self.headers)
-        self.assertEqual(deleted.status_code, 200, deleted.text)
-        self.assertEqual(AuthService(self.storage).list_keys(role="user"), [])
-        self.assertEqual(AccountService(self.storage).get_account("retained"), self.original)
+        _, user_key = auth.create_key(role="user", name="temporary")
+        with patch("api.support.auth_service", auth):
+            denied = self.client.request("DELETE", "/api/accounts", headers={"Authorization": f"Bearer {user_key}"}, json={"tokens": ["retained"]})
+        self.assertEqual(denied.status_code, 403, denied.text)
+        self.assertIsNotNone(self.service.get_account("retained"))
+        self.assertEqual(self.client.request("DELETE", "/api/accounts", headers=self.headers, json={"tokens": []}).status_code, 400)
+        response = self.client.request("DELETE", "/api/accounts", headers=self.headers,
+                                       json={"tokens": ["retained", "monitor", "disabled", "retained"]})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["removed"], 3)
+        self.assertEqual(AccountService(self.storage).list_accounts(), [])
 
-    def test_old_auto_remove_flags_cannot_delete_on_refresh_update_or_image_result(self):
+    def test_automatic_deletion_guards_and_persistence_rollback(self):
         with patch.dict(config.data, {"auto_remove_invalid_accounts": True, "auto_remove_rate_limited_accounts": True}):
+            for mode in ("monitor", "disabled"):
+                self.service.update_account("retained", {"usage_mode": mode})
+                self.service.remove_invalid_token("retained", "test")
+                self.assertIsNotNone(self.service.get_account("retained"))
+                self.service.mark_rate_limited("retained")
+                self.assertIsNotNone(self.service.get_account("retained"))
+            self.service.update_account("retained", {"usage_mode": "normal", "status": "正常", "quota": 1})
+            self.service.remove_invalid_token("retained", "temporary", confirmed=False)
+            self.assertIsNotNone(self.service.get_account("retained"))
+            self.service._token_aliases.update({"old": "older", "older": "retained"})
+            self.service._image_inflight["retained"] = 1
+            with patch.object(self.storage, "save_accounts", side_effect=OSError("disk full")):
+                with self.assertRaisesRegex(OSError, "disk full"):
+                    self.service.remove_invalid_token("old", "confirmed")
+            self.assertIsNotNone(self.service.get_account("old"))
+            self.assertEqual(self.service._image_inflight["retained"], 1)
+            self.service.remove_invalid_token("old", "confirmed")
+            self.assertIsNone(AccountService(self.storage).get_account("retained"))
+            self.assertEqual(self.service._token_aliases, {})
+            self.assertEqual(self.service._image_inflight, {})
+            for trigger in (lambda: self.service.mark_rate_limited("retained"), lambda: self.service.mark_image_result("retained", True)):
+                self.service.add_account_items([self.original])
+                trigger()
+                self.assertIsNone(AccountService(self.storage).get_account("retained"))
+
+    def test_disabled_auto_remove_flags_keep_accounts_on_refresh_update_or_image_result(self):
+        with patch.dict(config.data, {"auto_remove_invalid_accounts": False, "auto_remove_rate_limited_accounts": False}):
             for mode in ("normal", "monitor", "disabled"):
                 self.service.update_account("retained", {"usage_mode": mode, "status": "正常", "quota": 1})
                 self.original["display_order"] = self.service.get_account("retained")["display_order"]
@@ -98,19 +123,20 @@ class AccountRetentionTests(unittest.TestCase):
         self.assertIsNotNone(reloaded)
         self.assertEqual(reloaded["usage_mode"], mode)
         self.assertEqual(reloaded["status"], status)
-        for field in ("access_token", "email", "password", "refresh_token", "id_token", "type", "proxy", "created_at", "hidden", "display_order", "custom_metadata"):
+        for field in ("access_token", "email", "password", "refresh_token", "id_token", "type", "proxy", "created_at", "display_order", "custom_metadata"):
             self.assertEqual(reloaded[field], self.original[field], field)
 
-    def test_legacy_config_file_and_updates_do_not_advertise_deletion(self):
+    def test_legacy_config_values_are_preserved(self):
         legacy = {"auto_remove_invalid_accounts": True, "auto_remove_rate_limited_accounts": True}
         path = self.directory / "config.json"
         path.write_text(json.dumps(legacy), encoding="utf-8")
         store = ConfigStore(path)
         for public_config in (store.get(), store.update(legacy), ConfigStore(path).get()):
-            self.assertTrue(legacy.keys().isdisjoint(public_config))
+            self.assertEqual({key: public_config[key] for key in legacy}, legacy)
+        self.assertFalse(ConfigStore(self.directory / "missing.json").auto_remove_invalid_accounts)
 
     def test_search_failures_update_only_known_health_and_keep_accounts(self):
-        with patch.dict(config.data, {"auto_remove_invalid_accounts": True, "auto_remove_rate_limited_accounts": True}), \
+        with patch.dict(config.data, {"auto_remove_invalid_accounts": False, "auto_remove_rate_limited_accounts": False}), \
              patch.object(openai_backend_api, "account_service", self.service), \
              patch.object(openai_search, "account_service", self.service), \
              patch.object(web_search_tool, "account_service", self.service):
@@ -133,7 +159,7 @@ class AccountRetentionTests(unittest.TestCase):
     def test_failed_password_login_retains_every_usage_mode(self):
         with patch.dict(config.data, {"auto_remove_invalid_accounts": True}):
             for mode in ("normal", "monitor", "disabled"):
-                for code, expected in (("invalid_credentials", "异常"), ("account_deactivated", "禁用"),
+                for code, expected in (("invalid_credentials", "异常"), ("account_deactivated", "异常"),
                                        ("connection_failure", "异常")):
                     self.service.update_account("retained", {"usage_mode": mode, "status": "正常", "quota": 1})
                     self.original["display_order"] = self.service.get_account("retained")["display_order"]
@@ -152,8 +178,56 @@ class AccountRetentionTests(unittest.TestCase):
                         self.assertTrue(self.service.get_relogin_progress(progress_id)["done"])
                     self.assert_retained(mode, expected)
 
+    def test_legacy_upstream_disabled_accounts_join_abnormal_without_deletion(self):
+        self.storage.save_accounts([
+            {**self.original, "access_token": mode, "usage_mode": mode, "status": "禁用", "quota": 99}
+            for mode in ("normal", "monitor", "disabled")
+        ])
+        with patch.dict(config.data, {"auto_remove_invalid_accounts": True}):
+            service = AccountService(self.storage)
+            accounts = service.list_accounts()
+            self.assertEqual(len(accounts), 3)
+            for account in accounts:
+                self.assertEqual(account["status"], "异常")
+                self.assertEqual(account["quota"], 0)
+                self.assertEqual(account["usage_mode"], account["access_token"])
+                self.assertFalse(service.is_text_account_available(account))
+                self.assertFalse(service._is_image_account_available(account))
+            self.assertEqual(service.get_stats()["abnormal"], 3)
+            self.assertNotIn("upstream_disabled", service.get_stats())
+            service.update_account("normal", {"proxy": ""})
+            self.assertEqual([item["status"] for item in AccountService(self.storage).list_accounts()], ["异常"] * 3)
+
+    def test_auto_relogin_progress_waits_for_actual_account_completion(self):
+        started, release = Event(), Event()
+        def login(token, email, password, event, progress_id):
+            started.set()
+            release.wait(5)
+            self.service.update_account(token, {"status": "正常", "quota": 8})
+            self.service.update_relogin_progress(progress_id, token, "正常")
+        self.service.update_account("retained", {"status": "异常", "quota": 0})
+        try:
+            with patch.dict(config.data, {"auto_relogin_after_refresh": True}), \
+                 patch.object(self.service, "fetch_remote_info", return_value=self.service.get_account("retained")), \
+                 patch.object(self.service, "_password_re_login_thread", side_effect=login):
+                result = self.service.refresh_accounts(["retained"])
+                progress_id = result["relogin_progress_id"]
+                self.addCleanup(self.service.clean_relogin_progress, progress_id)
+                assert started.wait(2)
+                progress = self.service.get_relogin_progress(progress_id)
+                assert not progress["done"] and progress["processed"] == 0 and progress["stats"]["abnormal"] == 1
+                release.set()
+                deadline = time.monotonic() + 2
+                while not self.service.get_relogin_progress(progress_id)["done"] and time.monotonic() < deadline:
+                    time.sleep(.01)
+                progress = self.service.get_relogin_progress(progress_id)
+                assert progress["done"] and progress["processed"] == 1
+                assert progress["stats"]["abnormal"] == 0 and progress["stats"]["total_quota"] == 8
+        finally:
+            release.set()
+
     def test_text_and_image_invalid_token_errors_retain_account_and_release_capacity(self):
-        with patch.dict(config.data, {"auto_remove_invalid_accounts": True}), \
+        with patch.dict(config.data, {"auto_remove_invalid_accounts": False}), \
              patch.object(conversation, "account_service", self.service), \
              patch.object(openai_backend_api, "account_service", self.service), \
              patch("services.openai_backend_api.OpenAIBackendAPI.get_user_info", return_value={"status": "正常", "quota": 1}), \
@@ -189,7 +263,7 @@ class AccountRetentionTests(unittest.TestCase):
                                    iter_lines=lambda: iter([b'data: {"conversation_id":"test-search"}', b'data: [DONE]']))
 
         started = time.time()
-        with patch.dict(config.data, {"auto_remove_rate_limited_accounts": True}), \
+        with patch.dict(config.data, {"auto_remove_rate_limited_accounts": False}), \
              patch.object(openai_backend_api, "account_service", self.service), \
              patch("curl_cffi.requests.Session.request", side_effect=upstream):
             with openai_backend_api.OpenAIBackendAPI("retained") as backend:
@@ -202,7 +276,7 @@ class AccountRetentionTests(unittest.TestCase):
         self.assertLessEqual(restore_at, time.time() + 60)
 
     def test_text_and_image_http_auth_and_rate_errors_update_health(self):
-        with patch.dict(config.data, {"auto_remove_invalid_accounts": True, "auto_remove_rate_limited_accounts": True}), \
+        with patch.dict(config.data, {"auto_remove_invalid_accounts": False, "auto_remove_rate_limited_accounts": False}), \
              patch.object(conversation, "account_service", self.service), \
              patch.object(openai_backend_api, "account_service", self.service), \
              patch("services.openai_backend_api.OpenAIBackendAPI.get_user_info", return_value={"status": "正常", "quota": 1}):

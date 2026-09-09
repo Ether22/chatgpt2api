@@ -312,6 +312,7 @@ class ConversationRequest:
     progress_callback: Any = None  # Callable[[str], None] | None
     image_upload_cache: ImageUploadCache | None = None
     lifecycle_callback: Any = None
+    retry_counts: dict[str, int] | None = None
 
 
 @dataclass
@@ -827,18 +828,12 @@ def _remove_image_conversation_later(
     if not (config.image_remove_conversation_always or (success and config.image_remove_conversation_after_result)):
         return
 
-    def _run() -> None:
-        try:
-            backend.delete_conversation(conversation_id)
-            logger.info({"event": "image_conversation_removed", "conversation_id": conversation_id})
-        except Exception as exc:
-            logger.warning({
-                "event": "image_conversation_remove_failed",
-                "conversation_id": conversation_id,
-                "error": str(exc),
-            })
-
-    threading.Thread(target=_run, name=f"remove-image-conversation-{conversation_id}", daemon=True).start()
+    # Finish before the caller closes this backend's session.
+    try:
+        backend.delete_conversation(conversation_id)
+        logger.info({"event": "image_conversation_removed", "conversation_id": conversation_id})
+    except Exception as exc:
+        logger.warning({"event": "image_conversation_remove_failed", "conversation_id": conversation_id, "error": str(exc)})
 
 
 def stream_image_outputs(
@@ -1314,11 +1309,18 @@ def _generate_single_image(
     # 轮询超时错误最大重试次数（换账号重试）
     MAX_POLL_TIMEOUT_RETRIES = 4
 
-    text_reply_retry_count = 0
-    tls_retry_count = 0
-    conn_timeout_retry_count = 0
-    poll_timeout_retry_count = 0
+    retry_counts = dict(request.retry_counts or {})
+    text_reply_retry_count = retry_counts.get("text_reply", 0)
+    tls_retry_count = retry_counts.get("tls", 0)
+    conn_timeout_retry_count = retry_counts.get("connection_timeout", 0)
+    poll_timeout_retry_count = retry_counts.get("poll_timeout", 0)
     account_email = ""
+
+    def checkpoint_retry(error_class: str, count: int, exc: Exception) -> None:
+        retry_counts[error_class] = count
+        if request.lifecycle_callback:
+            request.lifecycle_callback("retry", {"error_class": error_class, "retry_counts": dict(retry_counts),
+                "conversation_id": last_conversation_id or str(getattr(exc, "conversation_id", "") or "")})
 
     while True:
         try:
@@ -1350,6 +1352,7 @@ def _generate_single_image(
             "index": index,
         })
         backend = None
+        last_conversation_id = ""
         try:
             backend = OpenAIBackendAPI(access_token=token)
             backend.image_upload_cache = request.image_upload_cache
@@ -1358,7 +1361,6 @@ def _generate_single_image(
                 backend.progress_callback = request.progress_callback
             stream_fn = stream_codex_image_outputs if is_codex_image_model(request.model) else stream_image_outputs
             outputs: list[ImageOutput] = []
-            last_conversation_id = ""
             try:
                 for output in stream_fn(backend, request, index, total):
                     last_conversation_id = output.conversation_id or last_conversation_id
@@ -1403,9 +1405,10 @@ def _generate_single_image(
             if account_email:
                 setattr(exc, "account_email", account_email)
             # 轮询超时：换账号重试
-            if not emitted_for_token and not getattr(backend, "image_request_sent", False):
+            if not emitted_for_token:
                 poll_timeout_retry_count += 1
                 if poll_timeout_retry_count <= MAX_POLL_TIMEOUT_RETRIES:
+                    checkpoint_retry("poll_timeout", poll_timeout_retry_count, exc)
                     logger.warning({
                         "event": "image_poll_timeout_retry",
                         "request_token": token,
@@ -1445,9 +1448,10 @@ def _generate_single_image(
                 exc.account_email = account_email
             error_text = str(exc)
             # 如果是模型返回文本而非图片，尝试换账号重试
-            if is_model_text_reply_instead_of_image(error_text) and not emitted_for_token and not getattr(backend, "image_request_sent", False):
+            if is_model_text_reply_instead_of_image(error_text) and not emitted_for_token:
                 text_reply_retry_count += 1
                 if text_reply_retry_count <= MAX_TEXT_REPLY_RETRIES:
+                    checkpoint_retry("text_reply", text_reply_retry_count, exc)
                     logger.warning({
                         "event": "image_model_text_reply_retry",
                         "request_token": token,
@@ -1498,10 +1502,7 @@ def _generate_single_image(
                         and (not getattr(backend, "image_request_sent", False) or getattr(backend, "image_request_rejected", False))):
                     request.lifecycle_callback("retry_rejected", {})
                     continue
-            if getattr(backend, "image_request_sent", False):
-                raise ImageGenerationError(last_error, account_email=account_email,
-                                           conversation_id=getattr(exc, "conversation_id", "")) from exc
-            if not emitted_for_token and is_token_invalid_error(exc):
+            if not emitted_for_token and not getattr(backend, "image_request_sent", False) and is_token_invalid_error(exc):
                 refreshed_token = account_service.refresh_access_token(token, force=True, event="image_stream")
                 if refreshed_token and refreshed_token != token:
                     token = refreshed_token
@@ -1512,6 +1513,7 @@ def _generate_single_image(
             if not emitted_for_token and is_tls_connection_error(last_error):
                 tls_retry_count += 1
                 if tls_retry_count <= MAX_TLS_RETRIES:
+                    checkpoint_retry("tls", tls_retry_count, exc)
                     logger.warning({
                         "event": "image_stream_tls_retry",
                         "request_token": token,
@@ -1526,6 +1528,7 @@ def _generate_single_image(
             if not emitted_for_token and is_connection_timeout_error(last_error):
                 conn_timeout_retry_count += 1
                 if conn_timeout_retry_count <= MAX_CONN_TIMEOUT_RETRIES:
+                    checkpoint_retry("connection_timeout", conn_timeout_retry_count, exc)
                     wait_secs = min(3.0 * conn_timeout_retry_count, 9.0)
                     logger.warning({
                         "event": "image_stream_conn_timeout_retry",
@@ -1538,7 +1541,8 @@ def _generate_single_image(
                     })
                     time.sleep(wait_secs)
                     continue
-            raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
+            raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email,
+                                       conversation_id=last_conversation_id or getattr(exc, "conversation_id", "")) from exc
         finally:
             try:
                 if backend is not None:

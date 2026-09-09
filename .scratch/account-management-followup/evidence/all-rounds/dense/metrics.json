@@ -1,0 +1,19 @@
+{
+  "first_open_and_login_ms": 5169,
+  "initial_blobs": 4,
+  "polling_keeps_all_rounds_and_target": true,
+  "manual_scroll_stable": true,
+  "scroll_frames": {
+    "p95_ms": 25,
+    "max_ms": 30.5
+  },
+  "switch_race_safe": true,
+  "deletion_refresh_safe": true,
+  "blobs": {
+    "live": 4,
+    "peak": 4,
+    "revoked": 37
+  },
+  "detail_reads": 16,
+  "max_task_query": 200
+}

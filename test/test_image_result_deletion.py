@@ -109,7 +109,7 @@ def test_shared_results_remain_available_until_last_result_is_deleted(environmen
         assert len(env["client"].get("/api/images", headers=env["headers"]).json()["items"]) == (1 if expected == 200 else 0)
 
 
-def test_prompt_hide_and_result_delete_preserve_input_scopes_and_snapshot(environment, monkeypatch):
+def test_prompt_delete_and_result_delete_preserve_input_scopes_and_snapshot(environment, monkeypatch):
     from test.test_image_references_http import upload
     env = environment
     reference = upload(env)
@@ -125,7 +125,7 @@ def test_prompt_hide_and_result_delete_preserve_input_scopes_and_snapshot(enviro
     route = f'/api/image-conversations/{conversation["id"]}/turns/{turn["id"]}/images/{turn["images"][0]["id"]}'
     assert env["client"].delete(route, headers=env["headers"]).status_code == 200
     restored = env["client"].get(f'/api/image-conversations/{conversation["id"]}', headers=env["headers"]).json()
-    assert restored["turns"][0]["prompt"] == turn["prompt"]
+    assert restored["turns"][0]["prompt"] == ""
     assert restored["turns"][0]["referenceImages"] == [reference]
     assert env["client"].get("/api/images", headers=env["headers"]).json()["items"] == []
     assert env["service"].release_reference(env["owner"], reference["id"]) == {"retained": True}

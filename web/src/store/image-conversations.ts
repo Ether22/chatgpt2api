@@ -79,6 +79,7 @@ export type StoredImage = {
   taskStatus?: "queued" | "running";
   progress?: string;
   b64_json?: string;
+  file_size?: number;
   url?: string;
   revised_prompt?: string;
   error?: string;
@@ -139,6 +140,10 @@ export function retryImageCleanup(authKey: string, taskId: string) {
   return identityRequest(authKey, `/api/image-cleanups/${encodeURIComponent(taskId)}/retry`, { method: "POST" });
 }
 
+export function retryAllImageCleanups(authKey: string) {
+  return identityRequest<{ accepted: number; running: boolean }>(authKey, "/api/image-cleanups/retry-failed", { method: "POST" });
+}
+
 export function deleteImageResult(authKey: string, conversationId: string, turnId: string, imageId: string) {
   return identityRequest<Omit<ResultCleanup, "ordinal">>(authKey, `/api/image-conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}/images/${encodeURIComponent(imageId)}`, {
     method: "DELETE",
@@ -182,9 +187,17 @@ export function fetchImageHistory(authKey: string, offset = 0) {
   return identityRequest<ImageHistory>(authKey, `/api/image-conversations?offset=${offset}&limit=30`);
 }
 
-export function fetchImageConversation(authKey: string, id: string, options: { offset?: number; limit?: number; turn_id?: string; image_id?: string } = {}) {
-  const params = new URLSearchParams(Object.entries(options).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
-  return identityRequest<ImageConversation>(authKey, `/api/image-conversations/${encodeURIComponent(id)}?${params}`);
+export async function fetchImageConversation(authKey: string, id: string, target: { turn_id?: string; image_id?: string } = {}) {
+  const conversation = await fetchExistingImageConversation(authKey, id);
+  if (!conversation) throw new Error("会话不存在或已删除");
+  if (target.turn_id || target.image_id) {
+    const turn = conversation.turns.find((turn) => !(turn.promptDeleted && turn.resultsDeleted)
+      && (!target.turn_id || turn.id === target.turn_id)
+      && (!target.image_id || turn.images.some((image) => image.id === target.image_id)));
+    if (!turn) throw new Error("结果不存在或已删除");
+    conversation.target = { turn_id: turn.id, image_id: target.image_id ?? null };
+  }
+  return conversation;
 }
 
 export function fetchImageConversationMetadata(authKey: string, id: string) {
@@ -199,8 +212,21 @@ async function fetchExistingConversation(authKey: string, url: string) {
   return response.status === 404 ? null : response.data;
 }
 
-export function fetchExistingImageConversation(authKey: string, id: string, offset?: number) {
-  return fetchExistingConversation(authKey, `/api/image-conversations/${encodeURIComponent(id)}${offset === undefined ? "" : `?offset=${offset}`}`);
+export async function fetchExistingImageConversation(authKey: string, id: string) {
+  let offset: number | null = 0;
+  let first: ImageConversation | null = null;
+  const turns = new Map<string, ImageTurn>();
+  const sources = new Map<string, NonNullable<ImageConversation["sourceEntries"]>[number]>();
+  while (offset !== null) {
+    const page = await fetchExistingConversation(authKey, `/api/image-conversations/${encodeURIComponent(id)}?offset=${offset}&limit=10`);
+    if (!page) return null;
+    first ??= page;
+    page.turns.forEach((turn) => turns.set(turn.id, turn));
+    page.sourceEntries?.forEach((source) => sources.set(source.id, source));
+    offset = page.pagination?.next_offset ?? null;
+  }
+  return first ? { ...first, turns: [...turns.values()], sourceEntries: [...sources.values()],
+    pagination: { offset: 0, limit: turns.size, total: turns.size, next_offset: null, previous_offset: null } } : null;
 }
 
 export type ImageNavigationPage = Pick<ImageConversation, "id" | "sourceEntries" | "pagination"> & {
@@ -227,12 +253,13 @@ export function selectImageConversation(authKey: string, id: string) {
   });
 }
 
-export function submitImageTurn(authKey: string, turn: ImageTurn, conversationId: string | null) {
+export function submitImageTurn(authKey: string, turn: ImageTurn, conversationId: string | null, draftId?: string) {
   return identityRequest<ImageConversation>(authKey, "/api/image-conversations/turns", {
     method: "POST",
     body: {
       request_id: turn.id,
       conversation_id: conversationId,
+      draft_id: conversationId ? undefined : draftId,
       source_entry_id: turn.sourceEntryId,
       source_turn_id: turn.sourceTurnId,
       rerun: turn.rerun ?? false,
@@ -311,7 +338,7 @@ export async function downloadStoredImage(src: string, filename: string, signal?
   return name;
 }
 
-export function useImageSource(src: string | undefined) {
+export function useImageSource(src: string | undefined, attempt = 0, onError?: () => void) {
   const [loaded, setLoaded] = useState<{ source: string; url: string } | null>(null);
   const managed = src && typeof window !== "undefined" ? managedImagePath(src) : null;
   useEffect(() => {
@@ -325,12 +352,13 @@ export function useImageSource(src: string | undefined) {
       setLoaded({ source: src, url: objectUrl });
     }).catch(() => {
       // A revoked identity or failed image read must never fall back to an unauthenticated URL.
+      if (!controller.signal.aborted) onError?.();
     });
     return () => {
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [src, managed]);
+  }, [src, managed, attempt, onError]);
   return managed ? (loaded && loaded.source === src ? loaded.url : undefined) : src;
 }
 

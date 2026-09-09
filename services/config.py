@@ -474,6 +474,14 @@ class ConfigStore:
         return bool(value)
 
     @property
+    def auto_remove_invalid_accounts(self) -> bool:
+        return _normalize_bool(self.data.get("auto_remove_invalid_accounts"), False)
+
+    @property
+    def auto_remove_rate_limited_accounts(self) -> bool:
+        return _normalize_bool(self.data.get("auto_remove_rate_limited_accounts"), False)
+
+    @property
     def log_levels(self) -> list[str]:
         levels = self.data.get("log_levels")
         if not isinstance(levels, list):
@@ -517,22 +525,8 @@ class ConfigStore:
         return path
 
     def cleanup_old_images(self) -> int:
-        cutoff = time.time() - self.image_retention_days * 86400
-        removed = 0
-        for path in self.images_dir.rglob("*"):
-            if path.relative_to(self.images_dir).parts[0].lower() == "managed":
-                continue
-            if path.is_file() and path.stat().st_mtime < cutoff:
-                path.unlink()
-                removed += 1
-        for path in sorted((p for p in self.images_dir.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
-            if path.relative_to(self.images_dir).parts[0].lower() == "managed":
-                continue
-            try:
-                path.rmdir()
-            except OSError:
-                pass
-        return removed
+        from services.image_service import cleanup_old_images
+        return cleanup_old_images(self.image_retention_days)
 
     @property
     def base_url(self) -> str:
@@ -561,8 +555,8 @@ class ConfigStore:
         data["image_parallel_generation"] = self.image_parallel_generation
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_remove_conversation_always"] = self.image_remove_conversation_always
-        data.pop("auto_remove_invalid_accounts", None)
-        data.pop("auto_remove_rate_limited_accounts", None)
+        data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
+        data["auto_remove_rate_limited_accounts"] = self.auto_remove_rate_limited_accounts
         data["auto_relogin_after_refresh"] = self.auto_relogin_after_refresh
         data["log_levels"] = self.log_levels
         data["sensitive_words"] = self.sensitive_words

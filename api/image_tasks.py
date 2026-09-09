@@ -46,6 +46,7 @@ class ImageTurnRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: str = Field(min_length=1, max_length=128)
     conversation_id: str | None = None
+    draft_id: str | None = Field(default=None, min_length=1, max_length=128)
     source_entry_id: str | None = None
     source_turn_id: str | None = Field(default=None, min_length=1, max_length=128)
     rerun: bool = False
@@ -205,6 +206,10 @@ def create_router() -> APIRouter:
     async def list_cleanups(authorization: str | None = Header(default=None), offset: int = Query(default=0, ge=0),
                             limit: int = Query(default=50, ge=1, le=100)):
         return await conversation_call(image_task_service.list_cleanups, require_identity(authorization), offset, limit)
+
+    @router.post("/api/image-cleanups/retry-failed")
+    async def retry_failed_cleanups(authorization: str | None = Header(default=None)):
+        return await conversation_call(image_task_service.retry_failed_cleanups, require_identity(authorization))
 
     @router.post("/api/image-cleanups/{task_id}/retry")
     async def retry_cleanup(task_id: str, background: BackgroundTasks, authorization: str | None = Header(default=None)):

@@ -35,7 +35,6 @@ import { formatBeijingDateTime as formatConversationTime } from "@/lib/business-
 import { useSettingsStore } from "@/app/settings/store";
 import {
   clearImageConversations,
-  createImageConversation,
   fetchImageHistory,
   fetchImageConversation,
   fetchExistingImageConversation,
@@ -67,8 +66,7 @@ const IMAGE_TIER_STORAGE_KEY = "chatgpt2api:image_last_tier";
 const IMAGE_QUALITY_STORAGE_KEY = "chatgpt2api:image_last_quality";
 const IMAGE_MODEL_STORAGE_KEY = "chatgpt2api:image_last_model";
 const IMAGE_COUNT_STORAGE_KEY = "chatgpt2api:image_last_count";
-const SCROLL_POSITIONS_STORAGE_KEY = "chatgpt2api:image_scroll_positions";
-const PAGE_OFFSETS_STORAGE_KEY = "chatgpt2api:image_page_offsets";
+const SCROLL_POSITIONS_STORAGE_KEY = "chatgpt2api:image_scroll_positions_full";
 const SCROLL_TO_LATEST_THRESHOLD = 160;
 
 function loadScrollPositions(storageKey = SCROLL_POSITIONS_STORAGE_KEY): Map<string, number> {
@@ -155,12 +153,12 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const historyReadVersionRef = useRef(0);
   const deletionRequestsRef = useRef(0);
   const selectedIdRef = useRef<string | null>(null);
-  const pageOffsetRef = useRef<number | undefined>(undefined);
-  const pageOffsetsRef = useRef<Map<string, number>>(loadScrollPositions(PAGE_OFFSETS_STORAGE_KEY));
   const firstPageIdsRef = useRef(new Set<string>());
   const historyTotalRef = useRef(0);
-  const pendingSubmissionRef = useRef<{ signature: string; turn: ImageTurn; conversationId: string | null } | null>(null);
-  const pendingDraftRef = useRef<string | null>(null);
+  const pendingSubmissionRef = useRef<{ signature: string; turn: ImageTurn; conversationId: string | null; draftId?: string } | null>(null);
+  const [draftId, setDraftId] = useState(createId);
+  const draftIdRef = useRef(draftId);
+  draftIdRef.current = draftId;
   const pendingRegenerationsRef = useRef(new Map<string, ImageTurn>());
   const loadCancelledRef = useRef(false);
   const resultsViewportRef = useRef<HTMLDivElement>(null);
@@ -409,8 +407,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       const readVersion = ++historyReadVersionRef.current;
       const history = await fetchImageHistory(authKey);
       const nextSelectedConversationId = history.current_conversation_id ?? pickFallbackConversationId(history.items);
-      const offset = nextSelectedConversationId ? pageOffsetsRef.current.get(nextSelectedConversationId) : undefined;
-      const detail = nextSelectedConversationId ? await fetchImageConversation(authKey, nextSelectedConversationId, { offset }) : null;
+      const detail = nextSelectedConversationId ? await fetchImageConversation(authKey, nextSelectedConversationId) : null;
       const normalizedItems = detail ? [...history.items.filter((item) => item.id !== detail.id), detail] : history.items;
       if (loadCancelledRef.current || deletionRequestsRef.current || readVersion !== historyReadVersionRef.current) {
         return;
@@ -422,7 +419,6 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       setActiveTaskCount(history.stats.queued + history.stats.running);
       firstPageIdsRef.current = new Set(history.items.map((item) => item.id));
       historyTotalRef.current = history.pagination.total;
-      pageOffsetRef.current = offset;
       setSelectedConversationId(nextSelectedConversationId);
     } catch (error) {
       if (loadCancelledRef.current || error instanceof IdentityChanged) return;
@@ -699,9 +695,8 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const refreshHistory = useCallback(async (followLatest = true) => {
     const readVersion = ++historyReadVersionRef.current;
     const history = await fetchImageHistory(authKey);
-    let id = (followLatest ? history.current_conversation_id : selectedIdRef.current) ?? history.current_conversation_id;
-    const offset = followLatest ? undefined : pageOffsetRef.current;
-    let detail = id ? await fetchExistingImageConversation(authKey, id, offset) : null;
+    let id = followLatest ? history.current_conversation_id : selectedIdRef.current;
+    let detail = id ? await fetchExistingImageConversation(authKey, id) : null;
     if (id && !detail) {
       id = history.current_conversation_id === id ? null : history.current_conversation_id;
       detail = id ? await fetchExistingImageConversation(authKey, id) : null;
@@ -723,11 +718,8 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
         setLightboxImages([]);
       }
       if (followLatest) {
-        pageOffsetRef.current = undefined;
         if (id) {
-          pageOffsetsRef.current.delete(id);
           scrollPositionsRef.current.delete(id);
-          saveScrollPositions(pageOffsetsRef.current, PAGE_OFFSETS_STORAGE_KEY);
         }
         setSelectedConversationId(id);
       }
@@ -738,31 +730,50 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     return history;
   }, [authKey]);
 
-  const loadConversationPage = useCallback(async (id: string, offset?: number, restorePosition = false, target?: ResultTarget) => {
+  const acceptSubmission = useCallback(async (saved: ImageConversation, from: string | null, submittedDraft?: string) => {
+    if (loadCancelledRef.current) return false;
+    const follow = (selectedIdRef.current ?? draftIdRef.current) === (from ?? submittedDraft) || selectedIdRef.current === saved.id;
+    if (follow) {
+      conversationsRef.current = sortImageConversations([...conversationsRef.current.filter((item) => item.id !== saved.id), saved]);
+      setConversations(conversationsRef.current);
+      selectedIdRef.current = saved.id;
+      setSelectedConversationId(saved.id);
+      shouldStickToBottomRef.current = true;
+      if (submittedDraft && draftIdRef.current === submittedDraft) {
+        draftIdRef.current = createId();
+        setDraftId(draftIdRef.current);
+      }
+    }
+    await refreshHistory(false);
+    return follow && selectedIdRef.current === saved.id;
+  }, [refreshHistory]);
+
+  const loadConversation = useCallback(async (id: string, restorePosition = false, target?: ResultTarget) => {
+    const visible = conversationsRef.current.find((item) => item.id === id);
+    if (target && visible?.turns.some((turn) => turn.id === target.turn_id && !(turn.promptDeleted && turn.resultsDeleted)
+      && (!target.image_id || turn.images.some((image) => image.id === target.image_id)))) {
+      pendingTargetRef.current = target;
+      setNavigationTarget({ ...target });
+      return true;
+    }
     const readVersion = ++historyReadVersionRef.current;
     pendingTargetRef.current = null;
     setNavigationTarget(null);
     scrollRestoreGenerationRef.current += 1;
-    pageOffsetRef.current = offset;
     setIsLoadingPage(true);
     setLightboxOpen(false);
     setLightboxImages([]);
     try {
-      const detail = await fetchImageConversation(authKey, id, { offset, ...target });
+      const detail = await fetchImageConversation(authKey, id, target);
       if (loadCancelledRef.current || deletionRequestsRef.current || readVersion !== historyReadVersionRef.current) return;
       if (target) {
-        offset = detail.pagination?.offset;
-        pageOffsetRef.current = offset;
-        pendingTargetRef.current = target;
+          pendingTargetRef.current = target;
         setNavigationTarget(target);
       }
-      if (offset === undefined) pageOffsetsRef.current.delete(id);
-      else pageOffsetsRef.current.set(id, offset);
-      saveScrollPositions(pageOffsetsRef.current, PAGE_OFFSETS_STORAGE_KEY);
       if (!restorePosition) {
         scrollPositionsRef.current.delete(id);
         saveScrollPositions(scrollPositionsRef.current);
-        shouldStickToBottomRef.current = offset === undefined;
+        shouldStickToBottomRef.current = !target;
       }
       conversationsRef.current = sortImageConversations([
         ...conversationsRef.current.filter((item) => item.id !== id)
@@ -781,9 +792,9 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
 
   useEffect(() => {
     if (selectedConversationId && !conversationsRef.current.find((item) => item.id === selectedConversationId)?.pagination) {
-      void loadConversationPage(selectedConversationId, pageOffsetsRef.current.get(selectedConversationId), true);
+      void loadConversation(selectedConversationId, true);
     }
-  }, [selectedConversationId, loadConversationPage]);
+  }, [selectedConversationId, loadConversation]);
 
   const loadMoreHistory = async () => {
     if (historyNextOffset === null || isLoadingMoreHistory) return;
@@ -877,21 +888,21 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     clearComposerInputs();
   }, [clearComposerInputs]);
 
-  const handleCreateDraft = async () => {
-    const requestId = pendingDraftRef.current ?? createId();
-    pendingDraftRef.current = requestId;
-    try {
-      const conversation = await createImageConversation(authKey, requestId);
-      await refreshHistory();
-      setSelectedConversationId(conversation.id);
-      if (pendingDraftRef.current === requestId) pendingDraftRef.current = null;
-      shouldStickToBottomRef.current = true;
-      resetComposer();
-      textareaRef.current?.focus();
-    } catch (error) {
-      if (loadCancelledRef.current || error instanceof IdentityChanged) return;
-      toast.error(error instanceof Error ? error.message : "新建对话失败");
-    }
+  const handleCreateDraft = () => {
+    ++historyReadVersionRef.current;
+    ++scrollRestoreGenerationRef.current;
+    const id = createId();
+    draftIdRef.current = id;
+    setDraftId(id);
+    selectedIdRef.current = null;
+    setSelectedConversationId(null);
+    setIsLoadingPage(false);
+    setIsHistoryOpen(false);
+    setLightboxOpen(false);
+    setLightboxImages([]);
+    shouldStickToBottomRef.current = true;
+    resetComposer();
+    textareaRef.current?.focus();
   };
 
   const handleSelectConversation = async (id: string) => {
@@ -904,12 +915,11 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       ++scrollRestoreGenerationRef.current;
     }
     ++historyReadVersionRef.current;
-    pageOffsetRef.current = pageOffsetsRef.current.get(id);
     setLightboxOpen(false);
     setLightboxImages([]);
     setIsLoadingPage(false);
     setSelectedConversationId(id);
-    if (conversationsRef.current.find((item) => item.id === id)?.pagination) void loadConversationPage(id, pageOffsetRef.current, true);
+    if (conversationsRef.current.find((item) => item.id === id)?.pagination) void loadConversation(id, true);
     try {
       await selectImageConversation(authKey, id);
     } catch (error) {
@@ -953,7 +963,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     }
     conversationsRef.current = conversationsRef.current.map((conversation) => conversation.id !== conversationId ? conversation : {
       ...conversation, turns: conversation.turns.map((turn) => turn.id !== turnId ? turn : {
-        ...turn, ...(part === "prompt" ? { promptDeleted: true } : { resultsDeleted: true, images: [] }),
+        ...turn, ...(part === "prompt" ? { promptDeleted: true, prompt: "" } : { resultsDeleted: true, images: [] }),
       }),
     });
     setConversations(conversationsRef.current);
@@ -981,9 +991,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     try {
       await clearImageConversations(authKey);
       ++historyReadVersionRef.current;
-      pageOffsetsRef.current.clear();
       scrollPositionsRef.current.clear();
-      saveScrollPositions(pageOffsetsRef.current, PAGE_OFFSETS_STORAGE_KEY);
       saveScrollPositions(scrollPositionsRef.current);
       setHistoryNextOffset(null);
       setActiveTaskCount(0);
@@ -1282,19 +1290,20 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       ratio: imageRatio, tier: imageTier, quality: imageQuality,
       images: [], createdAt: "", status: "queued",
     };
-    const signature = JSON.stringify({ ...draftTurn, id: "", conversationId });
+    const submissionDraftId = conversationId ? undefined : draftIdRef.current;
+    const signature = JSON.stringify({ ...draftTurn, id: "", conversationId, draftId: submissionDraftId });
     if (pendingSubmissionRef.current?.signature !== signature) {
-      pendingSubmissionRef.current = { signature, turn: draftTurn, conversationId };
+      pendingSubmissionRef.current = { signature, turn: draftTurn, conversationId, draftId: submissionDraftId };
     }
     const pending = pendingSubmissionRef.current;
     for (const image of pending.turn.referenceImages) {
       activeSubmissionReferences.current.set(image.id, (activeSubmissionReferences.current.get(image.id) ?? 0) + 1);
     }
     try {
-      const saved = await submitImageTurn(authKey, pending.turn, pending.conversationId);
-      await refreshHistory();
-      setSelectedConversationId(saved.id);
-      shouldStickToBottomRef.current = true;
+      const saved = await submitImageTurn(authKey, pending.turn, pending.conversationId, pending.draftId);
+      const follow = await acceptSubmission(saved, pending.conversationId, pending.draftId);
+      if (pendingSubmissionRef.current === pending) pendingSubmissionRef.current = null;
+      if (!follow || selectedIdRef.current !== saved.id) return;
       setImagePrompt((current) => current.trim() === prompt ? "" : current);
       // Remove only the submitted references; files added while submitting stay in the composer.
       const submittedIds = new Set(referenceImages.map((image) => image.id));
@@ -1323,14 +1332,10 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   return (
     <>
       <ImageImportDialog open={isImportsOpen} onOpenChange={setIsImportsOpen} authKey={authKey}
-        conversationId={selectedConversationId} model={imageModel} quality={imageQuality}
+        conversationId={selectedConversationId} draftId={selectedConversationId ? undefined : draftId} model={imageModel} quality={imageQuality}
         count={imageCount} onCountChange={handleImageCountChange}
-        onAccepted={async (id, submittedFrom) => {
-          const follow = selectedIdRef.current === submittedFrom;
-          await refreshHistory(follow);
-          if (follow && !loadCancelledRef.current) setSelectedConversationId(id);
-        }} />
-      <section className="mx-auto grid h-[calc(100dvh-6.5rem)] min-h-0 w-full max-w-[1600px] grid-cols-1 gap-2 overflow-hidden px-0 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] sm:h-[calc(100dvh-5.25rem)] sm:gap-3 sm:px-3 sm:pb-6 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_240px]">
+        onAccepted={async (saved, submittedFrom, submittedDraft) => { await acceptSubmission(saved, submittedFrom, submittedDraft); }} />
+      <section className="mx-auto grid h-[calc(100dvh-6.5rem)] min-h-0 w-full max-w-[1600px] grid-cols-1 gap-2 overflow-hidden px-0 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] sm:h-[calc(100dvh-5.25rem)] sm:gap-3 sm:px-3 sm:pb-6 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_208px]">
         <div className="hidden h-full min-h-0 border-r border-stone-200/70 pr-3 lg:block">
           <ImageSidebar
             conversations={conversations}
@@ -1383,7 +1388,9 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
         </Dialog>
 
         <div className="image-workspace flex min-h-0 flex-col gap-2 sm:gap-4">
-          <ImageCleanups authKey={authKey} />
+          <div className="flex shrink-0 items-center justify-end gap-2">
+            <ImageCleanups authKey={authKey} />
+          </div>
           <div className="flex items-center justify-between gap-2 px-1 lg:hidden">
             <Button
               variant="outline"
@@ -1411,16 +1418,10 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
             </Button>
           </div>
 
-          {selectedConversation?.pagination && selectedConversation.pagination.total > 0 && (
-            <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-stone-500" aria-label="结果分页">
+          {selectedConversation && (
+            <div className="flex items-center justify-center gap-2 text-xs text-stone-500">
               <Button variant="outline" size="sm" className="xl:hidden" onClick={() => setIsNavigationOpen(true)}><ListTree className="size-4" />定位</Button>
-              <Button variant="ghost" size="sm" disabled={isLoadingPage || selectedConversation.pagination.previous_offset === null}
-                onClick={() => void loadConversationPage(selectedConversation.id, selectedConversation.pagination!.previous_offset!)}>较早结果</Button>
-              <span>第 {selectedConversation.pagination.offset + 1}–{Math.min(selectedConversation.pagination.total, selectedConversation.pagination.offset + selectedConversation.pagination.limit)} / {selectedConversation.pagination.total} 轮</span>
-              <Button variant="ghost" size="sm" disabled={isLoadingPage || selectedConversation.pagination.next_offset === null}
-                onClick={() => void loadConversationPage(selectedConversation.id, selectedConversation.pagination!.next_offset!)}>较新结果</Button>
-              <Button variant="ghost" size="sm" disabled={isLoadingPage || pageOffsetRef.current === undefined}
-                onClick={() => void loadConversationPage(selectedConversation.id)}>最新结果</Button>
+              <span>共 {selectedConversation.turnCount ?? selectedConversation.turns.length} 轮</span>
               {isLoadingPage && <LoaderCircle className="size-4 animate-spin" />}
             </div>
           )}
@@ -1432,7 +1433,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
               style={{ contain: "layout style paint", overflowAnchor: "none" }}
             >
               <ImageResults
-                key={`${selectedConversation?.id}:${selectedConversation?.pagination?.offset}`}
+                key={selectedConversation?.id}
                 selectedConversation={selectedConversation}
                 imageDimensions={imageDimensionsRef.current}
                 onOpenLightbox={openLightbox}
@@ -1503,7 +1504,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
         </div>
         <ImageNavigation authKey={authKey} conversation={selectedConversation} viewport={resultsViewportRef}
           open={isNavigationOpen} onOpenChange={setIsNavigationOpen}
-          onLocate={async (target) => !!selectedConversationId && (await loadConversationPage(selectedConversationId, undefined, false, target)) === true} />
+          onLocate={async (target) => !!selectedConversationId && (await loadConversation(selectedConversationId, false, target)) === true} />
       </section>
 
       <ImageLightbox

@@ -1,0 +1,147 @@
+// Run against the isolated image_followup_browser_server and its production build.
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { chromium } = require('C:/Users/ForestHill/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const origin = 'http://127.0.0.1:43280';
+const headers = { Authorization: 'Bearer ticket08-A' };
+const output = path.resolve('.scratch/ui-simplification-followup/evidence');
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function until(check) { for (let n = 0; n < 250; n++) { if (await check()) return; await pause(80); } throw Error('Timed out'); }
+(async () => {
+  await fs.mkdir(output, { recursive: true });
+  const browser = await chromium.launch({ headless: true, executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' });
+  try {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    const get = async url => { const response = await context.request.get(origin + url, { headers }); assert.equal(response.status(), 200); return response.json(); };
+    const post = async (url, data) => { const response = await context.request.post(origin + url, { headers, data }); assert.equal(response.status(), 200, await response.text()); return response.json(); };
+    const accounts = await get('/api/accounts');
+    accounts.items.forEach((item, index) => { item.image_inflight = index === 0 ? 2 : 0; });
+    let modelRefreshes = 0;
+    await context.route('**/api/accounts', route => route.fulfill({ json: accounts }));
+    await context.route('**/api/accounts/refresh', route => route.fulfill({ json: { progress_id: 'ui-refresh' } }));
+    await context.route('**/api/accounts/refresh/progress/ui-refresh', route => route.fulfill({ json: { done: true, processed: accounts.items.length, total: accounts.items.length, result: { items: accounts.items, refreshed: accounts.items.length, errors: [] } } }));
+    await context.route('**/v1/models*', route => {
+      if (new URL(route.request().url()).searchParams.get('refresh') === 'true') modelRefreshes++;
+      return route.fulfill({ json: { data: [{ id: modelRefreshes ? 'fresh-model' : 'cached-model' }, { id: 'gpt-image-2' }] } });
+    });
+    let images = await get('/api/images?limit=100');
+    if (images.pagination.total < 26) {
+      await post('/api/image-conversations/turns', { request_id: 'ui-images', prompt: 'Synthetic gallery', count: 26 });
+      await until(async () => (await get('/api/images?limit=100')).pagination.total >= 26);
+      images = await get('/api/images?limit=100');
+    }
+    const page = await context.newPage();
+    page.setDefaultTimeout(10000);
+    const errors = []; page.on('pageerror', error => errors.push(error.message));
+    await page.goto(origin + '/login/');
+    await page.getByLabel('密钥', { exact: true }).fill('ticket08-A');
+    await page.getByRole('button', { name: '登录', exact: true }).click();
+    await page.waitForURL('**/accounts/');
+    await until(async () => await page.locator('tbody tr').count() === accounts.items.length);
+    assert.equal(await page.getByText('监控额度（不参与消费）', { exact: true }).count(), 0);
+    const operations = page.locator('tbody tr').first().locator('td').last().getByRole('button');
+    assert.deepEqual(await operations.evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))), ['编辑账号', '刷新账号', '删除账号']);
+    await page.getByRole('combobox', { name: '账号状态筛选', exact: true }).click();
+    await page.getByRole('option', { name: '在途', exact: true }).click();
+    await until(async () => await page.locator('tbody tr').count() === 1);
+    assert.match(await page.locator('tbody').innerText(), new RegExp(accounts.items[0].email));
+    await page.getByPlaceholder('搜索邮箱').fill('no-match');
+    await until(async () => await page.locator('tbody tr').count() === 0);
+    await page.getByPlaceholder('搜索邮箱').fill('');
+    await page.getByRole('button', { name: '一键刷新所有账号信息和额度', exact: true }).click();
+    await until(() => modelRefreshes === 1);
+    await page.getByText('fresh-model', { exact: true }).first().waitFor();
+    await page.mouse.move(1, 999);
+    await page.waitForFunction(() => !document.querySelector('[data-sonner-toast]'));
+    await page.screenshot({ path: path.join(output, 'accounts-inflight.png') });
+
+    await page.goto(origin + '/image-manager/');
+    const pageInput = page.getByLabel('图库页码', { exact: true });
+    await until(() => pageInput.isEnabled());
+    await pageInput.fill('2'); await pageInput.press('Enter');
+    await until(() => pageInput.isEnabled());
+    await page.getByText(/第 2 \/ \d+ 页/).waitFor();
+    await pageInput.fill('999'); await page.getByRole('button', { name: '跳转', exact: true }).click();
+    await page.getByText(/请输入 1–\d+ 的页码/).waitFor();
+    await pageInput.fill('1'); await pageInput.press('Enter'); await until(() => pageInput.isEnabled());
+    const selectAll = page.getByRole('checkbox', { name: '全选结果', exact: true });
+    await selectAll.click(); await until(async () => await selectAll.getAttribute('data-state') === 'checked');
+    await page.getByText(`已选 ${images.pagination.total} 张`, { exact: true }).waitFor();
+    await selectAll.uncheck(); await until(async () => !(await page.getByText(/^已选 \d+ 张$/).count()));
+    assert.equal(await page.getByText('存储维护覆盖所有身份的已完成结果，保留引用与在途文件', { exact: true }).count(), 0);
+    await page.setViewportSize({ width: 320, height: 640 });
+    await pageInput.scrollIntoViewIfNeeded();
+    const jump = await page.getByRole('button', { name: '跳转', exact: true }).boundingBox();
+    assert(jump.x >= 0 && jump.x + jump.width <= 320);
+    await page.mouse.move(1, 639);
+    await page.waitForFunction(() => !document.querySelector('[data-sonner-toast]'));
+    await page.screenshot({ path: path.join(output, 'gallery-pagination-small.png') });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+
+    const picture = images.items[0].url;
+    const unavailable = picture.replace(/[^/]+$/, 'missing.png');
+    await context.route('**/api/logs*', route => route.fulfill({ json: { items: [{ id: 'synthetic-log', type: 'call', time: '2026-09-10T08:00:00+08:00', summary: 'Synthetic images', detail: { status: 'success', urls: [picture, unavailable] } }] } }));
+    const imageAuth = [];
+    page.on('request', request => { if (/\/image-thumbnails\/managed\//.test(request.url())) imageAuth.push(request.headers().authorization); });
+    await page.goto(origin + '/logs/');
+    await until(async () => await page.locator('tbody img').first().evaluate(img => img.complete && img.naturalWidth > 0));
+    await page.getByRole('img', { name: '图片不可用', exact: true }).waitFor();
+    assert(imageAuth.length >= 2 && imageAuth.every(value => value === headers.Authorization));
+    await page.getByRole('button', { name: '查看详情', exact: true }).click();
+    const logDialog = page.getByRole('dialog', { name: '日志详情', exact: true });
+    await until(async () => await logDialog.locator('img').first().evaluate(img => img.complete && img.naturalWidth > 0));
+    await page.screenshot({ path: path.join(output, 'log-thumbnails.png') });
+    await page.keyboard.press('Escape');
+
+    await page.goto(origin + '/image/');
+    assert.equal(await page.getByRole('button', { name: '迁移旧历史', exact: true }).count(), 0);
+    await page.getByRole('button', { name: / · .* · \d+ 张$/ }).click();
+    const count = page.getByLabel('生成数量', { exact: true });
+    await count.waitFor();
+    assert.equal(await count.locator('..').getByRole('button').count(), 10);
+    assert.match(await count.getAttribute('class'), /rounded-full/);
+    await count.fill('100'); await count.fill('7');
+    await page.screenshot({ path: path.join(output, 'generation-count.png') });
+    await page.getByRole('button', { name: / · .* · 7 张$/ }).click();
+    await page.getByRole('button', { name: '上传 MD 和参考图', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '导入 Prompt 包', exact: true });
+    await until(() => dialog.getByRole('button', { name: /选择或拖入 Markdown/ }).isEnabled());
+    const md = '## [P01] 主图｜1600x1600\n参考图：first.png、missing.png\nPrompt: synthetic partial\n## [P02] 场景｜1200x800\n参考图：missing.png\nPrompt: synthetic plain\n## [P03] 待补充\n参考图：无\n';
+    await page.getByLabel('选择 MD 文件', { exact: true }).setInputFiles({ name: '简化示例.md', mimeType: 'text/markdown', buffer: Buffer.from(md) });
+    await until(async () => await dialog.getByRole('article').count() === 3);
+    await page.getByLabel('选择导入参考图', { exact: true }).setInputFiles({ name: 'first.png', mimeType: 'image/png', buffer: await fs.readFile(path.resolve('data/ticket08/reference.png')) });
+    await until(async () => (await get('/api/image-imports')).references.some(item => item.name === 'first.png' && item.reference));
+    for (const name of ['条目 P01 主图', '条目 P02 场景']) {
+      const row = dialog.getByRole('article', { name, exact: true });
+      await row.getByRole('button', { name: '忽略', exact: true }).click();
+      await row.getByText('已忽略', { exact: true }).waitFor();
+    }
+    await page.getByLabel('选择 P01', { exact: true }).check();
+    await page.getByLabel('选择 P02', { exact: true }).check();
+    assert(await page.getByLabel('选择 P03', { exact: true }).isDisabled());
+    assert.equal(await dialog.getByRole('article', { name: '条目 P03 待补充', exact: true }).getByRole('button', { name: '忽略', exact: true }).count(), 0);
+    assert.equal(await dialog.locator('details details').count(), 0);
+    await page.getByLabel('批量生成数量', { exact: true }).fill('1');
+    await page.screenshot({ path: path.join(output, 'imports-desktop.png') });
+    await page.setViewportSize({ width: 320, height: 360 });
+    await dialog.getByRole('article', { name: '条目 P02 场景', exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(output, 'imports-small.png') });
+    const submit = dialog.getByRole('button', { name: '生成已选条目（2 张）', exact: true });
+    const bounds = await submit.boundingBox(); assert(bounds.x >= 0 && bounds.x + bounds.width <= 320 && bounds.y + bounds.height <= 360);
+    const accepted = page.waitForResponse(response => response.url().endsWith('/api/image-imports/batches') && response.request().method() === 'POST');
+    await submit.click(); const saved = await (await accepted).json(); assert(saved.id);
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click();
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.reload();
+    const navigation = page.getByRole('navigation', { name: '结果定位导航' }).filter({ visible: true });
+    await navigation.getByRole('button', { name: '展开或收起 P01 · 主图', exact: true }).click();
+    await navigation.getByRole('button', { name: /^第 1 次 ·/ }).click();
+    assert.equal(await navigation.locator('[data-navigation-image]').count(), 0);
+    await page.getByRole('button', { name: '上传 MD 和参考图', exact: true }).click();
+    await dialog.getByRole('article', { name: '条目 P01 主图', exact: true }).getByText('已忽略', { exact: true }).waitFor();
+    assert.deepEqual(errors, []);
+    console.log('PASS: in-flight filter, restored controls, forced model refresh, page jump, select all, authenticated thumbnails, ignored references, required fields, persistence, two-level navigation, small screens.');
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

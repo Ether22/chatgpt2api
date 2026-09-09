@@ -36,14 +36,14 @@ class AccountVisibilityOrderTests(unittest.TestCase):
         self.addCleanup(self.client.close)
         self.headers = {"Authorization": f"Bearer {config.auth_key}"}
 
-    def test_hidden_is_persisted_independently_of_usage_and_keeps_statistics(self):
+    def test_legacy_hidden_is_ignored_and_keeps_accounts_and_statistics(self):
         before = self.service.get_stats()
         for token, mode in (("a", "normal"), ("b", "disabled"), ("m", "monitor")):
             response = self.client.post("/api/accounts/update", headers=self.headers,
                                         json={"access_token": token, "hidden": True})
-            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.status_code, 400, response.text)
             item = AccountService(self.storage).get_account(token)
-            self.assertTrue(item["hidden"])
+            self.assertNotIn("hidden", item)
             self.assertEqual(item["usage_mode"], mode)
         self.assertEqual(self.service.get_stats(), before)
         self.assertEqual(self.service.get_text_access_token(), "a")
@@ -56,8 +56,8 @@ class AccountVisibilityOrderTests(unittest.TestCase):
             self.service.release_image_slot(token)
         response = self.client.post("/api/accounts/update", headers=self.headers,
                                     json={"access_token": "a", "hidden": False})
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertFalse(AccountService(self.storage).get_account("a")["hidden"])
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertNotIn("hidden", AccountService(self.storage).get_account("a"))
 
     def test_hiding_limited_accounts_keeps_order_when_legacy_removal_flags_are_enabled(self):
         with patch.dict(config.data, {"auto_remove_invalid_accounts": True, "auto_remove_rate_limited_accounts": True}):
@@ -66,8 +66,8 @@ class AccountVisibilityOrderTests(unittest.TestCase):
                 previous = self.service.get_account(mode)
                 response = self.client.post("/api/accounts/update", headers=self.headers,
                                             json={"access_token": mode, "hidden": True})
-                self.assertEqual(response.status_code, 200, response.text)
-                self.assertEqual(AccountService(self.storage).get_account(mode), {**previous, "hidden": True})
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertEqual(AccountService(self.storage).get_account(mode), previous)
 
     def test_group_moves_survive_reload_and_reject_cross_group_or_missing_targets(self):
         def move(source, target, position="before"):
@@ -100,9 +100,9 @@ class AccountVisibilityOrderTests(unittest.TestCase):
             self.service.fetch_remote_info("a")
         reloaded = AccountService(self.storage)
         self.assertEqual([a["access_token"] for a in reloaded.list_accounts()], ["n", "m", "a-rotated", "b"])
-        self.assertTrue(reloaded.get_account("a-rotated")["hidden"])
+        self.assertNotIn("hidden", reloaded.get_account("a-rotated"))
         self.assertEqual(reloaded.get_account("a-rotated")["quota"], 13)
-        self.assertEqual([a["access_token"] for a in reloaded.build_export_items()], ["a-rotated"])
+        self.assertEqual([a["access_token"] for a in reloaded.build_export_items(["a-rotated"])], ["a-rotated"])
         reloaded.update_account("a-rotated", {"usage_mode": "disabled", "hidden": False})
         self.assertEqual([a["access_token"] for a in AccountService(self.storage).list_accounts()], ["n", "m", "b", "a-rotated"])
 
@@ -124,7 +124,7 @@ class AccountVisibilityOrderTests(unittest.TestCase):
             service.refresh_access_token("first", force=True)
         reloaded = AccountService(storage)
         self.assertEqual([a["access_token"] for a in reloaded.list_accounts()], ["third", "rotated", "second"])
-        self.assertTrue(reloaded.get_account("rotated")["hidden"])
+        self.assertNotIn("hidden", reloaded.get_account("rotated"))
 
 
 if __name__ == "__main__":

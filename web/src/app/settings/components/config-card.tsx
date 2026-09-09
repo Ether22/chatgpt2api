@@ -32,6 +32,8 @@ export function ConfigCard() {
   const setImageSettleSecs = useSettingsStore((state) => state.setImageSettleSecs);
   const setImageTimeoutRetrySecs = useSettingsStore((state) => state.setImageTimeoutRetrySecs);
   const setAutoReloginAfterRefresh = useSettingsStore((state) => state.setAutoReloginAfterRefresh);
+  const setAutoRemoveInvalidAccounts = useSettingsStore((state) => state.setAutoRemoveInvalidAccounts);
+  const setAutoRemoveRateLimitedAccounts = useSettingsStore((state) => state.setAutoRemoveRateLimitedAccounts);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
@@ -256,7 +258,21 @@ export function ConfigCard() {
             />
             <p className="text-xs text-stone-500">单位秒，找到图片后等待多久再次确认。需配合图片二次确认机制使用。</p>
           </div>
-          <div className="flex gap-4 md:col-span-2">
+          <div className="grid gap-4 md:col-span-2 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
+                <Checkbox checked={Boolean(config?.auto_remove_invalid_accounts)} onCheckedChange={(checked) => setAutoRemoveInvalidAccounts(Boolean(checked))} />
+                自动移除异常账号
+              </label>
+              <p className="text-xs text-stone-500">确认凭据失效后删除；网络、验证码等登录失败不触发自动删除。仅监控和禁用账号保留。</p>
+            </div>
+            <div className="space-y-2">
+              <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
+                <Checkbox checked={Boolean(config?.auto_remove_rate_limited_accounts)} onCheckedChange={(checked) => setAutoRemoveRateLimitedAccounts(Boolean(checked))} />
+                自动移除限流账号
+              </label>
+              <p className="text-xs text-stone-500">刷新判定限流或图片额度用尽时删除；仅监控和禁用账号保留。</p>
+            </div>
             <div className="flex-1 space-y-2">
               <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
                 <Checkbox

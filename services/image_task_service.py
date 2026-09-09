@@ -165,6 +165,9 @@ class ImageTaskService:
                     self._start_task(key, task["mode"], payload, task.get("identity") or {"id": task["owner_id"]})
                 elif task.get("dispatch_state") in {"sent", "unknown"}:
                     self._start_recovery(key, task.get("identity") or {"id": task["owner_id"]}, 30)
+                elif (task.get("upstream_cleanup") or {}).get("state") == "pending" or any(
+                        (attempt.get("cleanup") or {}).get("state") == "pending" for attempt in task.get("attempts", [])):
+                    self._start_recovery(key, task.get("identity") or {"id": task["owner_id"]}, 30)
             owners = {task["owner_id"] for task in self._tasks.values()
                       if task.get("result_deleted") and task["result_cleanup"]["state"] == "pending"}
             if owners and "cleanup" not in self._workers:
@@ -267,6 +270,9 @@ class ImageTaskService:
             source_counts[source] = source_counts.get(source, 0) + 1
             source_ordinals[saved["id"]] = source_counts[source]
         selected = item["turns"][page["offset"]:page["offset"] + limit]
+        file_metadata = {} if navigation else image_rows.get_many(image_storage_service.index_file, "images", {
+            path for turn in selected for task_id in turn["task_ids"]
+            for path in self._result_paths(self._tasks[_task_key(item["owner_id"], task_id)])})
         if navigation:
             selected = [turn for turn in selected if not (turn.get("promptDeleted") and turn.get("resultsDeleted"))]
         source_ids = {turn["sourceEntryId"] for turn in selected}
@@ -297,6 +303,9 @@ class ImageTaskService:
                     image["taskStatus"] = status
                 if task.get("data") and not navigation:
                     image.update(task["data"][0])
+                    metadata = file_metadata.get(urlsplit(image.get("url", "")).path.removeprefix("/images/"), {})
+                    if metadata.get("size") is not None:
+                        image["file_size"] = metadata["size"]
                 for source, target in (("error", "error"), ("progress", "progress"),
                                        ("elapsed_secs", "elapsedSecs"), ("duration_ms", "durationMs"), ("updated_at", "updatedAt"),
                                        ("error_code", "errorCode"), ("error_detail", "errorDetail"),
@@ -367,7 +376,9 @@ class ImageTaskService:
                     raise KeyError("turn not found")
                 for flag in ("promptDeleted", "resultsDeleted"):
                     if flag in visibility:
-                        turn[flag] = bool(visibility[flag]) or (flag == "resultsDeleted" and bool(turn.get(flag)))
+                        turn[flag] = bool(visibility[flag]) or bool(turn.get(flag))
+                if visibility.get("promptDeleted"):
+                    turn["prompt"] = ""
                 if visibility.get("resultsDeleted"):
                     deleted_keys.update(_task_key(current["owner_id"], task_id) for task_id in turn["task_ids"])
                 if "dismissedImageIds" in visibility:
@@ -465,6 +476,58 @@ class ImageTaskService:
             if not task.get("result_deleted") or task["result_cleanup"]["state"] in {"error", "retained"}:
                 self._mark_results_deleted(identity, {key}, retry=True)
             return {"id": task_id, **copy.deepcopy(self._tasks[key]["result_cleanup"])}
+
+    def maintenance_paths(self, only_paths=None) -> dict[str, str]:
+        """Completed result files not held by references or an unfinished attempt; caller holds _lock."""
+        blocked = {ref["path"] for ref in self._references.values() if ref.get("path") and not ref.get("deleted")
+                   and (ref["input_scopes"] or ref["turn_ids"])}
+        eligible = {}
+        for task in self._tasks.values():
+            paths = self._result_paths(task)
+            if task["status"] not in TERMINAL_STATUSES or task.get("dispatch_state") in {"sent", "unknown"}:
+                blocked.update(paths)
+            elif not task.get("result_deleted"):
+                eligible.update({path: task["owner_id"] for path in paths})
+        eligible = {path: owner for path, owner in eligible.items() if path not in blocked
+                    and (only_paths is None or path in only_paths)}
+        indexed = image_rows.get_many(image_storage_service.index_file, "images", eligible)
+        return {path: owner for path, owner in eligible.items() if path in indexed and
+                not any(indexed[path].get(flag) for flag in ("writing", "deleting", "result_hidden"))
+                and indexed[path].get("kind") != "reference"}
+
+    def delete_gallery_results(self, identity, paths, *, maintenance=False):
+        owner = _owner_id(identity)
+        paths = set(paths)
+        with self._lock:
+            if maintenance:
+                paths &= self.maintenance_paths(paths).keys()
+            keys = {key for key, task in self._tasks.items() if task["owner_id"] == owner
+                    and self._result_paths(task) & paths}
+            matched = {path for key in keys for path in self._result_paths(self._tasks[key]) if path in paths}
+            if matched != paths:
+                raise ValueError("部分图片没有可验证的结果记录，请通过原会话处理")
+            self._mark_results_deleted(identity, keys)
+            ids = [self._tasks[key]["id"] for key in keys]
+        self.cleanup_results(identity, ids)
+        with self._lock:
+            states = [self._tasks[key]["result_cleanup"]["state"] for key in keys]
+        return {"removed": len(matched), "retained": states.count("retained"), "pending": states.count("pending"),
+                "failed": states.count("error")}
+
+    def expire_results(self, cutoff):
+        with self._lock:
+            allowed = self.maintenance_paths()
+            groups = {}
+            for key, task in self._tasks.items():
+                if (task.get("managed") and not task.get("result_deleted") and task["status"] in TERMINAL_STATUSES
+                        and task.get("dispatch_state") not in {"sent", "unknown"}
+                        and _timestamp(task.get("updated_at")) < cutoff and self._result_paths(task).issubset(allowed)):
+                    groups.setdefault(task["owner_id"], set()).add(key)
+            for owner, keys in groups.items():
+                self._mark_results_deleted({"id": owner}, keys)
+        for owner, keys in groups.items():
+            self.cleanup_results({"id": owner}, [self._tasks[key]["id"] for key in keys])
+        return sum(len(keys) for keys in groups.values())
 
     @staticmethod
     def _result_paths(task: dict[str, Any]) -> set[str]:
@@ -584,7 +647,7 @@ class ImageTaskService:
                         continue
                     if key in waiting:
                         cleanup = {"state": "pending", "error": "等待已发送的上游结果，返回后自动清理"}
-                        if task["status"] == TASK_STATUS_ERROR:
+                        if task["status"] == TASK_STATUS_ERROR and task.get("dispatch_state") in {"sent", "unknown"}:
                             cleanup = {"state": "error", "error": task.get("error") or "上游结果未知，请重试核实并清理"}
                     else:
                         errors = [results[path]["error"] for path in paths_by_task[key] if results[path].get("error")]
@@ -632,6 +695,66 @@ class ImageTaskService:
             self._update_task(key, result_cleanup={**task["result_cleanup"], "state": "pending", "updated_at": _now_iso()})
             if task.get("dispatch_state") in {"sent", "unknown"}:
                 self._start_recovery(key, identity, 30)
+
+    def retry_failed_cleanups(self, identity):
+        """Snapshot all failed rows once; retry at most four original requests at a time."""
+        owner = _owner_id(identity)
+        worker_key = f"cleanup-retry:{owner}"
+        with self._lock:
+            if worker_key in self._workers:
+                return {"accepted": 0, "running": True}
+            keys = [key for key, task in self._tasks.items() if task["owner_id"] == owner
+                    and task.get("result_deleted") and task["result_cleanup"]["state"] == "error"]
+            if not keys:
+                return {"accepted": 0, "running": False}
+            changes = {key: {**self._tasks[key], "result_cleanup": {
+                **self._tasks[key]["result_cleanup"], "state": "pending", "error": "已加入重试队列", "updated_at": _now_iso()
+            }} for key in keys}
+            previous = {key: self._tasks[key] for key in keys}
+            image_rows.save(self.path, {"tasks": changes})
+            self._tasks.update(changes)
+
+            def retry_batch():
+                try:
+                    for offset in range(0, len(keys), 4):
+                        if self._stopping.is_set():
+                            break
+                        batch = keys[offset:offset + 4]
+                        workers = []
+                        for key in batch:
+                            self.retry_cleanup(identity, self._tasks[key]["id"])
+                            with self._lock:
+                                worker = self._workers.get(key)
+                            if worker:
+                                workers.append(worker)
+                        for worker in workers:
+                            worker.join()
+                        self.cleanup_results(identity, [self._tasks[key]["id"] for key in batch])
+                except Exception as exc:
+                    with self._lock:
+                        failed = {key: {**self._tasks[key], "result_cleanup": {
+                            **self._tasks[key]["result_cleanup"], "state": "error",
+                            "error": redact(f"批量重试未完成：{exc}", [config.auth_key]), "updated_at": _now_iso()
+                        }} for key in keys if self._tasks[key]["result_cleanup"]["state"] == "pending"}
+                        self._tasks.update(failed)
+                        try:
+                            image_rows.save(self.path, {"tasks": failed})
+                        except Exception:
+                            pass  # Durable tombstones still allow retry after storage recovers.
+                finally:
+                    with self._lock:
+                        self._workers.pop(worker_key, None)
+
+            thread = threading.Thread(target=retry_batch, name="image-cleanup-retry", daemon=True)
+            self._workers[worker_key] = thread
+            try:
+                thread.start()
+            except Exception:
+                self._workers.pop(worker_key, None)
+                self._tasks.update(previous)
+                image_rows.save(self.path, {"tasks": previous})
+                raise
+            return {"accepted": len(keys), "running": True}
 
     def _owned_reference(self, identity: dict[str, object], reference_id: str) -> dict[str, Any]:
         reference = self._references.get(reference_id)
@@ -917,10 +1040,19 @@ class ImageTaskService:
             if replay is not None:
                 return replay
             previous_current = self._current.get(owner)
-            conversation_id = first.get("conversation_id") or previous_current
+            draft_id = first.get("draft_id")
+            if draft_id and first.get("conversation_id"):
+                raise ValueError("草稿与已有会话不能同时指定")
+            if draft_id:
+                conversation_id = next((item["id"] for item in self._conversations.values()
+                                        if item["owner_id"] == owner and item.get("creation_request_id") == draft_id), None)
+            else:
+                conversation_id = first.get("conversation_id") or previous_current
             conversation = (self._owned_conversation(identity, conversation_id) if conversation_id
                             else self._new_conversation(owner, first["prompt"][:24]))
             previous_conversation = copy.deepcopy(conversation) if conversation_id else None
+            if draft_id and not conversation_id:
+                conversation["creation_request_id"] = draft_id
             previous_references = {}
             starts = []
             try:
@@ -938,6 +1070,8 @@ class ImageTaskService:
                     if submission.get("rerun"):
                         if source_turn is None:
                             raise ValueError("重跑必须指定来源轮次")
+                        if source_turn.get("promptDeleted") or not source_turn.get("prompt", "").strip():
+                            raise ValueError("原轮次Prompt已删除，请填写新的Prompt后提交")
                         submission = {**submission, **{key: copy.deepcopy(source_turn[key]) for key in
                                       ("prompt", "model", "size", "quality", "ratio", "tier", "referenceImages")}}
                         # Pending snapshots keep the exact original reference IDs and wait for their uploads.
@@ -1287,11 +1421,31 @@ class ImageTaskService:
                     if self._tasks[key].get("dispatch_state") != "pending":
                         raise RuntimeError("图片请求已经发送，不能重复消费")
                     self._update_task(key, dispatch_state="sent", status=TASK_STATUS_RUNNING, waiting=None,
-                                      sent_at=time.time(), upstream=checkpoint, started_ts=time.time(), retry_not_before=None)
+                                      sent_at=time.time(), upstream=checkpoint, upstream_cleanup=None,
+                                      started_ts=time.time(), retry_not_before=None)
             elif event == "conversation":
                 self._update_task(key, conversation_id=checkpoint["conversation_id"])
             elif event == "waiting":
                 self._update_task(key, status=TASK_STATUS_QUEUED, progress="waiting_account", waiting=checkpoint)
+            elif event == "retry":
+                with self._lock:
+                    task = self._tasks[key]
+                    attempt = {"upstream": task.get("upstream"),
+                               "conversation_id": checkpoint.get("conversation_id") or task.get("conversation_id", ""),
+                               "error_class": checkpoint["error_class"], "retry_counts": checkpoint["retry_counts"],
+                               "abandoned_at": _now_iso()}
+                    if (config.image_remove_conversation_always and attempt["conversation_id"]
+                            and (attempt["upstream"] or {}).get("protocol") == "web"):
+                        attempt["cleanup"] = {"state": "pending"}
+                    deleted = task.get("result_deleted")
+                    self._update_task(key, attempts=[*task.get("attempts", []), attempt],
+                        retry_counts=checkpoint["retry_counts"], dispatch_state="cancelled" if deleted else "pending",
+                        status=TASK_STATUS_ERROR if deleted else TASK_STATUS_QUEUED,
+                        upstream=None, upstream_cleanup=None, conversation_id="", sent_at=None,
+                        waiting=None, retryable=False, can_resume=False)
+                self._cleanup_upstream(key)
+                if deleted:
+                    raise TaskDeleted()
             elif event == "retry_rejected":
                 with self._lock:
                     if self._tasks[key].get("dispatch_state") not in {"pending", "rejected"}:
@@ -1317,7 +1471,8 @@ class ImageTaskService:
             lifecycle_callback("ready", {})
             payload = self._prepare_payload(payload, identity)
             lifecycle_callback("ready", {})
-            payload_with_progress = {**payload, "progress_callback": progress_callback, "lifecycle_callback": lifecycle_callback}
+            payload_with_progress = {**payload, "progress_callback": progress_callback, "lifecycle_callback": lifecycle_callback,
+                                     "_retry_counts": dict(self._tasks[key].get("retry_counts", {}))}
             image_storage_service.check_writable()
             self._update_task(key, error="")
             handler = self.edit_handler if mode == "edit" else self.generation_handler
@@ -1344,7 +1499,6 @@ class ImageTaskService:
             self._update_task(key, status=TASK_STATUS_SUCCESS, dispatch_state="complete", data=data, usage=usage,
                               error="", error_detail="", error_code="", retryable=False, can_resume=False,
                               waiting=None, duration_ms=duration_ms)
-            self._cleanup_completed_upstream(key)
             self._log_call(
                 identity,
                 mode,
@@ -1383,30 +1537,55 @@ class ImageTaskService:
             )
 
         finally:
+            if not self._stopping.is_set():
+                self._cleanup_upstream(key)
             if self._tasks[key].get("result_deleted") and not self._stopping.is_set():
                 self.cleanup_results(identity)
 
-    def _cleanup_completed_upstream(self, key: str) -> None:
-        if not (config.image_remove_conversation_always or config.image_remove_conversation_after_result):
-            return
-        backend = None
-        try:
-            from services.openai_backend_api import OpenAIBackendAPI, account_service
-            task = self._tasks[key]
-            upstream = task.get("upstream") or {}
-            if upstream.get("protocol") != "web" or not task.get("conversation_id"):
-                return
-            token = account_service.image_recovery_token(upstream.get("account_ref", ""))
-            if not token:
-                return
-            backend = OpenAIBackendAPI(access_token=token)
-            if upstream.get("base_url") == backend.base_url:
-                backend.delete_conversation(task["conversation_id"])
-        except Exception as exc:
-            print(redact(f"[image-task] completed upstream cleanup failed: {exc}"))
-        finally:
-            if backend is not None:
-                backend.close()
+    def _cleanup_upstream(self, key: str) -> None:
+        """Clean known attempts with fresh sessions, after a durable removal intent."""
+        from services.openai_backend_api import OpenAIBackendAPI, account_service
+        with self._lock:
+            task = copy.deepcopy(self._tasks[key])
+        attempts = task.get("attempts", [])
+        for index, attempt in enumerate([*attempts, {"upstream": task.get("upstream"),
+                "conversation_id": task.get("conversation_id"), "cleanup": task.get("upstream_cleanup")} ]):
+            current = index == len(attempts)
+            cleanup = attempt.get("cleanup") or {}
+            allowed = config.image_remove_conversation_always or (current and task["status"] == TASK_STATUS_SUCCESS
+                                                                  and config.image_remove_conversation_after_result)
+            upstream, conversation_id = attempt.get("upstream") or {}, attempt.get("conversation_id")
+            if (cleanup.get("state") == "complete" or not (allowed or cleanup.get("state") == "pending")
+                    or upstream.get("protocol") != "web" or not conversation_id):
+                continue
+
+            def save_cleanup(value):
+                with self._lock:
+                    if current:
+                        self._update_task(key, upstream_cleanup=value, can_resume=False,
+                            **({"dispatch_state": "removed"} if value["state"] == "complete"
+                               and self._tasks[key].get("dispatch_state") in {"sent", "unknown"} else {}))
+                    else:
+                        latest = copy.deepcopy(self._tasks[key].get("attempts", []))
+                        latest[index]["cleanup"] = value
+                        self._update_task(key, attempts=latest)
+
+            backend = None
+            try:
+                save_cleanup({"state": "pending"})
+                token = account_service.image_recovery_token(upstream.get("account_ref", ""))
+                if not token:
+                    raise RuntimeError("无法找到原上游账号，暂未清理上游会话")
+                backend = OpenAIBackendAPI(access_token=token)
+                if upstream.get("base_url") != backend.base_url:
+                    raise RuntimeError("原上游地址已变更，暂未清理上游会话")
+                backend.delete_conversation(conversation_id)
+                save_cleanup({"state": "complete", "at": _now_iso()})
+            except Exception as exc:
+                print(redact(f"[image-task] upstream cleanup failed: {exc}"))
+            finally:
+                if backend is not None:
+                    backend.close()
 
     def _store_task_images(self, data: list[dict[str, Any]], identity: dict[str, object], base_url: str, key: str = "") -> list[dict[str, Any]]:
         stored = []
@@ -1421,6 +1600,9 @@ class ImageTaskService:
                 relative = path.removeprefix("/images/")
                 if relative not in self._tasks.get(key, {}).get("result_storage_paths", []):
                     image_storage_service.require_owner(relative, identity)
+                indexed = image_rows.get(image_storage_service.index_file, "images", relative) or {}
+                if indexed.get("size") is not None:
+                    item["file_size"] = indexed["size"]
             stored.append(item)
         return stored
 
@@ -1444,7 +1626,8 @@ class ImageTaskService:
             detail["cause"] = redact(str(exc.__cause__), [config.auth_key, *account_service.list_tokens()])
         updates.update(retryable=not sent, dispatch_state=detail["dispatch_state"], error_code=code,
                        error_detail=json.dumps(detail, ensure_ascii=False, indent=2),
-                       can_resume=sent and upstream.get("protocol") == "web" and bool(upstream.get("account_ref")))
+                       can_resume=sent and not task.get("upstream_cleanup") and upstream.get("protocol") == "web"
+                                  and bool(upstream.get("account_ref")))
         try:
             self._update_task(key, **updates)
         except Exception as save_error:
@@ -1504,8 +1687,15 @@ class ImageTaskService:
             task = self._tasks.get(key)
             if task is None:
                 return
-            if task.get("dispatch_state") == "cancelled" and "result_cleanup" not in updates:
+            if task.get("dispatch_state") == "cancelled" and not {"result_cleanup", "attempts", "upstream_cleanup"}.intersection(updates):
                 return
+            if updates.get("status") in TERMINAL_STATUSES:
+                finished = {**task, **updates}
+                if (not finished.get("upstream_cleanup") and finished.get("conversation_id")
+                        and (finished.get("upstream") or {}).get("protocol") == "web"
+                        and (config.image_remove_conversation_always or
+                             finished["status"] == TASK_STATUS_SUCCESS and config.image_remove_conversation_after_result)):
+                    updates.update(upstream_cleanup={"state": "pending"}, can_resume=False)
             if all(task.get(field) == value for field, value in updates.items()):
                 return
             self._tasks[key] = {**task, **updates, "updated_at": _now_iso(), "updated_ts": time.time()}
@@ -1599,6 +1789,8 @@ class ImageTaskService:
                 raise ValueError("task is not in error state")
             if task.get("dispatch_state") != "unknown":
                 raise ValueError("该任务没有待核实的已发送请求")
+            if task.get("upstream_cleanup"):
+                raise ValueError("该上游会话已进入清理，不能继续恢复")
             self._start_recovery(key, identity, extra_timeout_secs)
             return _public_task(self._tasks[key])
 
@@ -1607,10 +1799,17 @@ class ImageTaskService:
             if key in self._workers or self._stopping.is_set():
                 return
             task = self._tasks[key]
-            self._update_task(key, status=TASK_STATUS_RUNNING, progress="verifying_result", waiting=None)
+            cleanup_only = bool(task.get("upstream_cleanup")) or task.get("dispatch_state") not in {"sent", "unknown"}
+            if not cleanup_only:
+                self._update_task(key, status=TASK_STATUS_RUNNING, progress="verifying_result", waiting=None)
             def run():
                 try:
-                    self._run_resume_poll(key, task.get("conversation_id", ""), timeout, dict(identity), task["mode"], task["model"])
+                    if cleanup_only:
+                        self._cleanup_upstream(key)
+                        if task.get("result_deleted"):
+                            self.cleanup_results(identity)
+                    else:
+                        self._run_resume_poll(key, task.get("conversation_id", ""), timeout, dict(identity), task["mode"], task["model"])
                 finally:
                     with self._lock:
                         self._workers.pop(key, None)
@@ -1675,10 +1874,10 @@ class ImageTaskService:
             with image_storage_service.owner_scope(_owner_id(identity), lambda path, mode: self._record_result_storage(key, path, mode)):
                 data = format_image_result(image_items, task.get("prompt", ""), "url",
                                            task.get("request", {}).get("base_url", ""), int(time.time()))["data"]
+                data = self._store_task_images(data, identity, task.get("request", {}).get("base_url", ""), key)
             self._update_task(key, status=TASK_STATUS_SUCCESS, dispatch_state="complete", data=data, error="",
                               error_detail="", error_code="", retryable=False, can_resume=False,
                               duration_ms=int((time.time() - started) * 1000))
-            self._cleanup_completed_upstream(key)
             self._log_call(
                 identity,
                 mode,
@@ -1706,6 +1905,8 @@ class ImageTaskService:
         finally:
             if backend is not None:
                 backend.close()
+            if not self._stopping.is_set():
+                self._cleanup_upstream(key)
             if self._tasks[key].get("result_deleted") and not self._stopping.is_set():
                 self.cleanup_results(identity)
 

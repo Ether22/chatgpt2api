@@ -96,7 +96,7 @@ class AccountCapabilityTests(unittest.TestCase):
             self.assertEqual(plus_token, "token-plus")
             self.assertEqual(pro_token, "token-pro")
 
-    def test_refresh_accounts_marks_invalid_token_without_confirmation_delay(self) -> None:
+    def test_refresh_accounts_removes_confirmed_invalid_token_when_enabled(self) -> None:
         original_value = config.data.get("auto_remove_invalid_accounts")
         config.data["auto_remove_invalid_accounts"] = True
         try:
@@ -112,8 +112,8 @@ class AccountCapabilityTests(unittest.TestCase):
 
                 self.assertEqual(result["refreshed"], 0)
                 self.assertEqual(len(result["errors"]), 1)
-                self.assertEqual(len(result["items"]), 1)
-                self.assertEqual(service.get_account("invalid-token")["status"], "异常")
+                self.assertEqual(result["items"], [])
+                self.assertIsNone(service.get_account("invalid-token"))
         finally:
             if original_value is None:
                 config.data.pop("auto_remove_invalid_accounts", None)

@@ -119,6 +119,17 @@ class ModelCatalogServiceTests(unittest.TestCase):
         self.assertEqual(self.calls.count("plus"), 1)
         self.assertEqual(self.calls.count("pro"), 1)
 
+    def test_explicit_refresh_reloads_unchanged_accounts_and_retains_failure_fallback(self) -> None:
+        self.catalog.list_models()
+        self.outcomes["pro"] = model_list("new-pro")
+        self.assertNotIn("new-pro", {item["id"] for item in self.catalog.list_models()["data"]})
+        result = self.catalog.list_models(force_refresh=True)
+        self.assertIn("new-pro", {item["id"] for item in result["data"]})
+        self.assertNotIn("pro-only", {item["id"] for item in result["data"]})
+        self.outcomes["pro"] = RuntimeError("temporary failure")
+        self.assertIn("new-pro", {item["id"] for item in self.catalog.list_models(force_refresh=True)["data"]})
+        self.assertEqual(self.calls.count("pro"), 3)
+
     def test_failed_refresh_keeps_last_successful_models_for_that_type(self) -> None:
         self.catalog.list_models()
         self.outcomes["pro"] = RuntimeError("temporary upstream failure")

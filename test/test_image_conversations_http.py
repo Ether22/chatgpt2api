@@ -50,6 +50,7 @@ def environment(tmp_path, monkeypatch):
     path = tmp_path / "tasks.sqlite3"
     service = ImageTaskService(path, generation_handler=upstream, edit_handler=upstream)
     monkeypatch.setattr(image_tasks, "image_task_service", service)
+    monkeypatch.setattr("services.image_task_service.image_task_service", service)
     app = FastAPI()
     app.include_router(image_tasks.create_router())
     app.include_router(system.create_router("test"))
@@ -66,6 +67,39 @@ def submit(env, **overrides):
         "request_id": "round-one", "prompt": "a red kite", "model": "gpt-image-2",
         "size": "1024x1024", "count": 1, "quality": "high", **overrides,
     })
+
+
+def test_first_submissions_share_draft_and_keep_existing_conversation_separate(environment, monkeypatch):
+    env = environment
+    existing = submit(env).json()["id"]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(pool.map(lambda number: submit(env, draft_id="local-draft", request_id=f"draft-{number}"), range(8)))
+    assert all(response.status_code == 200 for response in responses)
+    ids = {response.json()["id"] for response in responses}
+    assert len(ids) == 1 and existing not in ids
+    draft_conversation = ids.pop()
+    assert len(wait_for_history(env, 9)["items"]) == 2
+    assert submit(env, draft_id="local-draft", request_id="draft-0").json()["id"] == draft_conversation
+    other = submit({**env, "headers": env["other"]}, draft_id="local-draft", request_id="draft-0").json()
+    assert other["id"] != draft_conversation
+    assert submit(env, draft_id="local-draft", request_id="invalid", conversation_id=existing).status_code == 400
+    assert env["client"].delete(f"/api/image-conversations/{draft_conversation}", headers=env["headers"]).status_code == 200
+    assert submit(env, draft_id="local-draft", request_id="must-not-revive").status_code == 404
+
+
+def test_failed_first_draft_save_does_not_leave_an_empty_conversation(environment, monkeypatch):
+    env = environment
+    service = env["service"]
+    save = service._save_locked
+    def fail(**kwargs):
+        raise OSError("controlled disk failure")
+    monkeypatch.setattr(service, "_save_locked", fail)
+    assert submit(env, draft_id="failed-draft").status_code == 507
+    assert service._conversations == {} and service._tasks == {} and service._current == {}
+    assert env["calls"] == []
+    monkeypatch.setattr(service, "_save_locked", save)
+    assert submit(env, draft_id="failed-draft").status_code == 200
+    assert len(wait_for_history(env)["items"]) == 1
 
 
 def read_history(client, headers):
@@ -239,7 +273,7 @@ def test_original_and_thumbnail_require_the_stable_owner_even_for_identical_pixe
     assert env["client"].get(urlsplit(other_image["url"]).path, headers=env["headers"]).status_code == 404
 
 
-def test_managed_originals_thumbnails_and_tasks_survive_expiry_and_low_disk_cleanup(environment, monkeypatch):
+def test_managed_originals_expire_with_history_tombstones(environment, monkeypatch):
     env = environment
     assert submit(env).status_code == 200
     history = wait_for_history(env)
@@ -254,9 +288,11 @@ def test_managed_originals_thumbnails_and_tasks_survive_expiry_and_low_disk_clea
     monkeypatch.setattr("services.image_service.shutil.disk_usage", lambda _path: type("Usage", (), {"free": 0})())
     config_module.config.cleanup_old_images()
     assert delete_to_target(500)["removed"] == 0
-    assert env["client"].get(path, headers=env["headers"]).status_code == 200
-    assert env["client"].get(thumb, headers=env["headers"]).status_code == 200
-    assert wait_for_history(env) == history
+    assert env["client"].get(path, headers=env["headers"]).status_code == 404
+    assert env["client"].get(thumb, headers=env["headers"]).status_code == 404
+    current = read_history(env["client"], env["headers"])["items"][0]["turns"][0]
+    assert current["images"] == [] and current["prompt"] == history["items"][0]["turns"][0]["prompt"]
+    assert next(iter(env["service"]._tasks.values()))["result_deleted"]
 
 
 def test_insufficient_disk_space_rejects_submission_before_consumption(environment, monkeypatch):
@@ -292,12 +328,13 @@ def test_legacy_gallery_and_tag_endpoints_cannot_bypass_managed_ownership(enviro
     assert env["client"].delete("/api/images/tags/private%20label", headers=env["other"]).json()["removed_from"] == 0
     assert env["client"].get("/api/images/tags", headers=env["headers"]).json()["tags"] == ["private label"]
     assert env["client"].post("/api/images/delete", headers=env["other"], json={"paths": [rel]}).status_code == 404
-    assert env["client"].post("/api/images/delete", headers=env["headers"], json={"paths": [rel]}).status_code == 409
     assert env["client"].post("/api/images/delete", headers=env["other"], json={"all_matching": True}).json()["removed"] == 0
-    assert env["client"].post("/api/images/storage/compress", headers=env["other"]).json()["compressed"] == 0
+    assert env["client"].post("/api/images/storage/compress", headers=env["other"]).status_code == 200
     assert env["client"].get(f"/api/images/download/{rel}", headers=env["other"]).status_code == 404
     assert env["client"].post("/api/images/download", headers=env["other"], json={"paths": [rel]}).status_code == 404
-    assert env["client"].get(path, headers=env["headers"]).content == image_bytes()
+    assert Image.open(io.BytesIO(env["client"].get(path, headers=env["headers"]).content)).tobytes() == Image.open(io.BytesIO(image_bytes())).tobytes()
+    assert env["client"].post("/api/images/delete", headers=env["headers"], json={"paths": [rel]}).json()["removed"] == 1
+    assert env["client"].get(path, headers=env["headers"]).status_code == 404
 
 
 @pytest.mark.parametrize("reference", [{}, {"dataUrl": "broken"}, {"name": "x.png", "type": "image/png", "dataUrl": "data:image/png;base64,!!!"}])
@@ -359,7 +396,7 @@ def test_snapshot_cannot_be_overwritten_and_explicit_new_conversation_is_restore
     assert submit(env, request_id="foreign", conversation_id="missing").status_code == 404
     assert env["client"].patch(route, headers=env["headers"], json={"turns": [{"id": turn["id"], "prompt": "overwritten"}]}).status_code == 422
     hidden = env["client"].patch(route, headers=env["headers"], json={"turns": [{"id": turn["id"], "promptDeleted": True}]}).json()
-    assert hidden["turns"][0]["prompt"] == "a red kite"
+    assert hidden["turns"][0]["prompt"] == ""
     new = env["client"].post("/api/image-conversations", headers=env["headers"], json={"request_id": "new-product"}).json()
     assert new["id"] != first["id"]
     assert new["turns"] == []

@@ -1,0 +1,13 @@
+.................................................................... [ 17%]
+........................................................................ [ 36%]
+........................................................................ [ 55%]
+........................................................................ [ 73%]
+..................................................................... [ 91%]
+...............................                                          [100%]
+============================== warnings summary ===============================
+services\storage\database_storage.py:12
+  C:\Users\ForestHill\Documents\chatgpt2api\.venv\integration-check\services\storage\database_storage.py:12: MovedIn20Warning: The ``declarative_base()`` function is now available as sqlalchemy.orm.declarative_base(). (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    Base = declarative_base()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+384 passed, 1 warning, 7 subtests passed in 106.26s (0:01:46)

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ChevronLeft, ChevronRight, Download, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, ExternalLink, RotateCcw, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -27,6 +27,9 @@ type ImageLightboxProps = {
   onIndexChange: (index: number) => void;
   onDelete?: () => void;
   roundImages?: LightboxImage[];
+  offset?: number;
+  total?: number;
+  pageLoading?: boolean;
 };
 
 type ImageTransform = {
@@ -103,6 +106,9 @@ export function ImageLightbox({
   onIndexChange,
   onDelete,
   roundImages,
+  offset = 0,
+  total = images.length,
+  pageLoading = false,
 }: ImageLightboxProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<TouchGesture | null>(null);
@@ -116,9 +122,12 @@ export function ImageLightbox({
   const [downloading, setDownloading] = useState(false);
   const downloadController = useRef<AbortController | null>(null);
   const current = images[currentIndex];
-  const imageSource = useImageSource(open ? current?.src : undefined);
-  const hasPrev = currentIndex > 0;
-  const hasNext = currentIndex < images.length - 1;
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const markFailed = useCallback(() => setFailedImage(current?.id ?? null), [current?.id]);
+  const imageSource = useImageSource(open ? current?.src : undefined, loadAttempt, markFailed);
+  const hasPrev = offset + currentIndex > 0;
+  const hasNext = offset + currentIndex < total - 1;
 
   useEffect(() => {
     if (!open) { setDownloads([]); setDownloading(false); }
@@ -166,15 +175,16 @@ export function ImageLightbox({
   }, [cancelScheduledTransform]);
 
   const goPrev = useCallback(() => {
-    if (hasPrev) onIndexChange(currentIndex - 1);
-  }, [hasPrev, currentIndex, onIndexChange]);
+    if (hasPrev && !pageLoading) onIndexChange(currentIndex - 1);
+  }, [hasPrev, currentIndex, onIndexChange, pageLoading]);
 
   const goNext = useCallback(() => {
-    if (hasNext) onIndexChange(currentIndex + 1);
-  }, [hasNext, currentIndex, onIndexChange]);
+    if (hasNext && !pageLoading) onIndexChange(currentIndex + 1);
+  }, [hasNext, currentIndex, onIndexChange, pageLoading]);
 
   useEffect(() => {
     resetTransform();
+    setFailedImage(null);
   }, [current?.id, open, resetTransform]);
 
   useEffect(() => {
@@ -212,7 +222,8 @@ export function ImageLightbox({
     const controller = new AbortController();
     downloadController.current = controller;
     setDownloading(true);
-    if (batch) setDownloads(targets.map(image => ({ image })));
+    setDownloads(items => [...(batch ? [] : items.filter(item => !targets.some(image => image.id === item.image.id))),
+      ...targets.map(image => ({ image }))]);
     try {
       const authKey = await getStoredAuthKey();
       for (const image of targets) {
@@ -406,19 +417,21 @@ export function ImageLightbox({
 
 
           <div
-            className="relative flex min-h-0 w-full flex-1 touch-none items-center justify-center overflow-hidden"
-            onClick={() => onOpenChange(false)}
+            className="relative flex min-h-0 w-full flex-1 touch-none items-center justify-center overflow-hidden sm:absolute sm:inset-0"
+            onClick={(event) => { if (event.target === event.currentTarget) onOpenChange(false); }}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             onTouchCancel={handleTouchCancel}
           >
             <img
+              key={`${current.id}:${loadAttempt}`}
               src={imageSource}
               alt=""
+              onError={markFailed}
               onLoad={(event) => setDimensions({ id: current.id, value: `${event.currentTarget.naturalWidth} x ${event.currentTarget.naturalHeight}` })}
               className={cn(
-                "max-h-full max-w-[90vw] rounded-lg object-contain will-change-transform",
+                "max-h-full max-w-[90vw] rounded-lg object-contain will-change-transform sm:max-h-[82dvh]",
                 isGesturing ? "" : "transition-transform duration-150 ease-out",
                 transform.scale > minScale ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-in",
               )}
@@ -432,15 +445,12 @@ export function ImageLightbox({
               }}
               draggable={false}
             />
-          </div>
-
-          <div className="z-10 max-h-[55dvh] w-full shrink-0 overflow-y-auto overscroll-contain bg-black/80 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white">
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {hasPrev && transform.scale <= minScale && (
+          {hasPrev && transform.scale <= minScale && (
                 <button
                   type="button"
                   onClick={goPrev}
-                  className="inline-flex size-9 items-center justify-center rounded-full bg-black/40 text-white/90 transition hover:bg-black/60 focus-visible:outline-2"
+                  disabled={pageLoading}
+                  className="absolute left-3 top-1/2 z-10 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white/90 backdrop-blur-sm transition hover:bg-black/60 focus-visible:outline-2 disabled:opacity-40 sm:left-6"
                   aria-label="上一张"
                 >
                   <ChevronLeft className="size-5" />
@@ -451,26 +461,35 @@ export function ImageLightbox({
                 <button
                   type="button"
                   onClick={goNext}
-                  className="inline-flex size-9 items-center justify-center rounded-full bg-black/40 text-white/90 transition hover:bg-black/60 focus-visible:outline-2"
+                  disabled={pageLoading}
+                  className="absolute right-3 top-1/2 z-10 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white/90 backdrop-blur-sm transition hover:bg-black/60 focus-visible:outline-2 disabled:opacity-40 sm:right-6"
                   aria-label="下一张"
                 >
                   <ChevronRight className="size-5" />
                 </button>
               )}
-              <span className="text-xs">{dimensions?.id === current.id ? dimensions.value : current.dimensions} · 图片 {current.ordinal ?? currentIndex + 1}（{currentIndex + 1}/{images.length}）</span>
-              <button type="button" disabled={downloading} onClick={() => void handleDownload([current])} className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 disabled:opacity-50 focus-visible:outline-2" aria-label="下载图片"><Download className="size-4" />下载</button>
+          </div>
+          <div className="relative z-10 mb-[max(1rem,env(safe-area-inset-bottom))] max-h-[55dvh] w-max max-w-[94vw] shrink-0 overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-black/55 p-2 text-sm text-white shadow-2xl backdrop-blur-md sm:absolute sm:bottom-[max(1rem,env(safe-area-inset-bottom))] sm:left-1/2 sm:mb-0 sm:max-h-[calc(100dvh-2rem)] sm:-translate-x-1/2">
+            {failedImage === current.id && <p role="alert" className="mb-2 text-center text-sm">原图加载失败。<button type="button" className="ml-2 min-h-9 underline" onClick={() => { setFailedImage(null); setLoadAttempt((value) => value + 1); }}><RotateCcw className="mr-1 inline size-4" />重试加载</button></p>}
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <span className="rounded-full bg-white/10 px-3 py-2 text-xs">{[current.sizeLabel, dimensions?.id === current.id ? dimensions.value : current.dimensions].filter(Boolean).join(" · ") || "图片"}</span>
+              <span className="rounded-full bg-white/10 px-3 py-2 text-xs">图片 {current.ordinal ?? offset + currentIndex + 1}（{offset + currentIndex + 1}/{total}）{pageLoading ? " 加载中…" : ""}</span>
+              <button type="button" disabled={downloading} onClick={() => void handleDownload([current])} className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 disabled:opacity-50 focus-visible:outline-2" aria-label="下载图片"><Download className="size-4" />{downloads.some((item) => item.image.id === current.id && item.error) ? "重试下载" : "下载"}</button>
+              {imageSource && <a href={imageSource} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 focus-visible:outline-2"><ExternalLink className="size-4" />打开原图</a>}
               {roundImages && <button type="button" disabled={downloading || !roundImages.length} onClick={() => void handleDownload(roundImages, true)} className="min-h-9 rounded-full bg-white/10 px-3 text-sm disabled:opacity-50 focus-visible:outline-2" aria-label="下载本轮成功图片">下载本轮（{roundImages.length}）</button>}
-              {onDelete && <button type="button" onClick={onDelete} aria-label="删除当前生成结果" className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 focus-visible:outline-2"><Trash2 className="size-4" />删除</button>}
+              {onDelete && <button type="button" onClick={onDelete} aria-label="删除当前生成结果" className="inline-flex min-h-9 items-center gap-1 rounded-full bg-rose-500/20 px-3 text-rose-200 hover:bg-rose-500/30 focus-visible:outline-2"><Trash2 className="size-4" />删除</button>}
               <DialogPrimitive.Close className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 focus-visible:outline-2"><X className="size-4" />关闭</DialogPrimitive.Close>
             </div>
             {downloads.length > 0 && <div className="mx-auto mt-2 max-w-xl text-xs">
               <p role="status">已请求 {downloads.filter(item => item.name).length}/{downloads.length} 张{downloading ? "，正在逐张下载…" : ""}；失败 {downloads.filter(item => item.error).length} 张。</p>
-              <p>请检查浏览器下载记录；如多文件下载被拦截，请允许后逐张点击下方按钮继续下载。</p>
               <details><summary className="cursor-pointer py-2">下载明细与逐张重试</summary>
+                <div className="max-h-[min(30dvh,16rem)] overflow-y-auto overscroll-contain">
+                <p>请检查浏览器下载记录；如多文件下载被拦截，请允许后逐张点击下方按钮继续下载。</p>
                 {downloads.map(item => <div key={item.image.id} className="flex items-center gap-2 py-1">
                   <span className="min-w-0 flex-1 break-all">{item.name || item.image.filename || item.image.id} · {item.error || (item.name ? "已请求下载" : "待下载")}</span>
                   <button type="button" disabled={downloading} onClick={() => void handleDownload([item.image])} className="min-h-9 shrink-0 rounded bg-white/10 px-2 disabled:opacity-50">{item.error ? "重试" : "再次下载"}</button>
                 </div>)}
+                </div>
               </details>
             </div>}
           </div>

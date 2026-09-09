@@ -4,7 +4,7 @@ import { httpRequest, request } from "@/lib/request";
 
 export type AccountType = string;
 export type AccountUsageMode = "normal" | "monitor" | "disabled";
-export type AccountStatus = "正常" | "限流" | "异常" | "禁用";
+export type AccountStatus = "正常" | "限流" | "异常";
 export type ImageModel = string;
 export type AuthRole = "admin" | "user";
 export type ImageStorageMode = "local" | "webdav" | "both";
@@ -25,7 +25,6 @@ export type Account = {
   source_type?: string | null;
   status: AccountStatus;
   usage_mode: AccountUsageMode;
-  hidden?: boolean;
   display_order?: number;
   quota: number;
   email?: string | null;
@@ -87,10 +86,15 @@ export type AccountRefreshResponse = {
   items: Account[];
   refreshed: number;
   relogined?: number;
+  relogin_progress_id?: string | null;
   errors: Array<{ access_token: string; error: string }>;
 };
 
 export type RefreshProgressResponse = {
+  stats?: {
+    total: number; active: number; limited: number; abnormal: number; disabled: number;
+    total_quota: number; monitor_quota: number;
+  };
   total: number;
   processed: number;
   done: boolean;
@@ -184,6 +188,8 @@ export type SettingsConfig = {
   image_settle_secs?: number | string;
   image_timeout_retry_secs?: number | string;
   auto_relogin_after_refresh?: boolean;
+  auto_remove_invalid_accounts?: boolean;
+  auto_remove_rate_limited_accounts?: boolean;
   log_levels?: string[];
   image_storage?: ImageStorageSettings;
   proxy_runtime?: ProxyRuntimeSettings;
@@ -302,7 +308,7 @@ export type ImageTask = {
   created_at: string;
   updated_at: string;
   conversation_id?: string;
-  data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
+  data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string; file_size?: number }>;
   error?: string;
   progress?: string;
   elapsed_secs?: number;
@@ -347,14 +353,26 @@ export async function fetchAccounts() {
   return httpRequest<AccountListResponse>("/api/accounts");
 }
 
-export async function fetchModels() {
-  return httpRequest<ModelListResponse>("/v1/models");
+export async function fetchModels(refresh = false) {
+  return httpRequest<ModelListResponse>(`/v1/models${refresh ? "?refresh=true" : ""}`);
 }
 
 export async function createAccounts(tokens: string[], accounts: AccountImportPayload[] = []) {
   return httpRequest<AccountMutationResponse>("/api/accounts", {
     method: "POST",
     body: { tokens, accounts },
+  });
+}
+
+export async function deleteAccounts(accessTokens: string[]) {
+  return httpRequest<AccountListResponse & { removed: number }>("/api/accounts", {
+    method: "DELETE", body: { tokens: accessTokens },
+  });
+}
+
+export async function exportAccounts() {
+  return httpRequest<AccountImportPayload | AccountImportPayload[]>("/api/accounts/export", {
+    method: "POST", body: { format: "json" },
   });
 }
 
@@ -407,7 +425,6 @@ export async function updateAccount(
     type?: AccountType;
     status?: AccountStatus;
     usage_mode?: AccountUsageMode;
-    hidden?: boolean;
     quota?: number;
     proxy?: string;
   },
@@ -515,7 +532,14 @@ export async function createImageEditTask(
 }
 
 export async function fetchImageTasks(ids: string[], authKey: string, versions: Record<string, string> = {}) {
-  return identityRequest<ImageTaskListResponse>(authKey, "/api/image-tasks/query", { method: "POST", body: { ids, versions } });
+  const items: ImageTask[] = [];
+  for (let offset = 0; offset < ids.length; offset += 200) {
+    const batch = ids.slice(offset, offset + 200);
+    const page = await identityRequest<ImageTaskListResponse>(authKey, "/api/image-tasks/query", { method: "POST",
+      body: { ids: batch, versions: Object.fromEntries(batch.filter((id) => id in versions).map((id) => [id, versions[id]])) } });
+    items.push(...page.items);
+  }
+  return { items };
 }
 
 export async function resumeImagePoll(taskId: string, extraTimeoutSecs = 30, authKey?: string) {
@@ -609,8 +633,8 @@ export async function fetchManagedImages(filters: ImageListFilters & { paths_onl
   );
 }
 
-export async function deleteManagedImages(body: { paths?: string[]; start_date?: string; end_date?: string; all_matching?: boolean }) {
-  return httpRequest<{ removed: number }>("/api/images/delete", { method: "POST", body });
+export async function deleteManagedImages(body: { paths?: string[]; start_date?: string; end_date?: string; all_matching?: boolean; tags?: string[] }) {
+  return httpRequest<{ removed: number; retained: number; pending: number; failed: number }>("/api/images/delete", { method: "POST", body });
 }
 
 export async function downloadImages(paths: string[]) {
@@ -666,11 +690,11 @@ export async function fetchImageStorage() {
 }
 
 export async function compressAllImages() {
-  return httpRequest<{ compressed: number; saved_bytes: number; saved_mb: number }>("/api/images/storage/compress", { method: "POST" });
+  return httpRequest<{ compressed: number; saved_bytes: number; saved_mb: number; failed: number; errors: string[] }>("/api/images/storage/compress", { method: "POST" });
 }
 
 export async function deleteToTarget(targetFreeMb: number) {
-  return httpRequest<{ removed: number; freed_mb: number; done: boolean }>(
+  return httpRequest<{ removed: number; freed_mb: number; done: boolean; failed: number; errors: string[] }>(
     `/api/images/storage/cleanup-to-target?target_free_mb=${targetFreeMb}&dry_run=false`,
     { method: "POST" },
   );

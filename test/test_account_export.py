@@ -1,6 +1,8 @@
 import base64
 import json
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from typing import Any
 
 from services.account_service import AccountService
@@ -71,7 +73,7 @@ class AccountExportTests(unittest.TestCase):
         self.assertEqual(item["id_token"], id_token)
         self.assertEqual(item["refresh_token"], "rt_test")
 
-    def test_build_export_items_skips_accounts_missing_complete_tokens(self) -> None:
+    def test_build_export_items_includes_access_only_and_missing_id(self) -> None:
         complete_access_token = make_jwt({"exp": 0})
         complete_id_token = make_jwt({"email": "complete@example.com"})
         service = AccountService(
@@ -86,10 +88,23 @@ class AccountExportTests(unittest.TestCase):
 
         items = service.build_export_items()
 
-        self.assertEqual(len(items), 1)
-        self.assertEqual(items[0]["access_token"], complete_access_token)
-        self.assertEqual(items[0]["id_token"], complete_id_token)
-        self.assertEqual(items[0]["refresh_token"], "rt_complete")
+        self.assertEqual(len(items), 3)
+        self.assertEqual([item["access_token"] for item in items], ["only_access", "missing_id", complete_access_token])
+        self.assertEqual(items[1]["refresh_token"], "rt_missing_id")
+        self.assertEqual(items[2]["id_token"], complete_id_token)
+
+    def test_oauth_json_roundtrip_preserves_refresh_capability_and_source(self):
+        original = AccountService(MemoryStorage([{"access_token": "old", "refresh_token": "rt", "source_type": "oauth"}]))
+        imported = AccountService(MemoryStorage())
+        imported.add_account_items(json.loads(json.dumps(original.build_export_items())))
+        self.assertEqual(imported.get_account("old")["source_type"], "oauth")
+        with patch("curl_cffi.requests.Session.post", return_value=SimpleNamespace(
+            status_code=200, text="ok", json=lambda: {"access_token": "new", "refresh_token": "rt-new"}
+        )) as refresh:
+            imported.refresh_access_token("old", force=True)
+        self.assertEqual(refresh.call_args.kwargs["data"]["refresh_token"], "rt")
+        self.assertEqual(imported.get_account("new")["source_type"], "oauth")
+        self.assertEqual(imported.get_account("new")["refresh_token"], "rt-new")
 
     def test_add_account_items_preserves_export_fields_without_overwriting_plan_type(self) -> None:
         service = AccountService(MemoryStorage())

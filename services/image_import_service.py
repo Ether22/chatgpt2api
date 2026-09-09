@@ -84,11 +84,11 @@ class ImageImportService:
             return self._public(self._read(identity))
 
     def correct_candidate(self, identity, request_id, version, md_version, key, changes):
-        allowed = {"document_id", "name", "prompt", "size", "output_name", "reference_names", "skipped"}
+        allowed = {"document_id", "name", "prompt", "size", "output_name", "reference_names", "skipped", "ignored"}
         if not changes or set(changes) - allowed:
             raise ValueError("请提供可修改的候选字段")
         for field, value in changes.items():
-            if field == "skipped":
+            if field in {"skipped", "ignored"}:
                 valid = isinstance(value, bool)
             elif field == "reference_names":
                 valid = value is None or (isinstance(value, list) and len(value) <= 10000
@@ -110,13 +110,18 @@ class ImageImportService:
             if candidate is None:
                 raise KeyError(key)
             for field, value in changes.items():
-                if field == "skipped":
-                    candidate["skipped"] = value
+                if field in {"skipped", "ignored"}:
+                    candidate[field] = value
                 else:
                     if field == "size":
                         value = re.sub(r"\s*[×Xx]\s*", "x", value.strip())
                     candidate["config"][field] = value
                     candidate["errors"] = [error for error in candidate["errors"] if error["field"] != field]
+            if changes.get("ignored"):
+                checked = next(item for item in self._public(state)["candidates"] if item["key"] == key)
+                candidate["config"]["reference_names"] = [match["name"] for match in checked["matches"] if match["status"] == "ready"]
+                candidate["errors"] = [error for error in candidate["errors"]
+                                       if error["code"] == "conflicting_field" and error["field"] != "reference_names"]
             state["version"] += 1
             state["receipts"][request_id] = fingerprint
             self._write(identity, state)
@@ -148,6 +153,8 @@ class ImageImportService:
             return {"version": public["version"], "revision": public["revision"], "md_version": md_version, "candidates": selected}
 
     def submit_batch(self, identity, body, base_url=""):
+        if body.get("draft_id") is None:
+            body = {key: value for key, value in body.items() if key != "draft_id"}
         fingerprint = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         with self._lock:
             replay = self.references.replay_batch(identity, body["request_id"], fingerprint)
@@ -172,6 +179,7 @@ class ImageImportService:
             for entry, candidate in zip(body["entries"], snapshot["candidates"]):
                 cfg = candidate["config"]
                 submissions.append({"request_id": body["request_id"], "conversation_id": body["conversation_id"],
+                    "draft_id": body.get("draft_id"),
                     "prompt": cfg["prompt"], "model": body["model"], "quality": body["quality"],
                     "size": cfg["size"], "count": entry["count"] if entry["count"] is not None else body["count"],
                     "ratio": ":".join(cfg["size"].split("x")), "tier": "custom", "referenceImages": [],

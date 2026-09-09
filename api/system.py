@@ -44,6 +44,7 @@ class ImageDeleteRequest(BaseModel):
     start_date: str = ""
     end_date: str = ""
     all_matching: bool = False
+    tags: list[str] = []
 
 class ImageDownloadRequest(BaseModel):
     paths: list[str]
@@ -127,9 +128,10 @@ def create_router(app_version: str) -> APIRouter:
         identity = require_admin(authorization)
         for path in body.paths:
             image_storage_service.require_owner(path, identity)
-            if is_managed_image(path):
-                raise HTTPException(status_code=409, detail={"error": "受管理图片请通过生图会话管理"})
-        return delete_images(body.paths, start_date=body.start_date.strip(), end_date=body.end_date.strip(), all_matching=body.all_matching)
+        try:
+            return await run_in_threadpool(delete_images, body.paths, body.start_date.strip(), body.end_date.strip(), body.all_matching, identity, body.tags)
+        except (ValueError, ImageStorageError) as exc:
+            raise HTTPException(status_code=409, detail={"error": str(exc)}) from exc
 
     @router.post("/api/images/download")
     async def download_images_endpoint(body: ImageDownloadRequest, authorization: str | None = Header(default=None)):

@@ -80,7 +80,9 @@ function getAccountJsonAccount(value: unknown): AccountImportPayload | null {
   const payload: AccountImportPayload = {
     ...raw,
     access_token: token,
-    source_type: "codex",
+    source_type: typeof raw.source_type === "string" && raw.source_type.trim()
+      ? raw.source_type.trim()
+      : raw.type === "codex" || raw.export_type === "codex" ? "codex" : "web",
   };
   delete payload.accessToken;
   if (payload.type === "codex") {

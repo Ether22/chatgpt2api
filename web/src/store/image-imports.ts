@@ -27,14 +27,16 @@ export type ImportCandidate = {
   key: string;
   config: ImportCandidateConfig;
   skipped: boolean;
+  ignored?: boolean;
   status: "ready" | "pending" | "error";
   errors: { field: string; code: string; message: string }[];
   matches: { name: string; status: "ready" | "pending" | "error"; upload_id: string | null; reference: StoredReferenceImage | null }[];
 };
-export type CandidateChanges = Partial<ImportCandidateConfig & { skipped: boolean }>;
+export type CandidateChanges = Partial<ImportCandidateConfig & { skipped: boolean; ignored: boolean }>;
 export type SelectedMdBatch = ImportMutation & {
   md_version: number;
   conversation_id: string | null;
+  draft_id?: string;
   model: string;
   quality: string;
   count: number;

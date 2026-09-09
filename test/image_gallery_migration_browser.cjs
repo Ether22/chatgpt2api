@@ -1,0 +1,64 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { chromium } = require('C:/Users/ForestHill/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const origin='http://127.0.0.1:43280';
+const headers={Authorization:'Bearer ticket08-A'};
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function until(fn,label='state') {for(let n=0;n<250;n++){if(await fn())return;await pause(80);}throw Error(`Timed out: ${label}`);}
+(async()=>{
+ const output=path.resolve('.scratch/account-management-followup/evidence/gallery-migration');
+ await fs.mkdir(output,{recursive:true});
+ const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe'});
+ try {
+  const context=await browser.newContext({viewport:{width:1440,height:1000}});
+  await context.route('**/*',route=>new URL(route.request().url()).origin===origin ? route.continue():route.abort());
+  const post=async(url,data={})=>{const response=await context.request.post(origin+url,{headers,data});assert.equal(response.status(),200,await response.text());return response.json();};
+  const get=async url=>{const response=await context.request.get(origin+url,{headers});assert.equal(response.status(),200);return response.json();};
+  const created=await post('/api/image-conversations/turns',{request_id:'gallery-26',prompt:'Gallery history',count:26});
+  await until(async()=>!(await get(`/api/image-conversations/${created.id}/metadata`)).stats.running,'gallery generation');
+  await until(async()=>(await get('/api/images?limit=100')).pagination.total===26,'26 images');
+  await post('/followup-date-gallery');
+  const page=await context.newPage(); const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto(origin+'/login/');await page.getByLabel('密钥',{exact:true}).fill('ticket08-A');await page.getByRole('button',{name:'登录',exact:true}).click();await page.waitForURL('**/accounts/');
+  await page.goto(origin+'/image-manager/');await until(async()=>await page.locator('button:has(img)').count()===12,'gallery page');
+  const gallery=page.locator('section').filter({has:page.getByRole('heading',{name:'图片管理',exact:true})});
+  const data=await get('/api/images?limit=12');
+  await page.locator('button:has(img)').nth(11).click();
+  const viewer=page.getByRole('dialog',{name:'图片预览'});
+  await viewer.waitFor();await until(async()=>(await viewer.innerText()).includes('12/26'),'12th image');
+  await viewer.getByRole('button',{name:'下一张',exact:true}).click();
+  await until(async()=>(await viewer.innerText()).includes('13/26'),'cross page next');
+  await viewer.getByRole('button',{name:'上一张',exact:true}).click();
+  await until(async()=>(await viewer.innerText()).includes('12/26'),'cross page previous');
+  assert.match(await viewer.innerText(),/KB|MB/);
+  await viewer.getByRole('link',{name:'打开原图'}).waitFor();
+  await page.screenshot({path:path.join(output,'viewer-cross-page.png')});
+  let failDownload=true;
+  await page.route('**'+new URL(data.items[11].url).pathname, route=>failDownload ? (failDownload=false,route.fulfill({status:503,body:'controlled download failure'})):route.continue());
+  await viewer.getByRole('button',{name:'下载图片'}).click();
+  await until(async()=>(await viewer.innerText()).includes('重试下载'),'explicit download retry');
+  const download=page.waitForEvent('download');await viewer.getByRole('button',{name:'下载图片'}).click();await download;
+  await viewer.getByRole('button',{name:'关闭',exact:true}).click();
+  await page.getByRole('button',{name:'keep',exact:true}).first().click();
+  await page.getByRole('checkbox',{name:'全选结果',exact:true}).click();
+  await until(async()=>(await gallery.innerText()).includes('已选 26 张'),'select all pages');
+  await page.getByRole('button',{name:'选择日期范围',exact:true}).click();
+  const day=page.getByRole('gridcell',{name:/Tuesday, September 1st, 2026/});
+  if(await day.count()) await day.getByRole('button').click();
+  else {
+   const candidates=await page.getByRole('button').evaluateAll(nodes=>nodes.filter(node=>node.getAttribute('aria-label')?.includes('2026')).map(node=>node.getAttribute('aria-label')));
+   const label=candidates.find(label=>/September 1(?:st)?, 2026/.test(label));assert.ok(label,JSON.stringify(candidates));await page.getByRole('button',{name:label,exact:true}).click();
+  }
+  await page.keyboard.press('Escape');
+  await until(async()=>(await gallery.innerText()).includes('已选 12 张'),'date retains matching selection');
+  assert.match(await page.getByRole('button',{name:'keep',exact:true}).first().locator('span').getAttribute('class'),/bg-primary/);
+  await page.getByRole('button',{name:'取消全部选择',exact:true}).click();
+  await until(async()=>!(await gallery.innerText()).includes('已选 '),'clear all');
+  await until(async()=>await page.locator('[data-sonner-toast]').count()===0,'toast dismissed');
+  await page.screenshot({path:path.join(output,'date-keeps-tag.png')});
+  await page.goto(origin+'/image/');assert.equal(await page.getByRole('button',{name:'迁移旧历史',exact:true}).count(),0);
+  assert.deepEqual(errors,[]);
+  console.log(JSON.stringify({passed:true,checks:['gallery crosses both page boundaries','file sizes','download retry','date retains tag and 12/26 selected','clear all','history migration removed']},null,2));
+ }finally{await browser.close();}
+})().catch(error=>{console.error(error);process.exitCode=1;});

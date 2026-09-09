@@ -32,6 +32,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         message_as_error=True,
         progress_callback=progress_callback,
         lifecycle_callback=body.get("lifecycle_callback"),
+        retry_counts=body.get("_retry_counts"),
     ))
     if body.get("stream"):
         return stream_image_chunks(outputs)

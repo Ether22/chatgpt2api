@@ -47,6 +47,21 @@ def correct(env, state, candidate, changes, request_id="correct"):
         json={"request_id": request_id, "version": state["version"], "md_version": state["md_version"], "changes": changes})
 
 
+def test_model_refresh_is_admin_only_and_removed_history_migration_is_unavailable(environment, monkeypatch):
+    from api import ai, support
+    calls = []
+    monkeypatch.setattr(ai.openai_v1_models, "list_models", lambda force_refresh=False: calls.append(force_refresh) or {"data": []})
+    environment["app"].include_router(ai.create_router())
+    _, key = support.auth_service.create_key(role="user", name="Model reader")
+    headers = {"Authorization": f"Bearer {key}"}
+    client = environment["client"]
+    assert client.get("/v1/models", headers=headers).status_code == 200
+    assert client.get("/v1/models?refresh=true", headers=headers).status_code == 403
+    assert client.get("/v1/models?refresh=true", headers=environment["headers"]).status_code == 200
+    assert calls == [False, True]
+    assert client.post("/api/image-history/migrate", headers=environment["headers"], json={}).status_code == 404
+
+
 def test_corrections_survive_reference_progress_reload_but_not_md_replacement(imports, tmp_path, monkeypatch):
     from api import image_imports
     from services.image_import_service import ImageImportService, ImportConflict

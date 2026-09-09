@@ -1,6 +1,7 @@
 """Scope deletion through public HTTP, real files and controlled upstream boundaries."""
 import time
 import threading
+import copy
 import pytest
 
 from api import image_tasks
@@ -21,6 +22,99 @@ def wait_cleanup(env):
             return result
         time.sleep(.02)
     raise AssertionError(result)
+
+
+def test_cancelled_snapshot_waits_for_sibling_without_false_cleanup_error(environment, monkeypatch):
+    from test.test_image_references_http import upload
+    env = environment
+    service = env["service"]
+    monkeypatch.setattr(service, "_start_task", lambda *args: None)
+    reference = upload(env)
+    conversation = submit(env, count=2, referenceImages=[{"id": reference["id"]}]).json()
+    service.release_reference(env["owner"], reference["id"])
+    keys = list(service._tasks)
+    service._update_task(keys[1], dispatch_state="sent", status="running")
+    assert env["client"].delete(f'/api/image-conversations/{conversation["id"]}', headers=env["headers"]).status_code == 200
+    cleanups = service.list_cleanups(env["owner"])
+    assert cleanups["stats"]["error"] == 0
+    assert cleanups["stats"]["pending"] == 2
+    assert service._tasks[keys[0]]["dispatch_state"] == "cancelled"
+    service._update_task(keys[1], dispatch_state="complete", status="error", data=[])
+    service.cleanup_results(env["owner"])
+    assert service.list_cleanups(env["owner"])["stats"]["complete"] == 2
+    assert env["calls"] == []
+
+
+def test_retry_all_snapshots_every_page_and_bounds_original_request_verification(environment, monkeypatch):
+    env = environment
+    service = env["service"]
+    assert submit(env).status_code == 200
+    wait_for_history(env)
+    original = copy.deepcopy(next(iter(service._tasks.values())))
+    owner = env["owner"]["id"]
+    keys = []
+    with service._lock:
+        for number in range(61):
+            task = {**copy.deepcopy(original), "id": f"old-{number}", "image_conversation_id": "", "turn_id": "",
+                    "status": "error", "dispatch_state": "unknown", "data": [], "result_storage_paths": [],
+                    "result_deleted": True, "result_cleanup": {"state": "error", "error": "controlled failure"}}
+            key = f'{owner}:{task["id"]}'
+            service._tasks[key] = task
+            keys.append(key)
+        other = {**copy.deepcopy(task), "owner_id": "another-owner", "id": "other"}
+        service._tasks["another-owner:other"] = other
+        service._save_locked(tasks=keys + ["another-owner:other"])
+    release, four_started = threading.Event(), threading.Event()
+    lock = threading.Lock()
+    verified, active, peak = [], 0, 0
+
+    def verify(key, *args):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+            if active == 4:
+                four_started.set()
+        assert release.wait(10)
+        time.sleep(.003)
+        service._update_task(key, status="error", dispatch_state="complete", data=[])
+        with lock:
+            verified.append(key)
+            active -= 1
+
+    monkeypatch.setattr(service, "_run_resume_poll", verify)
+    try:
+        page = env["client"].get("/api/image-cleanups", headers=env["headers"]).json()
+        assert page["pagination"]["total"] == 61 and len(page["items"]) == 50
+        route = "/api/image-cleanups/retry-failed"
+        assert env["client"].post(route, headers=env["other"]).json()["accepted"] == 0
+        response = env["client"].post(route, headers=env["headers"])
+        assert response.status_code == 200 and response.json()["accepted"] == 61
+        assert four_started.wait(5)
+        assert env["client"].post(route, headers=env["headers"]).json() == {"accepted": 0, "running": True}
+        release.set()
+        assert wait_cleanup(env)["stats"]["complete"] == 61
+        assert peak == 4 and set(verified) == set(keys) and len(verified) == 61
+        assert service._tasks["another-owner:other"]["result_cleanup"]["state"] == "error"
+        assert len(env["calls"]) == 1
+    finally:
+        release.set()
+        service.shutdown(2)
+
+
+def test_prompt_deletion_clears_round_body_but_preserves_inflight_request(environment, monkeypatch):
+    env = environment
+    service = env["service"]
+    monkeypatch.setattr(service, "_start_task", lambda *args: None)
+    conversation = submit(env).json()
+    turn = conversation["turns"][0]
+    route = f'/api/image-conversations/{conversation["id"]}'
+    result = env["client"].patch(route, headers=env["headers"], json={"turns": [{"id": turn["id"], "promptDeleted": True}]}).json()
+    assert result["turns"][0]["prompt"] == ""
+    assert next(iter(service._tasks.values()))["request"]["prompt"] == "a red kite"
+    assert submit(env, request_id="deleted-rerun", conversation_id=conversation["id"], source_turn_id=turn["id"], rerun=True).status_code == 400
+    restored = ImageTaskService(env["path"])
+    assert restored._conversations[conversation["id"]]["turns"][0]["prompt"] == ""
 
 
 def test_legacy_turn_delete_physically_cleans_and_cannot_be_unhidden(environment):

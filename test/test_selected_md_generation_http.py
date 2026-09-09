@@ -10,7 +10,7 @@ import pytest
 
 from test.test_image_conversations_http import environment, read_history, wait_for_history
 from test.test_image_imports_http import imports, reserve, upload
-from test.test_image_import_preview_http import replace
+from test.test_image_import_preview_http import correct, replace
 from test.image_storage_faults import deny_sqlite_commits
 
 
@@ -42,6 +42,70 @@ def batch(env, state, **changes):
             "model": "gpt-image-2", "quality": "high", "count": 1,
             "entries": [{"key": c["key"]} for c in state["candidates"][:2]], **changes}
     return env["client"].post("/api/image-imports/batches", headers=env["headers"], json=body)
+
+
+def test_ignore_uses_available_references_and_persists_without_bypassing_required_fields(imports, tmp_path, monkeypatch):
+    from api import image_imports
+    from services.image_import_service import ImageImportService
+    env = imports
+    md = """## [P01] Partial｜1200x800
+参考图：second.png、missing.png、first.png
+Prompt: partial
+## [P02] No references｜800x600
+参考图：missing.png
+Prompt: plain
+## [P03] Incomplete
+参考图：无
+## [P04] Conflict｜800x600
+尺寸：1200x800
+参考图：无
+Prompt: conflict
+"""
+    state = replace(env, md)
+    for request_id, name in [("ref-one", "first.png"), ("ref-two", "second.png")]:
+        assert reserve(env, request_id, name, state["version"]).status_code == 200
+        state = upload(env, request_id, name).json()
+    assert correct(env, state, state["candidates"][0], {"ignored": "true"}, "bad-ignore").status_code == 400
+    for index in range(4):
+        candidate = state["candidates"][index]
+        response = correct(env, state, candidate, {"ignored": True}, f"ignore-{index}")
+        assert response.status_code == 200, response.text
+        assert correct(env, state, candidate, {"ignored": True}, f"ignore-{index}").json() == response.json()
+        state = response.json()
+    assert [item["status"] for item in state["candidates"]] == ["ready", "ready", "error", "error"]
+    assert state["candidates"][0]["config"]["reference_names"] == ["second.png", "first.png"]
+    assert state["candidates"][1]["config"]["reference_names"] == []
+    assert all(item["ignored"] and not item["skipped"] for item in state["candidates"])
+    assert state["md"]["content"] == md
+    monkeypatch.setattr(image_imports, "image_import_service", ImageImportService(tmp_path / "imports", env["service"]))
+    assert env["client"].get("/api/image-imports", headers=env["headers"]).json() == state
+    for index in (2, 3):
+        assert batch(env, state, request_id=f"invalid-{index}", entries=[{"key": state["candidates"][index]["key"]}]).status_code == 400
+    response = batch(env, state)
+    assert response.status_code == 200, response.text
+    history = wait_for_history(env, 2)
+    turns = history["items"][0]["turns"]
+    assert turns[0]["md"]["reference_names"] == ["second.png", "first.png"]
+    assert len(turns[0]["referenceImages"]) == 2
+    assert turns[1]["referenceImages"] == []
+    assert len(env["calls"]) == 2
+    replacement = replace(env, md, "replacement", state["version"])
+    assert not replacement["candidates"][0].get("ignored")
+    assert replacement["candidates"][0]["status"] == "error"
+    assert env["client"].get(f'/api/image-conversations/{response.json()["id"]}', headers=env["headers"]).json()["turns"][0]["md"]["reference_names"] == ["second.png", "first.png"]
+
+
+def test_md_and_ordinary_first_submissions_share_the_same_local_draft(imports):
+    from test.test_image_conversations_http import submit
+    env = imports
+    state = replace(env, document())
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        md = pool.submit(batch, env, state, draft_id="shared-draft", entries=[{"key": state["candidates"][0]["key"]}])
+        ordinary = pool.submit(submit, env, draft_id="shared-draft")
+        md, ordinary = md.result(), ordinary.result()
+    assert md.status_code == ordinary.status_code == 200
+    assert md.json()["id"] == ordinary.json()["id"]
+    assert len(wait_for_history(env, 2)["items"]) == 1
 
 
 def test_selected_ready_entry_runs_while_own_pending_reference_survives_restart(imports, monkeypatch):

@@ -136,7 +136,7 @@ class AccountService:
             isinstance(account, dict)
             and bool(account)
             and account.get("usage_mode", "normal") == "normal"
-            and account.get("status") not in {"禁用", "异常"}
+            and account.get("status", "正常") in {"正常", "限流"}
         )
 
     @classmethod
@@ -228,9 +228,11 @@ class AccountService:
             normalized.pop("type", None)
         normalized["type"] = normalized.get("type") or "free"
         normalized["status"] = normalized.get("status") or "正常"
+        if normalized["status"] == "禁用":
+            normalized.update(status="异常", quota=0)
         usage_mode = normalized.get("usage_mode", "normal")
         normalized["usage_mode"] = usage_mode if usage_mode in ("normal", "monitor", "disabled") else "disabled"
-        normalized["hidden"] = normalized.get("hidden") is True
+        normalized.pop("hidden", None)
         order = normalized.get("display_order")
         normalized["display_order"] = order if type(order) is int and order >= 0 else 0
         normalized["quota"] = max(0, int(normalized.get("quota") if normalized.get("quota") is not None else 0))
@@ -527,58 +529,22 @@ class AccountService:
             else:
                 # 登录失败
                 error_type = result.get("error", "")
-                if error_type == "password_verify_failed_403" and isinstance(result.get("detail"), dict):
-                    log_service.add(
-                        LOG_TYPE_ACCOUNT,
-                        "更新账号",
-                        {
-                            "source": event,
-                            "token": anonymize_token(access_token),
-                            "email": email,
-                            "status": "失败",
-                            "error": error_type,
-                            "detail": result.get("detail", {}),
-                        },
-                    )
-                    detail_error = result["detail"].get("error", {})
-                    if isinstance(detail_error, dict) and detail_error.get("code") == "account_deactivated":
-                        # 账号已删除/停用 → 标记为禁用
-                        self.update_account(access_token, {"status": "禁用", "quota": 0}, quiet=True)
-                        account = self.get_account(access_token) or {}
-                        log_service.add(
-                            LOG_TYPE_ACCOUNT,
-                            "账号已停用-标记禁用",
-                            {
-                                "source": event,
-                                "token": anonymize_token(access_token),
-                                "email": email,
-                                "detail": result.get("detail", {}),
-                            },
-                        )
-                        if progress_id:
-                            self.update_relogin_progress(progress_id, access_token, "禁用")
-                    else:
-                        # 永久故障：将账号标记为异常
-                        self.remove_invalid_token(access_token, f"{event}:password_relogin_failed", quiet=True)
-                        if progress_id:
-                            self.update_relogin_progress(progress_id, access_token, "异常", error_type)
-                else:
-                    log_service.add(
-                        LOG_TYPE_ACCOUNT,
-                        "更新账号",
-                        {
-                            "source": event,
-                            "token": anonymize_token(access_token),
-                            "email": email,
-                            "status": "失败",
-                            "error": error_type,
-                            "detail": result.get("detail", {}),
-                        },
-                    )
-                    # 永久故障：将账号标记为异常
-                    self.remove_invalid_token(access_token, f"{event}:password_relogin_failed", quiet=True)
-                    if progress_id:
-                        self.update_relogin_progress(progress_id, access_token, "异常", error_type)
+                log_service.add(
+                    LOG_TYPE_ACCOUNT,
+                    "更新账号",
+                    {
+                        "source": event,
+                        "token": anonymize_token(access_token),
+                        "email": email,
+                        "status": "失败",
+                        "error": error_type,
+                        "detail": result.get("detail", {}),
+                    },
+                )
+                # 密码登录失败只标记异常，保留账号供恢复。
+                self.remove_invalid_token(access_token, f"{event}:password_relogin_failed", quiet=True, confirmed=False)
+                if progress_id:
+                    self.update_relogin_progress(progress_id, access_token, "异常", error_type)
         except Exception as exc:
             log_service.add(
                 LOG_TYPE_ACCOUNT,
@@ -592,7 +558,7 @@ class AccountService:
                 },
             )
             # 将账号标记为异常
-            self.remove_invalid_token(access_token, f"{event}:password_relogin_exception", quiet=True)
+            self.remove_invalid_token(access_token, f"{event}:password_relogin_exception", quiet=True, confirmed=False)
             if progress_id:
                 self.update_relogin_progress(progress_id, access_token, "异常", str(exc))
 
@@ -1122,8 +1088,17 @@ class AccountService:
             self._accounts[access_token] = account
             self._save_accounts()
 
-    def remove_invalid_token(self, access_token: str, event: str, quiet: bool = False) -> bool:
-        """Legacy failure hook: retain the account and mark its upstream health."""
+    def remove_invalid_token(self, access_token: str, event: str, quiet: bool = False, *, confirmed: bool = True) -> bool:
+        """Only confirmed credential failures may trigger automatic deletion."""
+        if confirmed and config.auto_remove_invalid_accounts:
+            with self._lock:
+                token = self._resolve_access_token_locked(access_token)
+                account = self._accounts.get(token)
+                if account and account["usage_mode"] == "normal":
+                    removed = self._delete_accounts_locked({token})
+                    if not quiet:
+                        log_service.add(LOG_TYPE_ACCOUNT, "自动移除异常账号", {"source": event, "removed": removed})
+                    return bool(removed)
         self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
         return False
 
@@ -1165,7 +1140,7 @@ class AccountService:
             return sorted(result, key=lambda item: (item["usage_mode"] != "monitor", item["display_order"]))
 
     def move_account(self, access_token: str, target_token: str, position: str = "before") -> None:
-        """只在同一展示组内移动，隐藏账号也保留在该组保存的顺序中。"""
+        """只在同一展示组内移动，筛选外账号保留在该组保存的顺序中。"""
         if position not in {"before", "after"}:
             raise ValueError("无效的排序位置")
         with self._lock:
@@ -1229,9 +1204,8 @@ class AccountService:
         # CPA/Codex 导出文件里的 `type=codex` 是导出格式，不是号池套餐类型。
         if str(payload.get("type") or "").strip().lower() == "codex":
             payload["export_type"] = "codex"
-            payload["source_type"] = "codex"
             payload.pop("type", None)
-        if str(payload.get("export_type") or "").strip().lower() == "codex":
+        if not payload.get("source_type") and str(payload.get("export_type") or "").strip().lower() == "codex":
             payload["source_type"] = "codex"
         if payload.get("plan_type") and not payload.get("type"):
             payload["type"] = str(payload.get("plan_type") or "").strip()
@@ -1303,7 +1277,30 @@ class AccountService:
         return {"added": added, "skipped": skipped, "items": items}
 
     def delete_accounts(self, tokens: list[str]) -> dict:
-        raise ValueError("account deletion is disabled")
+        with self._lock:
+            removed = self._delete_accounts_locked(set(tokens))
+        if removed:
+            log_service.add(LOG_TYPE_ACCOUNT, f"删除 {removed} 个账号", {"removed": removed})
+        return {"removed": removed, "items": self.list_accounts()}
+
+    def _delete_accounts_locked(self, tokens: set[str]) -> int:
+        """Shared deletion path; caller holds the account lock."""
+        targets = {self._resolve_access_token_locked(token) for token in tokens if token} & self._accounts.keys()
+        if not targets:
+            return 0
+        previous = self._accounts, self._token_aliases, self._image_inflight, self._index
+        aliases = {old: new for old, new in self._token_aliases.items()
+                   if self._resolve_access_token_locked(old) not in targets and old not in targets}
+        self._accounts = {token: item for token, item in self._accounts.items() if token not in targets}
+        self._token_aliases = aliases
+        self._image_inflight = {token: count for token, count in self._image_inflight.items() if token not in targets}
+        self._index = self._index % len(self._accounts) if self._accounts else 0
+        try:
+            self._save_accounts()
+        except Exception:
+            self._accounts, self._token_aliases, self._image_inflight, self._index = previous
+            raise
+        return len(targets)
 
     def update_account(self, access_token: str, updates: dict, quiet: bool = False) -> dict | None:
         if not access_token:
@@ -1320,6 +1317,12 @@ class AccountService:
                 account["display_order"] = max(
                     (item["display_order"] for item in self._accounts.values()), default=-1,
                 ) + 1
+            if (account["status"] == "限流" and account["usage_mode"] == "normal"
+                    and config.auto_remove_rate_limited_accounts and ({"status", "quota"} & updates.keys())):
+                self._delete_accounts_locked({access_token})
+                if not quiet:
+                    log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
+                return None
             self._accounts[access_token] = account
             self._save_accounts()
             if not quiet:
@@ -1413,6 +1416,10 @@ class AccountService:
             account = self._normalize_account(next_item)
             if account is None:
                 return None
+            if account["status"] == "限流" and account["usage_mode"] == "normal" and config.auto_remove_rate_limited_accounts:
+                self._delete_accounts_locked({access_token})
+                log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
+                return None
             self._accounts[access_token] = account
             self._save_accounts()
             return self._public_account(account)
@@ -1479,7 +1486,7 @@ class AccountService:
                 "processed": 0,
                 "done": False,
                 "error": None,
-                "status_counts": {"正常": 0, "限流": 0, "异常": 0, "禁用": 0},
+                "status_counts": {"正常": 0, "限流": 0, "异常": 0},
                 "total_quota": 0,
                 "monitor_quota": 0,
             }
@@ -1516,7 +1523,10 @@ class AccountService:
         """查询刷新进度。"""
         with self._refresh_progress_lock:
             progress = self._refresh_progress.get(progress_id)
-            return dict(progress) if progress else None
+            result = dict(progress) if progress else None
+        if result is not None:
+            result["stats"] = self.get_stats()
+        return result
 
     def clean_refresh_progress(self, progress_id: str) -> None:
         """清理过期进度记录。"""
@@ -1566,7 +1576,10 @@ class AccountService:
         """查询重新登录进度。"""
         with self._relogin_progress_lock:
             progress = self._relogin_progress.get(progress_id)
-            return dict(progress) if progress else None
+            result = dict(progress) if progress else None
+        if result is not None:
+            result["stats"] = self.get_stats()
+        return result
 
     def clean_relogin_progress(self, progress_id: str) -> None:
         """清理过期进度记录。"""
@@ -1629,7 +1642,9 @@ class AccountService:
 
         # 自动重新登录异常账号（仅当配置开启时）
         relogined = 0
+        relogin_progress_id = None
         if config.auto_relogin_after_refresh:
+            candidates = []
             for token in access_tokens:
                 account = self.get_account(token)
                 if not account:
@@ -1641,19 +1656,19 @@ class AccountService:
                 password = str(account.get("password") or "").strip()
                 if not email or not password:
                     continue
-                t = Thread(
-                    target=self._password_re_login_thread,
-                    args=(token, email, password, "auto_relogin_after_refresh"),
-                    daemon=True,
-                )
-                t.start()
-                relogined += 1
+                candidates.append(token)
+            if candidates:
+                relogin_progress_id = str(uuid.uuid4())
+                relogined = self.re_login_accounts(
+                    candidates, relogin_progress_id, event="auto_relogin_after_refresh"
+                )["relogined"]
 
         result = {
             "refreshed": refreshed,
             "errors": errors,
             "items": self.list_accounts(),
             "relogined": relogined,
+            "relogin_progress_id": relogin_progress_id,
         }
 
         if progress_id:
@@ -1661,7 +1676,7 @@ class AccountService:
 
         return result
 
-    def re_login_accounts(self, access_tokens: list[str], progress_id: str | None = None) -> dict[str, Any]:
+    def re_login_accounts(self, access_tokens: list[str], progress_id: str | None = None, *, event: str = "manual_relogin") -> dict[str, Any]:
         """对选中账号执行密码重新登录流程。
 
         仅对包含 email + password 的账号有效。
@@ -1700,7 +1715,7 @@ class AccountService:
             # 在新线程中执行密码重新登录
             t = Thread(
                 target=self._password_re_login_thread,
-                args=(token, email, password, "manual_relogin", progress_id),
+                args=(token, email, password, event, progress_id),
                 daemon=True,
             )
             t.start()
@@ -1735,7 +1750,7 @@ class AccountService:
             access_token = str(account.get("access_token") or "").strip()
             refresh_token = str(account.get("refresh_token") or "").strip()
             id_token = str(account.get("id_token") or "").strip()
-            if not access_token or not refresh_token or not id_token:
+            if not access_token:
                 continue
 
             access_payload = self._decode_jwt_payload(access_token)
@@ -1757,6 +1772,7 @@ class AccountService:
             )
             item = {
                 "type": str(account.get("export_type") or "codex"),
+                "source_type": self._normalize_source_type(account.get("source_type")),
                 "email": email,
                 "account_id": account_id,
                 "access_token": access_token,

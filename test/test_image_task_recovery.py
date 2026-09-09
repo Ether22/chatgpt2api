@@ -77,7 +77,7 @@ def test_pool_waits_for_known_restore_and_busy_slots_but_rejects_unknown_quota(t
         pool.get_available_access_token()
 
 
-def test_real_protocol_does_not_resend_after_generation_post_loses_response(environment, tmp_path, monkeypatch):
+def test_real_protocol_retries_classified_connection_reset_with_durable_attempts(environment, tmp_path, monkeypatch):
     from services import openai_backend_api as backend
     from services.protocol import conversation, openai_v1_image_generations
     from services.account_service import AccountService
@@ -102,16 +102,20 @@ def test_real_protocol_does_not_resend_after_generation_post_loses_response(envi
         client.post = post
         return client
     monkeypatch.setattr(backend.requests, "Session", transport)
+    monkeypatch.setattr(conversation.time, "sleep", lambda _seconds: None)
     monkeypatch.setitem(config.data, "image_remove_conversation_always", False)
     environment["service"].generation_handler = openai_v1_image_generations.handle
     response = submit(environment)
     assert response.status_code == 200, response.text
     task_id = response.json()["turns"][0]["images"][0]["taskId"]
     task = wait_for_task(environment["service"], environment["owner"], task_id, "error", timeout=20)
-    assert len(remote.generations) == 1
+    assert len(remote.generations) == 4
     assert task["dispatch_state"] == "unknown"
     assert task["retryable"] is False
     assert "secret-upstream-token" not in str(task)
+    durable = next(iter(environment["service"]._tasks.values()))
+    assert durable["retry_counts"] == {"tls": 3}
+    assert len({attempt["upstream"]["request_id"] for attempt in durable["attempts"]}) == 3
 
 
 def test_slow_reference_upload_does_not_block_history_or_a_ready_turn(environment, monkeypatch):
@@ -194,7 +198,7 @@ def test_restart_verifies_exact_request_on_original_account_without_resending(en
         def send(url, **arguments):
             result = post(url, **arguments)
             if url.endswith("/f/conversation"):
-                raise ConnectionError("connection reset by peer after upstream accepted")
+                raise ConnectionError("response lost after upstream accepted")
             return result
         def read(url, **arguments):
             if "/backend-api/conversations?" in url:
@@ -296,6 +300,9 @@ def test_real_post_rejection_updates_health_without_resending_or_removing_accoun
     from services.account_service import AccountService
     from services.storage.json_storage import JSONStorageBackend
     from test.test_reference_protocol import ControlledHTTP, Reply
+    from services.config import config
+    monkeypatch.setitem(config.data, "auto_remove_invalid_accounts", False)
+    monkeypatch.setitem(config.data, "auto_remove_rate_limited_accounts", False)
     store = JSONStorageBackend(tmp_path / "accounts.json")
     store.save_accounts([{"access_token": "retained", "status": "正常", "quota": 100, "hidden": True}])
     pool = AccountService(store)
@@ -323,7 +330,8 @@ def test_real_post_rejection_updates_health_without_resending_or_removing_accoun
     assert len(remote.generations) == 1
     assert task["dispatch_state"] == "rejected" and task["retryable"] is True
     account = pool.list_accounts()[0]
-    assert (account["status"], account["usage_mode"], account["hidden"], account["image_inflight"]) == (health, "normal", True, 0)
+    assert (account["status"], account["usage_mode"], account["image_inflight"]) == (health, "normal", 0)
+    assert "hidden" not in account
 
 
 @pytest.mark.parametrize("restart_after_rejection", [False, True])
@@ -402,6 +410,8 @@ def test_explicit_429_waits_until_known_restore_then_cleans_only_durable_success
     assert task["waiting"]["reason"] == "quota" and task["waiting"]["restore_at"]
     assert len(remote.generations) == 1 and not cleaned
     wait_for_task(environment["service"], environment["owner"], task_id, "success", timeout=8)
+    for worker in list(environment["service"]._workers.values()):
+        worker.join(5)
     environment["service"].shutdown(timeout=5)
     assert len(remote.generations) == 2 and cleaned == [True]
     final = next(iter(image_rows.load(environment["path"], "tasks").values()))

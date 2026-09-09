@@ -134,7 +134,7 @@ export function ImageResults({
                 {
                   id: image.id,
                   src,
-                  sizeLabel: image.b64_json ? formatBase64ImageSize(image.b64_json) : undefined,
+                  sizeLabel: formatStoredImageSize(image),
                   dimensions: dimensionsLabel(image.id),
                   filename: resultFilename(turn, image, index),
                   ordinal: image.ordinal ?? index + 1,
@@ -181,8 +181,8 @@ export function ImageResults({
               </div>
             ) : (
               <div className="flex justify-end text-xs text-stone-500">
-                <span>提示词已隐藏</span>
-                <button type="button" className="ml-3 underline" onClick={() => void onReuseTurnConfig(selectedConversation.id, turn.id)}>复用配置</button>
+                <span>提示词已删除</span>
+                <button type="button" className="ml-3 underline" onClick={() => void onReuseTurnConfig(selectedConversation.id, turn.id)}>复用其他配置</button>
               </div>
             )}
 
@@ -242,7 +242,7 @@ export function ImageResults({
                       const imageSrc = image.status === "success" ? getStoredImageSrc(image) : "";
                       if (image.status === "success" && imageSrc) {
                         const currentIndex = successfulTurnImages.findIndex((item) => item.id === image.id);
-                        const sizeLabel = image.b64_json ? formatBase64ImageSize(image.b64_json) : "";
+                        const sizeLabel = formatStoredImageSize(image);
                         const dimensions = dimensionsLabel(image.id);
                         const imageMeta = [sizeLabel, dimensions].filter(Boolean).join(" · ");
 
@@ -536,10 +536,11 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function formatBase64ImageSize(base64: string) {
-  const normalized = base64.replace(/\s/g, "");
+function formatStoredImageSize(image: StoredImage) {
+  if (image.file_size === undefined && !image.b64_json) return undefined;
+  const normalized = (image.b64_json ?? "").replace(/\s/g, "");
   const padding = normalized.endsWith("==") ? 2 : normalized.endsWith("=") ? 1 : 0;
-  const bytes = Math.max(0, Math.floor((normalized.length * 3) / 4) - padding);
+  const bytes = image.file_size ?? Math.max(0, Math.floor((normalized.length * 3) / 4) - padding);
 
   if (bytes >= 1024 * 1024) {
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`;

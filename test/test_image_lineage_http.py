@@ -49,7 +49,7 @@ def test_hidden_ordinary_reuse_is_flat_idempotent_and_isolated(environment):
     assert len(turns) == 3
     assert len(env["calls"]) == 3
     hidden = turns[0]
-    assert hidden["promptDeleted"] and hidden["prompt"] == original["prompt"]
+    assert hidden["promptDeleted"] and hidden["prompt"] == ""
     new = env["client"].post("/api/image-conversations", headers=env["headers"], json={"request_id": "new"}).json()
     assert submit(env, request_id="cross-conversation", conversation_id=new["id"], source_turn_id=original["id"]).status_code == 404
     assert submit(env, request_id="implicit-source", source_turn_id=original["id"]).status_code == 400

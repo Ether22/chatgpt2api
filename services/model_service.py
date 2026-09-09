@@ -143,16 +143,16 @@ class ModelCatalogService:
         self._account_signature = signature
         self._expires_at = self._clock() + self._cache_ttl_seconds
 
-    def _ensure_catalog(self) -> None:
+    def _ensure_catalog(self, force_refresh: bool = False) -> None:
         groups = self._active_accounts_by_type()
         signature = self._signature(groups)
         with self._lock:
-            if signature == self._account_signature and self._clock() < self._expires_at:
+            if not force_refresh and signature == self._account_signature and self._clock() < self._expires_at:
                 return
             self._refresh(groups, signature)
 
-    def list_models(self) -> dict[str, Any]:
-        self._ensure_catalog()
+    def list_models(self, force_refresh: bool = False) -> dict[str, Any]:
+        self._ensure_catalog(force_refresh)
         with self._lock:
             union: dict[str, dict[str, Any]] = {
                 model_id: dict(item)

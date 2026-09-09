@@ -302,11 +302,17 @@ class ImageStorageService:
         return f"managed/{_owner_namespace(owner)}/references/{beijing_now():%Y/%m/%d}/{uuid.uuid4().hex}.{extension}"
 
     def save(self, image_data: bytes, base_url: str | None = None, *, reference: bool = False,
-             reference_path: str | None = None, storage_mode: str | None = None) -> StoredImage:
+             reference_path: str | None = None, storage_mode: str | None = None,
+             result_path: str | None = None) -> StoredImage:
         if _IMAGE_OWNER.get() is None:
             config.cleanup_old_images()
-        rel = self.make_relative_path(image_data)
+        rel = _safe_relative_path(result_path) if result_path else self.make_relative_path(image_data)
+        if result_path and not self.can_access(rel, {"id": _IMAGE_OWNER.get()}):
+            raise ValueError("result path owner mismatch")
         mime_type = "image/png"
+        if result_path:
+            with Image.open(io.BytesIO(image_data)) as image:
+                mime_type = Image.MIME.get(image.format, "image/png")
         if reference:
             if _IMAGE_OWNER.get() is None:
                 raise ValueError("reference owner is required")
@@ -336,7 +342,7 @@ class ImageStorageService:
 
         if mode in {"webdav", "both"}:
             client = WebDAVClient(self.settings())
-            remote_url = client.put(rel, image_data, content_type=mime_type) if reference else client.put(rel, image_data)
+            remote_url = client.put(rel, image_data, content_type=mime_type) if reference or mime_type != "image/png" else client.put(rel, image_data)
             stored_webdav = True
 
         dimensions = _image_dimensions(image_data)
@@ -361,7 +367,7 @@ class ImageStorageService:
             item["width"], item["height"] = dimensions
         with self._index_lock:
             previous = image_rows.get(self.index_file, "images", rel) or {}
-            item.update({key: previous[key] for key in ("deleting", "result_hidden") if key in previous})
+            item.update({key: previous[key] for key in ("deleting", "result_hidden", "migration_asset") if key in previous})
             image_rows.save(self.index_file, {"images": {rel: item}})
         return StoredImage(rel=rel, url=self._public_url(rel, base_url), storage=str(item["storage"]), size=len(image_data))
 
@@ -390,12 +396,40 @@ class ImageStorageService:
         safe_rel = _safe_relative_path(rel)
         return _is_image_rel(safe_rel) and local_image_path(safe_rel).is_file()
 
+    def discover_local(self) -> None:
+        """Discover manually copied public files; managed files require a durable owner/write intent."""
+        with self._index_lock:
+            indexed = self._load_clean_index()
+            additions = {}
+            root = config.images_dir
+            for directory, folders, names in os.walk(root):
+                if Path(directory) == root:
+                    folders[:] = [name for name in folders if name.lower() != "managed"]
+                for name in names:
+                    path = Path(directory) / name
+                    rel = path.relative_to(root).as_posix()
+                    if rel in indexed or not _is_image_rel(rel):
+                        continue
+                    try:
+                        path = local_image_path(rel)
+                        stat = path.stat()
+                        with Image.open(path) as image:
+                            width, height = image.size
+                            image.verify()
+                    except (HTTPException, OSError, ValueError, SyntaxError):
+                        continue
+                    additions[rel] = {"rel": rel, "path": rel, "name": name, "date": beijing_iso(stat.st_mtime)[:10],
+                                      "created_at": beijing_iso(stat.st_mtime), "size": stat.st_size,
+                                      "width": width, "height": height, "storage": "local", "local": True, "webdav": False}
+            if additions:
+                image_rows.save(self.index_file, {"images": additions})
+
     def list_page(self, base_url: str, identity: dict[str, object], start_date: str = "", end_date: str = "",
                   offset: int = 0, limit: int = 12, matching_paths: set[str] | None = None,
                   paths_only: bool = False) -> dict[str, object]:
         if offset < 0 or not 1 <= limit <= 100:
             raise ValueError("invalid pagination")
-        # Saved files are already indexed. Browsing must not reconcile every file or read image bytes.
+        self.discover_local()
         with self._index_lock:
             indexed = self._load_clean_index()
         items = [(rel, item) for rel, item in indexed.items()
@@ -566,6 +600,10 @@ class ImageStorageService:
                     continue
                 rel = path.relative_to(config.images_dir).as_posix()
                 item = items.get(rel, {})
+                if (item.get("writing") or item.get("deleting") or item.get("result_hidden")
+                        or is_managed_image(rel) and not item.get("owner_id")):
+                    skipped += 1
+                    continue
                 if item.get("webdav"):
                     skipped += 1
                     continue

@@ -500,21 +500,32 @@ export function ImageComposer({
                         </div>
                         <div className="border-t border-stone-100 pt-3">
                           <label htmlFor="image-count" className="mb-2 block text-sm font-medium text-stone-900">生成数量</label>
+                          <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
+                            {Array.from({ length: 10 }, (_, index) => index + 1).map((count) => (
+                              <button key={count} type="button" aria-pressed={imageCount === String(count)}
+                                onClick={() => onImageCountChange(String(count))}
+                                className={cn("h-9 cursor-pointer rounded-full border border-stone-200 bg-white text-sm text-stone-800 transition hover:border-stone-300 hover:bg-stone-50", imageCount === String(count) && "border-stone-950 bg-white font-medium text-stone-950")}
+                              >{count} 张</button>
+                            ))}
                           <Input
                             id="image-count"
-                            type="text"
+                            type="number"
+                            min={1}
+                            max={100}
+                            step={1}
                             inputMode="numeric"
                             pattern="[0-9]+"
                             required
                             aria-invalid={!isImageCountValid}
-                            aria-describedby="image-count-hint"
+                            aria-describedby={!isImageCountValid ? "image-count-hint" : undefined}
                             value={imageCount}
                             onChange={(event) => onImageCountChange(event.target.value)}
-                            className="h-9 w-24 rounded-xl border-stone-200 bg-white px-3 text-center text-sm font-medium text-stone-800 shadow-none"
+                            className="h-9 min-w-0 rounded-full border-stone-200 bg-white px-3 text-center text-sm font-medium text-stone-800 shadow-none focus-visible:ring-0"
                           />
-                          <p id="image-count-hint" className={cn("mt-2 text-xs", isImageCountValid ? "text-stone-500" : "text-rose-600")}>
+                          </div>
+                          {!isImageCountValid && <p id="image-count-hint" className="mt-2 text-xs text-rose-600">
                             请输入 1–100 的纯数字整数
-                          </p>
+                          </p>}
                         </div>
                       </div>
                     ) : null}

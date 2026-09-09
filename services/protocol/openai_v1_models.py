@@ -7,8 +7,8 @@ from services.model_service import model_catalog_service
 from utils.helper import CODEX_IMAGE_MODEL
 
 
-def list_models() -> dict[str, Any]:
-    result = model_catalog_service.list_models()
+def list_models(force_refresh: bool = False) -> dict[str, Any]:
+    result = model_catalog_service.list_models(force_refresh=force_refresh)
     data = result.get("data")
     if not isinstance(data, list):
         return result

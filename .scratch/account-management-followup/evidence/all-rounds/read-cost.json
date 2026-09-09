@@ -1,0 +1,28 @@
+{
+  "normal": {
+    "actual_png_files": 3200,
+    "current_images": 1600,
+    "detail_pages": 8,
+    "detail_bytes": 572758,
+    "ms": 551.76,
+    "directory_scans": 0,
+    "file_stats": 12,
+    "image_reads": 0,
+    "json_reads": 1,
+    "atomic_writes": 0,
+    "written_bytes": 0
+  },
+  "dense": {
+    "actual_png_files": 3200,
+    "current_images": 1600,
+    "detail_pages": 2,
+    "detail_bytes": 471804,
+    "ms": 476.44,
+    "directory_scans": 0,
+    "file_stats": 6,
+    "image_reads": 0,
+    "json_reads": 1,
+    "atomic_writes": 0,
+    "written_bytes": 0
+  }
+}

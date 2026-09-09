@@ -179,6 +179,8 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     image_settle_secs: Number(config.image_settle_secs || 2.0),
     image_timeout_retry_secs: Number(config.image_timeout_retry_secs || 30),
     auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
+    auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
+    auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: typeof config.proxy === "string" ? config.proxy : "",
     base_url: typeof config.base_url === "string" ? config.base_url : "",
@@ -300,6 +302,8 @@ type SettingsStore = {
   setImageSettleSecs: (value: string) => void;
   setImageTimeoutRetrySecs: (value: string) => void;
   setAutoReloginAfterRefresh: (value: boolean) => void;
+  setAutoRemoveInvalidAccounts: (value: boolean) => void;
+  setAutoRemoveRateLimitedAccounts: (value: boolean) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
   setProxy: (value: string) => void;
   setBaseUrl: (value: string) => void;
@@ -426,6 +430,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         image_settle_secs: Math.max(0.5, Number(config.image_settle_secs) || 2.0),
         image_timeout_retry_secs: Math.max(1, Number(config.image_timeout_retry_secs) || 30),
         auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
+        auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
+        auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
         proxy: config.proxy.trim(),
         base_url: String(config.base_url || "").trim(),
         global_system_prompt: String(config.global_system_prompt || "").trim(),
@@ -554,6 +560,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setAutoReloginAfterRefresh: (value) => {
     set((state) => state.config ? { config: { ...state.config, auto_relogin_after_refresh: value } } : {});
+  },
+
+  setAutoRemoveInvalidAccounts: (value) => {
+    set((state) => state.config ? { config: { ...state.config, auto_remove_invalid_accounts: value } } : {});
+  },
+
+  setAutoRemoveRateLimitedAccounts: (value) => {
+    set((state) => state.config ? { config: { ...state.config, auto_remove_rate_limited_accounts: value } } : {});
   },
 
   setLogLevel: (level, enabled) => {

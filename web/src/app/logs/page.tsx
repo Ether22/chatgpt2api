@@ -306,7 +306,7 @@ function LogsContent() {
                         setLightboxOpen(true);
                       }}
                     >
-                      <img src={url} alt="" className="h-full w-full object-cover" />
+                      <ImageThumbnail src={url} className="h-full w-full" />
                     </button>
                   ))}
                 </div>

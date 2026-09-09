@@ -3,18 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { FileText, Images, X } from "lucide-react";
 import { ImageLightbox } from "@/components/image-lightbox";
-import { formatBeijingDateTime } from "@/lib/business-time";
 import { cleanupImageImports, correctImportCandidate, fetchImageImports, ImportIdentityChanged, reserveImportReference, submitSelectedMdBatch, uploadImportFile, type CandidateChanges, type ImportCandidate, type ImageImports, type ImportCleanup, type ImportMutation, type SelectedMdBatch } from "@/store/image-imports";
 import { ReferenceThumbnail } from "./reference-thumbnail";
+import type { ImageConversation } from "@/store/image-conversations";
 
 type Upload = { file: File; mutation: ImportMutation; url: string; progress: number; busy: boolean; error?: string; cancelled?: boolean };
 
-export function ImageImportDialog({ open, onOpenChange, authKey, conversationId, model, quality, count, onCountChange, onAccepted }: {
+export function ImageImportDialog({ open, onOpenChange, authKey, conversationId, draftId, model, quality, count, onCountChange, onAccepted }: {
   open: boolean; onOpenChange: (open: boolean) => void; authKey: string;
   conversationId: string | null; model: string; quality: string; count: string;
+  draftId?: string;
   onCountChange: (value: string) => void;
-  onAccepted: (conversationId: string, submittedFrom: string | null) => Promise<void>;
+  onAccepted: (conversation: ImageConversation, submittedFrom: string | null, draftId?: string) => Promise<void>;
 }) {
   const [materials, setMaterials] = useState<ImageImports | null>(null);
   const current = useRef<ImageImports | null>(null);
@@ -197,6 +199,11 @@ export function ImageImportDialog({ open, onOpenChange, authKey, conversationId,
     setCounts(next);
     try { localStorage.setItem("chatgpt2api:md_counts", JSON.stringify(next)); } catch { /* preferences are optional */ }
   }
+  function changeGlobalCount(value: string) {
+    onCountChange(value);
+    setCounts({});
+    try { localStorage.removeItem("chatgpt2api:md_counts"); } catch { /* preferences are optional */ }
+  }
   function changeSelection(next: Record<string, boolean>) {
     setSelected(next);
     try { localStorage.setItem("chatgpt2api:md_selection", JSON.stringify(next)); } catch { /* preferences are optional */ }
@@ -206,7 +213,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey, conversationId,
     if (!pendingBatch.current) {
       if (!countsValid || !selectedCandidates.length) { setError("请选择有效条目，数量须为 1–100 的整数"); return; }
       pendingBatch.current = { request_id: crypto.randomUUID(), version: materials.version, md_version: materials.md_version,
-        conversation_id: conversationId, model, quality, count: Number(count),
+        conversation_id: conversationId, draft_id: conversationId ? undefined : draftId, model, quality, count: Number(count),
         entries: selectedCandidates.map(item => ({ key: item.key,
           ...(counts[item.config.document_id] ? { count: Number(counts[item.config.document_id]) } : {}) })) };
     }
@@ -216,7 +223,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey, conversationId,
       const saved = await submitSelectedMdBatch(authKey, submitted);
       pendingBatch.current = null;
       setSubmissionMessage(`已接受 ${submitted.entries.length} 条；各条参考图就绪后自动生成。`);
-      await onAccepted(saved.id, submitted.conversation_id);
+      await onAccepted(saved, submitted.conversation_id, submitted.draft_id);
     } catch (reason) {
       setError(handleImportError(reason));
     } finally { if (mounted.current) setSubmitting(false); }
@@ -231,94 +238,97 @@ export function ImageImportDialog({ open, onOpenChange, authKey, conversationId,
   ];
   const previewRow = rows.find(item => item.request_id === preview);
   const previewSource = previewRow?.reference?.url ?? previewRow?.upload?.url;
+  const candidates = materials?.candidates ?? [];
+  const declaredNames = new Set(candidates.flatMap((candidate) => candidate.config.reference_names ?? []));
+  const nameCounts = new Map<string, number>();
+  rows.forEach((row) => nameCounts.set(row.name, (nameCounts.get(row.name) ?? 0) + 1));
+  const missing = [...new Set(candidates.flatMap((candidate) => candidate.matches.filter((match) => !nameCounts.has(match.name)).map((match) => match.name)))];
+  const conflicts = [...nameCounts].filter(([, count]) => count > 1).map(([name]) => name);
+  const unused = [...nameCounts.keys()].filter((name) => !declaredNames.has(name) && nameCounts.get(name) === 1);
+  const total = selectedCandidates.reduce((sum, item) => sum + (validCount(counts[item.config.document_id] || count) ? Number(counts[item.config.document_id] || count) : 0), 0);
+  const pendingTotal = pendingBatch.current?.entries.reduce((sum, item) => sum + (item.count ?? pendingBatch.current!.count), 0);
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[min(94vw,960px)] flex-col gap-4 overflow-hidden p-4 sm:p-6">
-      <DialogHeader className="shrink-0 pr-6">
-        <DialogTitle>上传 MD 和参考图</DialogTitle>
-        <DialogDescription>当前素材在所有生图会话中共享，关闭弹窗后保留。新 MD 直接替换，参考图追加。</DialogDescription>
+    <DialogContent className="flex max-h-[calc(100dvh-1.5rem)] w-[min(94vw,860px)] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:rounded-3xl sm:max-w-[860px]">
+      <DialogHeader className="shrink-0 px-5 pb-4 pt-5 pr-10 sm:px-7 sm:pt-6">
+        <DialogTitle>导入 Prompt 包</DialogTitle>
+        <DialogDescription>上传 Markdown 和参考图，选择条目后生成。</DialogDescription>
       </DialogHeader>
-      <div className="min-h-0 overflow-y-auto overscroll-contain">
-        {error && <p role="alert" className="mb-3 break-words text-sm text-rose-600">{error}</p>}
-        {submissionMessage && <p role="status" className="mb-3 text-sm">{submissionMessage}</p>}
-        {busy && <p role="status" className="mb-3 text-sm">正在清理当前素材…</p>}
-        {!materials && !identityChanged.current && <p role="status">正在读取当前素材…</p>}
-        <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
-          <section className="min-w-0 rounded-2xl border p-3">
-            <h3 className="mb-2 font-medium">MD 文件</h3>
-            <input ref={mdInput} type="file" accept=".md,text/markdown" aria-label="选择 MD 文件" className="hidden" onChange={(event) => { replaceMd(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
-            <button type="button" disabled={blocked || !!mdUpload?.busy} onClick={() => mdInput.current?.click()}
-              onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!blocked && !mdUpload?.busy) replaceMd(Array.from(event.dataTransfer.files)); }}
-              className="w-full rounded-xl border-2 border-dashed p-5 text-sm disabled:opacity-50">点击或拖入一个 MD 文件</button>
-            <p className="mt-1 text-xs text-muted-foreground">UTF-8 编码，最大 5MB</p>
-            {mdUpload && <div className="mt-3 break-words text-sm" role="status">
-              <p>{mdUpload.file.name} · {mdUpload.busy ? `上传中 ${mdUpload.progress}%` : mdUpload.error}</p>
-              {mdUpload.busy && <progress className="w-full" aria-label="MD 上传进度" max={100} value={mdUpload.progress} />}
-              {!mdUpload.busy && <Button variant="outline" size="sm" onClick={() => sendMd(mdUpload)} disabled={blocked}>重试 MD 上传</Button>}
-            </div>}
-            {materials?.md && <div className="mt-3 min-w-0 text-sm">
-              <p className="break-all font-medium">{materials.md.name} · {(materials.md.size / 1024).toFixed(1)} KB</p>
-              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-stone-50 p-3 font-sans text-xs dark:bg-stone-900">{materials.md.content}</pre>
-            </div>}
-          </section>
-          <section className="min-w-0 rounded-2xl border p-3">
-            <h3 className="mb-2 font-medium">参考图 · {rows.length} 张</h3>
-            <input ref={referenceInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple aria-label="选择导入参考图" className="hidden" onChange={(event) => { addReferences(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
-            <button type="button" disabled={blocked} onClick={() => referenceInput.current?.click()}
-              onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!blocked) addReferences(Array.from(event.dataTransfer.files)); }}
-              className="w-full rounded-xl border-2 border-dashed p-5 text-sm disabled:opacity-50">点击或拖入参考图，支持分批追加</button>
-            <p className="mt-1 text-xs text-muted-foreground">PNG、JPEG、WebP、GIF，每张最大 50MB</p>
-            <ul className="mt-3 max-h-80 space-y-3 overflow-y-auto overscroll-contain" aria-label="导入参考图列表">
-              {rows.map((item) => {
-                const source = item.reference?.url ?? item.upload?.url;
-                const message = item.upload?.cancelled ? "正在移除或等待重试清理" : item.upload?.busy ? `上传中 ${item.upload.progress}%` : item.upload?.error ?? item.error;
-                return <li key={item.request_id} className="flex min-w-0 items-start gap-2">
-                  {source && <button type="button" className="shrink-0" aria-label={`预览导入参考图 ${item.name}`} onClick={() => setPreview(item.request_id)}><ReferenceThumbnail src={source} alt={item.name} className="size-12 rounded-lg object-cover" /></button>}
-                  <div className="min-w-0 flex-1 text-xs"><p className="break-all">{item.name}</p><p>{(item.size / 1024).toFixed(1)} KB</p>
-                    {message && <p role="status" className="break-words">{message}</p>}
-                    {item.upload?.busy && !item.upload.cancelled && <progress className="w-full" aria-label={`${item.name} 上传进度`} max={100} value={item.upload.progress} />}
-                    {item.upload?.error && !item.upload.cancelled && <button type="button" className="underline" disabled={blocked} onClick={() => retryReference(item.upload!)}>重试上传</button>}
-                  </div>
-                  <button type="button" disabled={blocked} className="shrink-0 text-xs underline disabled:opacity-50" aria-label={`移除导入参考图 ${item.name}`} onClick={() => cleanup(false, item.request_id)}>移除</button>
-                </li>;
-              })}
-            </ul>
-          </section>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 pb-4 sm:px-7">
+        {error && <p role="alert" className="break-words rounded-xl bg-rose-50 p-3 text-xs text-rose-700">{error}</p>}
+        {submissionMessage && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-700">{submissionMessage}</p>}
+        {busy && <p role="status" className="text-xs">正在清理当前素材…</p>}
+        {!materials && !identityChanged.current && <p role="status" className="text-sm">正在读取当前素材…</p>}
+        <div className="grid min-w-0 grid-cols-2 gap-3">
+          <input ref={mdInput} type="file" accept=".md,text/markdown" aria-label="选择 MD 文件" className="hidden" onChange={(event) => { replaceMd(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+          <button type="button" disabled={blocked || !!mdUpload?.busy} onClick={() => mdInput.current?.click()}
+            onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!blocked && !mdUpload?.busy) replaceMd(Array.from(event.dataTransfer.files)); }}
+            className="flex min-w-0 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-stone-300 bg-stone-50/70 px-3 py-5 text-sm hover:bg-stone-100 disabled:opacity-50">
+            <FileText className="size-5 text-stone-400" /><span className="line-clamp-2 break-all">{mdUpload?.file.name || materials?.md?.name || "选择或拖入 Markdown"}</span>
+            <span className="text-[11px] text-stone-400">{mdUpload?.busy ? `上传中 ${mdUpload.progress}%` : "一个 MD · 最大 5MB"}</span>
+          </button>
+          <input ref={referenceInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple aria-label="选择导入参考图" className="hidden" onChange={(event) => { addReferences(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+          <button type="button" disabled={blocked} onClick={() => referenceInput.current?.click()}
+            onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!blocked) addReferences(Array.from(event.dataTransfer.files)); }}
+            className="flex min-w-0 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-stone-300 bg-stone-50/70 px-3 py-5 text-sm hover:bg-stone-100 disabled:opacity-50">
+            <Images className="size-5 text-stone-400" /><span>选择或拖入参考图</span>
+            <span className="text-[11px] text-stone-400">已选 {rows.length} 张 · 可分批补充</span>
+          </button>
         </div>
-        {materials?.md && <section className="mt-4 min-w-0 space-y-3" aria-label="MD 条目预览">
-          <h3 className="font-medium">MD 条目预览 · {materials.candidates.length} 条</h3>
-          <p className="text-xs text-muted-foreground">仅使用下列 Prompt 和目标尺寸。缺少文件或结构错误需修正；等待上传表示文件已登记，尚未就绪。跳过的条目不提交。</p>
-          <label className="flex flex-wrap items-center gap-2 text-sm">批量生成数量
-            <input aria-label="批量生成数量" inputMode="numeric" value={count} onChange={event => onCountChange(event.target.value)} className="w-20 rounded-md border bg-background p-2" />
-            <span className="text-xs text-muted-foreground">1–100，单条留空时沿用此值 · {model} / {quality}</span>
-          </label>
-          <div className="flex gap-3 text-xs"><button type="button" className="underline" onClick={() => changeSelection({ ...selected, ...Object.fromEntries(materials.candidates.map(item => [item.config.document_id, true])) })}>选择全部有效条目</button><button type="button" className="underline" onClick={() => changeSelection({ ...selected, ...Object.fromEntries(materials.candidates.map(item => [item.config.document_id, false])) })}>取消全选</button></div>
-          {materials.candidates.length === 0 && <p role="status" className="text-sm">未识别到需要生成的条目。请检查章节标识、Prompt 区块，或文档是否声明直通。</p>}
-          {materials.candidates.map((candidate) => <div key={candidate.key}>
-            <div className="mb-1 flex flex-wrap items-center gap-3 text-sm">
-              <label><input type="checkbox" aria-label={`选择 ${candidate.config.document_id}`} disabled={candidate.skipped || candidate.status === "error"} checked={!candidate.skipped && candidate.status !== "error" && selected[candidate.config.document_id] !== false} onChange={event => changeSelection({ ...selected, [candidate.config.document_id]: event.target.checked })} /> 选择</label>
-              <label>单条数量 <input aria-label={`${candidate.config.document_id} 单条数量`} inputMode="numeric" placeholder={count} value={counts[candidate.config.document_id] || ""} onChange={event => changeOverride(candidate.config.document_id, event.target.value)} className="w-20 rounded-md border bg-background p-1" /></label>
-              <span className="text-xs text-muted-foreground">生效：{counts[candidate.config.document_id] || count} 张</span>
-            </div>
-            <CandidatePreview candidate={candidate} version={materials.version} mdVersion={materials.md_version} disabled={blocked} onCorrect={correct} />
-          </div>)}
+        {mdUpload && !mdUpload.busy && <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-rose-700"><span className="break-words">{mdUpload.error}</span><Button variant="outline" size="sm" onClick={() => sendMd(mdUpload)} disabled={blocked}>重试 MD 上传</Button></div>}
+        <ul className="flex flex-wrap gap-1.5" aria-label="导入参考图列表">
+          {rows.map((item) => {
+            const source = item.reference?.url ?? item.upload?.url;
+            const failure = item.upload?.error ?? item.error;
+            return <li key={item.request_id} className={`flex max-w-full items-center gap-1 rounded-full px-2 py-1 text-xs ${failure ? "bg-rose-50 text-rose-700" : "bg-stone-100 text-stone-600"}`}>
+              <button type="button" disabled={!source} className="min-w-0 truncate text-left" title={`${item.name} · ${(item.size / 1024).toFixed(1)} KB${failure ? ` · ${failure}` : ""}`} aria-label={`预览导入参考图 ${item.name}`} onClick={() => setPreview(item.request_id)}>{item.name}</button>
+              {item.upload?.busy && <span className="shrink-0 text-[10px] text-stone-400">{item.upload.progress}%</span>}
+              {failure && item.upload && !item.upload.cancelled && <button type="button" className="shrink-0 underline" disabled={blocked || !item.upload} title={failure} onClick={() => item.upload && retryReference(item.upload)}>重试</button>}
+              <button type="button" disabled={blocked || item.upload?.cancelled} className="shrink-0 rounded-full p-0.5 hover:bg-stone-200 disabled:opacity-40" aria-label={`移除导入参考图 ${item.name}`} onClick={() => cleanup(false, item.request_id)}><X className="size-3" /></button>
+            </li>;
+          })}
+        </ul>
+        {materials?.md && <section className="min-w-0 space-y-3" aria-label="MD 条目预览">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-stone-100 px-4 py-3">
+            <div className="min-w-0"><h3 className="break-all text-sm font-semibold">{materials.md.name.replace(/\.md$/i, "")}</h3>
+              <p className="mt-0.5 text-xs text-stone-500">{candidates.length} 条 · 已选 {selectedCandidates.length} 条 · {countsValid ? `共 ${total} 张图片` : "请修正生成数量"}</p></div>
+            <label className="flex items-center gap-2 text-xs text-stone-500">每条
+              <input type="number" min={1} max={100} step={1} aria-label="批量生成数量" aria-invalid={!validCount(count)} inputMode="numeric" value={count} onChange={event => changeGlobalCount(event.target.value)} className="w-16 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-center text-sm" />张
+            </label>
+          </div>
+          {(missing.length > 0 || conflicts.length > 0) && <div role="alert" className="space-y-1 rounded-xl bg-rose-50 px-3 py-2.5 text-xs text-rose-600">
+            {!!missing.length && <p className="break-words">缺少：{missing.join("、")}</p>}
+            {!!conflicts.length && <p className="break-words">同名冲突：{conflicts.join("、")}</p>}
+          </div>}
+          {!!unused.length && <p className="break-words rounded-xl bg-amber-50 px-3 py-2.5 text-xs text-amber-700">未使用：{unused.join("、")}</p>}
+          <div className="flex justify-end text-xs text-stone-500">
+            <div className="flex gap-3"><button type="button" onClick={() => changeSelection({ ...selected, ...Object.fromEntries(candidates.map(item => [item.config.document_id, true])) })}>全选</button><button type="button" onClick={() => changeSelection({ ...selected, ...Object.fromEntries(candidates.map(item => [item.config.document_id, false])) })}>全不选</button></div>
+          </div>
+          {candidates.length === 0 && <p role="status" className="py-6 text-center text-sm text-stone-500">未识别到生成条目，请检查文档的 Prompt 区块。</p>}
+          {candidates.map((candidate) => <CandidatePreview key={candidate.key} candidate={candidate} version={materials.version} mdVersion={materials.md_version} disabled={blocked}
+            selected={!candidate.skipped && candidate.status !== "error" && selected[candidate.config.document_id] !== false}
+            onSelect={(checked) => changeSelection({ ...selected, [candidate.config.document_id]: checked })}
+            count={count} countOverride={counts[candidate.config.document_id] || ""} onCountChange={(value) => changeOverride(candidate.config.document_id, value)} onCorrect={correct} />)}
         </section>}
+        {pendingBatch.current && <p role="status" className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">上次提交：{pendingBatch.current.entries.length} 条 · {pendingTotal} 张。重试会沿用当时的配置。</p>}
       </div>
-      <DialogFooter className="shrink-0 flex-row flex-wrap items-center justify-end gap-2 border-t pt-3">
-        <span className="basis-full text-xs text-muted-foreground sm:mr-auto sm:basis-auto">{materials?.updated_at ? `更新于 ${formatBeijingDateTime(materials.updated_at)}` : "尚未导入素材"}</span>
-        <Button variant="outline" disabled={busy} onClick={() => { setError(""); setFailedCleanup(null); void refresh().catch((reason: Error) => setError(handleImportError(reason))); }}>刷新素材</Button>
-        {pending && <Button variant="outline" disabled={busy} onClick={() => cleanup(pending.clear, pending.upload_ids[0], pending)}>重试清理</Button>}
-        <Button variant="outline" disabled={blocked} onClick={() => cleanup(true)}>清除上传内容</Button>
-        <Button disabled={submitting || (!pendingBatch.current && (blocked || !countsValid || !selectedCandidates.length))} onClick={() => void startBatch()}>{submitting ? "正在保存批量任务…" : pendingBatch.current ? "重试本次提交" : `开始生成（${selectedCandidates.length} 条）`}</Button>
-        {pendingBatch.current && !submitting && <Button variant="outline" onClick={() => { pendingBatch.current = null; setSubmissionMessage("已解除重试；若服务器已接受，原批次仍会继续，可在会话历史查看。"); }}>准备新的提交</Button>}
-        <Button onClick={() => onOpenChange(false)}>完成</Button>
+      <DialogFooter className="shrink-0 flex-row flex-wrap items-center gap-2 border-t px-5 py-3 sm:px-7">
+        <div className="mr-auto flex flex-wrap items-center gap-2">
+          <Button variant="ghost" size="sm" disabled={blocked} onClick={() => cleanup(true)}>清除上传内容</Button>
+          {error && <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setError(""); setFailedCleanup(null); void refresh().catch((reason: Error) => setError(handleImportError(reason))); }}>重新加载</Button>}
+          {pending && <Button variant="outline" size="sm" disabled={busy} onClick={() => cleanup(pending.clear, pending.upload_ids[0], pending)}>重试清理</Button>}
+          {pendingBatch.current && !submitting && <Button variant="outline" size="sm" onClick={() => { pendingBatch.current = null; setSubmissionMessage("已解除重试；已接受的批次仍会继续，可在历史查看。"); }}>准备新的提交</Button>}
+        </div>
+        <Button variant="outline" onClick={() => onOpenChange(false)}>关闭</Button>
+        <Button disabled={submitting || (!pendingBatch.current && (blocked || !countsValid || !selectedCandidates.length))} onClick={() => void startBatch()}>{submitting ? "提交中…" : pendingBatch.current ? `重试上次提交（${pendingTotal} 张）` : `生成已选条目（${total} 张）`}</Button>
       </DialogFooter>
       {previewRow && previewSource && <ImageLightbox open={!!preview} onOpenChange={(value) => { if (!value) setPreview(null); }} images={[{ id: previewRow.request_id, src: previewSource, filename: previewRow.name }]} currentIndex={0} onIndexChange={() => {}} />}
     </DialogContent>
   </Dialog>;
 }
 
-function CandidatePreview({ candidate, version, mdVersion, disabled, onCorrect }: {
+function CandidatePreview({ candidate, version, mdVersion, disabled, selected, onSelect, count, countOverride, onCountChange, onCorrect }: {
   candidate: ImportCandidate; version: number; mdVersion: number; disabled: boolean;
+  selected: boolean; onSelect: (checked: boolean) => void; count: string; countOverride: string; onCountChange: (value: string) => void;
   onCorrect: (key: string, changes: CandidateChanges, version: number, mdVersion: number) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<{ config: ImportCandidate["config"]; version: number } | null>(null);
@@ -340,29 +350,39 @@ function CandidatePreview({ candidate, version, mdVersion, disabled, onCorrect }
   }
   function edit() { setError(""); setDraft({ config: { ...config }, version }); }
   const inputClass = "mt-1 w-full min-w-0 rounded-md border bg-background p-2 text-sm";
-  return <article className="min-w-0 rounded-xl border p-3 text-sm" aria-label={`条目 ${title}`}>
-    <div className="flex flex-wrap items-center gap-2">
-      <h4 className="min-w-0 flex-1 break-words font-medium">{title}</h4>
-      <span role="status" className={candidate.status === "error" ? "text-rose-600" : "text-muted-foreground"}>{candidate.skipped ? `已跳过 · ${status}` : status}</span>
-      <Button size="sm" variant="outline" disabled={disabled || saving} onClick={() => void save({ skipped: !candidate.skipped }, version)}>{candidate.skipped ? "取消跳过" : "跳过此条"}</Button>
-    </div>
-    <p className="mt-2 break-all">目标尺寸：{config.size || "缺失"} · 输出名称：{config.output_name || "未指定（按条目命名）"}</p>
-    <details className="mt-2">
-      <summary className="cursor-pointer">查看实际 Prompt（{config.prompt.length} 字符）</summary>
-      <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-sans text-xs">{config.prompt || "缺少明确的 Prompt 区块"}</pre>
-    </details>
-    <p className="mt-2 text-xs">参考图（按声明顺序）：{config.reference_names === null ? "缺少声明" : config.reference_names.length === 0 ? "明确无参考图" : ""}</p>
-    <ol className="mt-1 space-y-1">
-      {candidate.matches.map((match, index) => <li key={`${index}:${match.name}`} className="flex min-w-0 items-center gap-2 text-xs">
-        {match.reference && <ReferenceThumbnail src={match.reference.url} alt={match.name} className="size-10 shrink-0 rounded object-cover" />}
-        <span className="min-w-0 break-all">{index + 1}. {match.name} · {match.status === "ready" ? "已匹配" : match.status === "pending" ? "已登记，等待上传" : "未匹配或有冲突"}</span>
-      </li>)}
-    </ol>
-    {candidate.errors.length > 0 && <ul className="mt-2 space-y-1 text-xs text-rose-600" aria-label="条目错误">
-      {candidate.errors.map((item, index) => <li key={index} className="break-words">{item.message}</li>)}
-    </ul>}
-    {error && <p role="alert" className="mt-2 break-words text-rose-600">{error}</p>}
-    {!draft ? <Button className="mt-3" variant="outline" size="sm" disabled={disabled || saving} onClick={edit}>修正此条</Button> :
+  return <article className={`min-w-0 rounded-2xl border px-3 py-2.5 text-sm ${candidate.status === "error" && !candidate.skipped ? "border-rose-200" : "border-stone-200"}`} aria-label={`条目 ${title}`}>
+    <div className="flex items-start gap-2.5">
+      <input type="checkbox" className="mt-1 size-3.5 shrink-0 accent-stone-900" aria-label={`选择 ${config.document_id}`} disabled={candidate.skipped || candidate.status === "error"} checked={selected} onChange={(event) => onSelect(event.target.checked)} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h4 className="min-w-0 flex-1 break-words"><strong>{config.document_id}</strong> <span className="text-stone-600">{config.name}</span></h4>
+          <span className="text-[11px] text-stone-400">{config.size || "尺寸缺失"} · 参考图 {candidate.matches.filter((match) => match.status === "ready").length}/{config.reference_names?.length ?? "?"}</span>
+          {countOverride && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700">单条 {countOverride} 张</span>}
+          {(candidate.skipped || candidate.status !== "ready") && <span role="status" className={`text-[11px] ${candidate.status === "error" ? "text-rose-600" : "text-stone-400"}`}>{candidate.skipped ? "已跳过" : status}</span>}
+          {candidate.ignored && candidate.status !== "error" && <span className="text-[11px] text-stone-400">已忽略</span>}
+          {candidate.status === "error" && !candidate.skipped && candidate.errors.some(item => item.field === "reference_names" || item.code === "unclosed_prompt") && <button type="button" disabled={disabled || saving} onClick={() => void save({ ignored: true }, version)} className="rounded-md px-2 py-1 text-xs text-stone-600 hover:bg-stone-100 disabled:opacity-50">忽略</button>}
+          <button type="button" disabled={disabled || saving} onClick={edit} className="rounded-md px-2 py-1 text-xs text-stone-500 hover:bg-stone-100 disabled:opacity-50">修正</button>
+          {candidate.skipped && <button type="button" disabled={disabled || saving} onClick={() => void save({ skipped: false }, version)} className="text-xs">取消跳过</button>}
+        </div>
+        {candidate.errors.length > 0 && <p className="mt-1 break-words text-xs text-rose-600" aria-label="条目错误">{candidate.errors.map(item => item.message).join("；")}</p>}
+        {error && <p role="alert" className="mt-1 break-words text-xs text-rose-600">{error}</p>}
+        <details className="mt-1 text-xs text-stone-500">
+          <summary className="cursor-pointer">参考图与 Prompt</summary>
+          <div className="mt-3 space-y-3">
+            {config.output_name && <p className="break-all">输出名称：{config.output_name}</p>}
+            <p>参考图（按声明顺序）：{config.reference_names === null ? "缺少声明" : config.reference_names.length === 0 ? "明确无参考图" : ""}</p>
+            <ol className="space-y-1">
+              {candidate.matches.map((match, index) => <li key={`${index}:${match.name}`} className="flex min-w-0 items-center gap-2">
+                {match.reference && <ReferenceThumbnail src={match.reference.url} alt={match.name} className="size-9 shrink-0 rounded object-cover" />}
+                <span className="min-w-0 break-all">{index + 1}. {match.name} · {match.status === "ready" ? "已匹配" : match.status === "pending" ? "已登记，等待上传" : "未匹配或有冲突"}</span>
+              </li>)}
+            </ol>
+            <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md bg-stone-50 p-2 font-sans">{config.prompt || "缺少明确的 Prompt 区块"}</pre>
+            <label className="flex flex-wrap items-center gap-2">单条数量<input type="number" min={1} max={100} step={1} aria-label={`${config.document_id} 单条数量`} inputMode="numeric" placeholder={count} value={countOverride} onChange={(event) => onCountChange(event.target.value)} className="w-20 rounded-md border bg-white p-1" /><span>留空使用统一数量 · 生效 {countOverride || count} 张</span></label>
+            <Button size="sm" variant="outline" disabled={disabled || saving} onClick={() => void save({ skipped: !candidate.skipped }, version)}>{candidate.skipped ? "取消跳过" : "跳过此条"}</Button>
+          </div>
+        </details>
+    {draft &&
       <form className="mt-3 space-y-3" onSubmit={(event) => {
         event.preventDefault();
         const fields = new FormData(event.currentTarget);
@@ -373,7 +393,7 @@ function CandidatePreview({ candidate, version, mdVersion, disabled, onCorrect }
         }
         const mode = String(fields.get("reference_mode"));
         const listedNames = String(fields.get("reference_names") || "").split(/\r?\n/).filter(name => name.length > 0);
-        const names = mode === "missing" || (mode === "files" && listedNames.length === 0) ? null : mode === "none" ? [] : listedNames;
+        const names = mode === "none" ? [] : listedNames.length ? listedNames : null;
         if (JSON.stringify(names) !== JSON.stringify(draft.config.reference_names) || fields.has("confirm_reference_names")) changes.reference_names = names;
         if (Object.keys(changes).length) void save(changes, draft.version);
         else setDraft(null);
@@ -386,8 +406,8 @@ function CandidatePreview({ candidate, version, mdVersion, disabled, onCorrect }
             <label>输出名称（可留空）<input className={inputClass} name="output_name" defaultValue={draft.config.output_name ?? ""} /></label>
           </div>
           <label className="block">Prompt<textarea aria-label="Prompt" className={inputClass} rows={6} name="prompt" defaultValue={draft.config.prompt} /></label>
-          <label className="block">参考图声明<select aria-label="参考图声明" className={inputClass} name="reference_mode" defaultValue={draft.config.reference_names === null ? "missing" : draft.config.reference_names.length ? "files" : "none"}>
-            <option value="missing">尚未声明（无效）</option><option value="none">明确无参考图</option><option value="files">使用以下文件，按行匹配</option>
+          <label className="block">参考图声明<select aria-label="参考图声明" className={inputClass} name="reference_mode" defaultValue={draft.config.reference_names?.length === 0 ? "none" : "files"}>
+            <option value="none">明确无参考图</option><option value="files">使用以下文件，按行匹配</option>
           </select></label>
           <label className="block">参考图文件名（每行一个，保留顺序和大小写）<textarea aria-label="参考图文件名（每行一个，保留顺序和大小写）" className={inputClass} rows={3} name="reference_names" defaultValue={draft.config.reference_names?.join("\n") ?? ""} /></label>
           {conflicts.map(field => <label key={field} className="flex items-start gap-2 text-xs"><input type="checkbox" name={`confirm_${field}`} />确认以表单中的{fieldNames[field]}修正该字段冲突</label>)}
@@ -399,5 +419,7 @@ function CandidatePreview({ candidate, version, mdVersion, disabled, onCorrect }
           <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => setDraft(null)}>取消修正</Button>
         </div>
       </form>}
+      </div>
+    </div>
   </article>;
 }
