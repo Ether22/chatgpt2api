@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: ${{ github.ref == 'refs/heads/custom' && 'chatgpt2api-custom' || 'chatgpt2api' }}
+  IMAGE_NAME: chatgpt2api
 
 jobs:
   docker:
@@ -50,14 +50,14 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
-      - name: Build and push image
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           target: app
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ github.ref != 'refs/heads/custom' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
