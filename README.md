@@ -34,9 +34,9 @@
 ### Docker 运行
 
 ```bash
-git clone git@github.com:basketikun/chatgpt2api.git
+git clone --branch custom --single-branch https://github.com/Ether22/chatgpt2api.git
 cd chatgpt2api
-docker compose up -d
+docker compose up -d --pull always
 ```
 
 启动前请先在 `config.json` 中设置 `auth-key`，也可以在 `docker-compose.yml` 中通过 `CHATGPT2API_AUTH_KEY` 覆盖。
@@ -71,7 +71,7 @@ docker compose -f docker-compose.warp.yml up -d --build
 启动后端：
 
 ```bash
-git clone git@github.com:basketikun/chatgpt2api.git
+git clone --branch custom --single-branch https://github.com/Ether22/chatgpt2api.git
 cd chatgpt2api
 uv sync
 uv run main.py
@@ -88,10 +88,7 @@ bun run dev
 后续更新新版本：
 
 ```bash
-docker pull ghcr.io/basketikun/chatgpt2api:latest
-docker-compose down
-docker-compose up -d
-
+docker compose up -d --pull always
 ```
 
 ### 存储后端配置
