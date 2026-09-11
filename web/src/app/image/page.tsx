@@ -11,6 +11,7 @@ import { ImageResults, resultFilename, getStoredImageSrc, type ImageLightboxItem
 import { ImageSidebar } from "@/app/image/components/image-sidebar";
 import { ImageNavigation, type ResultTarget } from "@/app/image/components/image-navigation";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -102,10 +103,6 @@ function parseImageSize(size: string) {
 }
 
 
-function getResultsDistanceFromBottom(element: HTMLElement) {
-  return element.scrollHeight - element.scrollTop - element.clientHeight;
-}
-
 function formatAvailableQuota(accounts: Account[]) {
   const availableAccounts = accounts.filter((account) => account.status === "正常" && account.usage_mode === "normal");
   return String(availableAccounts.reduce((sum, account) => sum + Math.max(0, account.quota), 0));
@@ -164,6 +161,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const resultsViewportRef = useRef<HTMLDivElement>(null);
   const lastConversationIdRef = useRef<string | null>(null);
   const shouldStickToBottomRef = useRef(true);
+  const keepReadingPositionRef = useRef(false);
   const scrollRafRef = useRef<number | null>(null);
   const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -172,7 +170,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
   const isRestoringScrollRef = useRef(false);
   const scrollRestoreGenerationRef = useRef(0);
   const pendingTargetRef = useRef<ResultTarget | null>(null);
-  const [navigationTarget, setNavigationTarget] = useState<ResultTarget | null>(null);
+  const [navigationTarget, setNavigationTarget] = useState<(ResultTarget & { top?: number }) | null>(null);
 
   const config = useSettingsStore((state) => state.config);
   const imageTimeoutRetrySecs = Number(config?.image_timeout_retry_secs || 30);
@@ -321,6 +319,20 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     conversationsRef.current = conversations;
   }, [conversations]);
 
+  const getLatestResult = useCallback(() => {
+    const turns = conversationsRef.current.find(item => item.id === selectedIdRef.current)?.turns;
+    const latest = turns?.findLast(turn => !(turn.promptDeleted && turn.resultsDeleted));
+    return [...(resultsViewportRef.current?.querySelectorAll<HTMLElement>("[data-turn-id]") ?? [])]
+      .find(node => node.dataset.turnId === latest?.id);
+  }, []);
+
+  const getDistanceFromLatest = useCallback((root: HTMLElement) => {
+    const latest = getLatestResult();
+    if (!latest) return 0;
+    const rect = latest.getBoundingClientRect(), viewport = root.getBoundingClientRect();
+    return Math.max(0, rect.top - viewport.bottom, viewport.top - rect.bottom);
+  }, [getLatestResult]);
+
   const scrollResultsToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
     const element = resultsViewportRef.current;
     if (!element) {
@@ -328,13 +340,12 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     }
 
     shouldStickToBottomRef.current = true;
+    keepReadingPositionRef.current = false;
     const btn = scrollToLatestBtnRef.current;
     if (btn) btn.style.display = "none";
-    element.scrollTo({
-      top: element.scrollHeight,
-      behavior,
-    });
-  }, []);
+    const latest = getLatestResult();
+    element.scrollTo({ top: latest ? element.scrollTop + latest.getBoundingClientRect().top - element.getBoundingClientRect().top : element.scrollHeight, behavior });
+  }, [getLatestResult]);
 
   const handleResultsScroll = useCallback(() => {
     if (scrollRafRef.current !== null) {
@@ -364,8 +375,8 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
         }, 300);
       }
 
-      const isAwayFromLatest = getResultsDistanceFromBottom(element) > SCROLL_TO_LATEST_THRESHOLD;
-      shouldStickToBottomRef.current = !isAwayFromLatest;
+      const isAwayFromLatest = getDistanceFromLatest(element) > SCROLL_TO_LATEST_THRESHOLD;
+      shouldStickToBottomRef.current = !keepReadingPositionRef.current && !isAwayFromLatest;
       // 直接操作 DOM 控制按钮显隐，避免 setState 触发全组件重渲染
       const btn = scrollToLatestBtnRef.current;
       if (btn) {
@@ -376,7 +387,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
         }
       }
     });
-  }, []);
+  }, [getDistanceFromLatest]);
 
   useEffect(() => {
     return () => {
@@ -547,6 +558,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     const didSwitchConversation = lastConversationIdRef.current !== selectedConversation.id;
 
     if (didSwitchConversation) {
+      keepReadingPositionRef.current = false;
       // 递增 generation，使之前未完成的 rAF 回调失效
       scrollRestoreGenerationRef.current += 1;
 
@@ -573,11 +585,11 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     isRestoringScrollRef.current = false;
     root.style.visibility = "";
     const alignTarget = () => {
-      root.scrollTop += element.getBoundingClientRect().top - root.getBoundingClientRect().top;
+      root.scrollTop += element.getBoundingClientRect().top - root.getBoundingClientRect().top - (target.top ?? 0);
       return root.scrollTop;
     };
     let anchoredScrollTop = alignTarget();
-    element.focus({ preventScroll: true });
+    if (target.top === undefined) element.focus({ preventScroll: true });
     shouldStickToBottomRef.current = false;
     const observer = new ResizeObserver(() => {
       // Stop holding the target once the user scrolls away from the applied position.
@@ -620,8 +632,8 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
         requestAnimationFrame(() => {
           // 再次检查 generation
           if (scrollRestoreGenerationRef.current !== generation) return;
-          const isAwayFromLatest = getResultsDistanceFromBottom(element) > SCROLL_TO_LATEST_THRESHOLD;
-          shouldStickToBottomRef.current = !isAwayFromLatest;
+          const isAwayFromLatest = getDistanceFromLatest(element) > SCROLL_TO_LATEST_THRESHOLD;
+          shouldStickToBottomRef.current = !keepReadingPositionRef.current && !isAwayFromLatest;
           const btn = scrollToLatestBtnRef.current;
           if (btn) btn.style.display = isAwayFromLatest ? "" : "none";
           // 显示容器 — 用户直接看到正确位置的内容
@@ -637,9 +649,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     // 无保存位置，按正常逻辑处理
     isRestoringScrollRef.current = false;
     element.style.visibility = "";
-    const shouldFollowLatest =
-      shouldStickToBottomRef.current ||
-      getResultsDistanceFromBottom(element) <= SCROLL_TO_LATEST_THRESHOLD;
+    const shouldFollowLatest = !keepReadingPositionRef.current && shouldStickToBottomRef.current;
 
     if (shouldFollowLatest) {
       const generation = scrollRestoreGenerationRef.current;
@@ -651,7 +661,7 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
 
     const btn = scrollToLatestBtnRef.current;
     if (btn) btn.style.display = "";
-  }, [selectedConversation?.id, selectedConversation?.updatedAt, selectedConversation?.turns.length, selectedConversation?.pagination?.offset, selectedConversation?.target, scrollResultsToLatest]);
+  }, [selectedConversation?.id, selectedConversation?.updatedAt, selectedConversation?.turns.length, selectedConversation?.pagination?.offset, selectedConversation?.target, scrollResultsToLatest, getDistanceFromLatest]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -702,6 +712,19 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
       detail = id ? await fetchExistingImageConversation(authKey, id) : null;
     }
     if (!loadCancelledRef.current && !deletionRequestsRef.current && readVersion === historyReadVersionRef.current) {
+      const root = resultsViewportRef.current;
+      if (id === selectedIdRef.current && detail && root && (keepReadingPositionRef.current || !shouldStickToBottomRef.current)) {
+        const viewport = root.getBoundingClientRect();
+        const anchor = [...root.querySelectorAll<HTMLElement>("[data-result-anchor]")]
+          .filter(node => node.getBoundingClientRect().bottom > viewport.top && node.getBoundingClientRect().top < viewport.bottom)
+          .sort((a, b) => Math.abs(a.getBoundingClientRect().top - viewport.top) - Math.abs(b.getBoundingClientRect().top - viewport.top))[0];
+        if (anchor) {
+          const target = { turn_id: anchor.closest<HTMLElement>("[data-turn-id]")!.dataset.turnId!, image_id: anchor.dataset.imageId, top: anchor.getBoundingClientRect().top - viewport.top };
+          pendingTargetRef.current = target;
+          setNavigationTarget(target);
+          scrollPositionsRef.current.delete(id!);
+        }
+      }
       const freshIds = new Set(history.items.map((item) => item.id));
       const firstPageChanged = history.pagination.total !== historyTotalRef.current ||
         freshIds.size !== firstPageIdsRef.current.size || [...freshIds].some((id) => !firstPageIdsRef.current.has(id));
@@ -734,11 +757,16 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     if (loadCancelledRef.current) return false;
     const follow = (selectedIdRef.current ?? draftIdRef.current) === (from ?? submittedDraft) || selectedIdRef.current === saved.id;
     if (follow) {
-      conversationsRef.current = sortImageConversations([...conversationsRef.current.filter((item) => item.id !== saved.id), saved]);
+      const existing = conversationsRef.current.find(item => item.id === saved.id);
+      const known = new Set(existing?.turns.map(turn => turn.id));
+      const reused = saved.turns.some(turn => !known.has(turn.id) && (turn.sourceOrdinal ?? 1) > 1);
+      keepReadingPositionRef.current = reused;
+      const detail = existing?.pagination ? existing : saved;
+      conversationsRef.current = sortImageConversations([...conversationsRef.current.filter((item) => item.id !== saved.id), detail]);
       setConversations(conversationsRef.current);
       selectedIdRef.current = saved.id;
       setSelectedConversationId(saved.id);
-      shouldStickToBottomRef.current = true;
+      shouldStickToBottomRef.current = !reused;
       if (submittedDraft && draftIdRef.current === submittedDraft) {
         draftIdRef.current = createId();
         setDraftId(draftIdRef.current);
@@ -1227,8 +1255,9 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
     pendingRegenerationsRef.current.set(key, pending);
     try {
       await submitImageTurn(authKey, pending, conversationId);
-      await refreshHistory();
-      setSelectedConversationId(conversationId);
+      keepReadingPositionRef.current = true;
+      shouldStickToBottomRef.current = false;
+      await refreshHistory(false);
       if (pendingRegenerationsRef.current.get(key) === pending) pendingRegenerationsRef.current.delete(key);
       toast.success("已保存新轮次并开始处理");
     } catch (error) {
@@ -1419,9 +1448,8 @@ function ImagePageContent({ isAdmin, authKey }: { isAdmin: boolean; authKey: str
           </div>
 
           {selectedConversation && (
-            <div className="flex items-center justify-center gap-2 text-xs text-stone-500">
+            <div className={cn("flex items-center justify-center gap-2 text-xs text-stone-500", !isLoadingPage && "xl:hidden")}>
               <Button variant="outline" size="sm" className="xl:hidden" onClick={() => setIsNavigationOpen(true)}><ListTree className="size-4" />定位</Button>
-              <span>共 {selectedConversation.turnCount ?? selectedConversation.turns.length} 轮</span>
               {isLoadingPage && <LoaderCircle className="size-4 animate-spin" />}
             </div>
           )}

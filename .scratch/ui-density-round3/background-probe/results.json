@@ -1,0 +1,2378 @@
+[
+  {
+    "theme": "light",
+    "variant": "current",
+    "rows": 3,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          248,
+          243,
+          238,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          244,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          241,
+          236,
+          227,
+          255
+        ]
+      }
+    ],
+    "file": "light-current-3-top.png"
+  },
+  {
+    "theme": "light",
+    "variant": "current",
+    "rows": 3,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          253,
+          252,
+          250,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          248,
+          243,
+          237,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          244,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          241,
+          236,
+          227,
+          255
+        ]
+      }
+    ],
+    "file": "light-current-3-bottom.png"
+  },
+  {
+    "theme": "light",
+    "variant": "current",
+    "rows": 20,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          250,
+          247,
+          243,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          247,
+          241,
+          235,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          244,
+          237,
+          229,
+          255
+        ]
+      }
+    ],
+    "file": "light-current-20-top.png"
+  },
+  {
+    "theme": "light",
+    "variant": "current",
+    "rows": 20,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          245,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          243,
+          238,
+          229,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          242,
+          236,
+          228,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          242,
+          237,
+          228,
+          255
+        ]
+      }
+    ],
+    "file": "light-current-20-bottom.png"
+  },
+  {
+    "theme": "light",
+    "variant": "current",
+    "rows": 100,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          255,
+          254,
+          254,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          252,
+          250,
+          248,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          251,
+          248,
+          244,
+          255
+        ]
+      }
+    ],
+    "file": "light-current-100-top.png"
+  },
+  {
+    "theme": "light",
+    "variant": "current",
+    "rows": 100,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          241,
+          236,
+          228,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          241,
+          236,
+          228,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          240,
+          235,
+          227,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          241,
+          236,
+          228,
+          255
+        ]
+      }
+    ],
+    "file": "light-current-100-bottom.png"
+  },
+  {
+    "theme": "light",
+    "variant": "main-fixed",
+    "rows": 3,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          248,
+          243,
+          238,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          244,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          241,
+          236,
+          227,
+          255
+        ]
+      }
+    ],
+    "file": "light-main-fixed-3-top.png"
+  },
+  {
+    "theme": "light",
+    "variant": "main-fixed",
+    "rows": 3,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          248,
+          243,
+          238,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          244,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          241,
+          236,
+          227,
+          255
+        ]
+      }
+    ],
+    "file": "light-main-fixed-3-bottom.png"
+  },
+  {
+    "theme": "light",
+    "variant": "main-fixed",
+    "rows": 20,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          248,
+          244,
+          238,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          244,
+          239,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          241,
+          236,
+          227,
+          255
+        ]
+      }
+    ],
+    "file": "light-main-fixed-20-top.png"
+  },
+  {
+    "theme": "light",
+    "variant": "main-fixed",
+    "rows": 20,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          253,
+          252,
+          250,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          247,
+          243,
+          238,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          245,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          242,
+          237,
+          228,
+          255
+        ]
+      }
+    ],
+    "file": "light-main-fixed-20-bottom.png"
+  },
+  {
+    "theme": "light",
+    "variant": "main-fixed",
+    "rows": 100,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          248,
+          244,
+          239,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          244,
+          239,
+          231,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          241,
+          236,
+          228,
+          255
+        ]
+      }
+    ],
+    "file": "light-main-fixed-100-top.png"
+  },
+  {
+    "theme": "light",
+    "variant": "main-fixed",
+    "rows": 100,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          253,
+          252,
+          250,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          247,
+          243,
+          238,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          244,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          242,
+          237,
+          228,
+          255
+        ]
+      }
+    ],
+    "file": "light-main-fixed-100-bottom.png"
+  },
+  {
+    "theme": "light",
+    "variant": "all-fixed",
+    "rows": 3,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      },
+      "body": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      },
+      "main": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          248,
+          243,
+          238,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          244,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          241,
+          236,
+          227,
+          255
+        ]
+      }
+    ],
+    "file": "light-all-fixed-3-top.png"
+  },
+  {
+    "theme": "light",
+    "variant": "all-fixed",
+    "rows": 3,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      },
+      "body": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      },
+      "main": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          248,
+          243,
+          238,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          244,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          241,
+          236,
+          227,
+          255
+        ]
+      }
+    ],
+    "file": "light-all-fixed-3-bottom.png"
+  },
+  {
+    "theme": "light",
+    "variant": "all-fixed",
+    "rows": 20,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      },
+      "body": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      },
+      "main": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          248,
+          243,
+          238,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          244,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          241,
+          236,
+          227,
+          255
+        ]
+      }
+    ],
+    "file": "light-all-fixed-20-top.png"
+  },
+  {
+    "theme": "light",
+    "variant": "all-fixed",
+    "rows": 20,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      },
+      "body": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      },
+      "main": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          248,
+          243,
+          238,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          245,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          242,
+          237,
+          228,
+          255
+        ]
+      }
+    ],
+    "file": "light-all-fixed-20-bottom.png"
+  },
+  {
+    "theme": "light",
+    "variant": "all-fixed",
+    "rows": 100,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      },
+      "body": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      },
+      "main": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          248,
+          243,
+          238,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          244,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          241,
+          236,
+          227,
+          255
+        ]
+      }
+    ],
+    "file": "light-all-fixed-100-top.png"
+  },
+  {
+    "theme": "light",
+    "variant": "all-fixed",
+    "rows": 100,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      },
+      "body": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      },
+      "main": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(255, 255, 255, 0.92), rgba(245, 239, 231, 0.96) 42%, rgba(240, 235, 227, 0.99) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          254,
+          253,
+          252,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          248,
+          243,
+          238,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          245,
+          238,
+          230,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          242,
+          237,
+          228,
+          255
+        ]
+      }
+    ],
+    "file": "light-all-fixed-100-bottom.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "current",
+    "rows": 3,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          52,
+          47,
+          41,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          34,
+          30,
+          28,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          24,
+          21,
+          20,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          15,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-current-3-top.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "current",
+    "rows": 3,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          51,
+          45,
+          41,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          33,
+          30,
+          27,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          24,
+          21,
+          19,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          15,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-current-3-bottom.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "current",
+    "rows": 20,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          54,
+          48,
+          44,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          40,
+          35,
+          33,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          31,
+          26,
+          24,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          22,
+          20,
+          18,
+          255
+        ]
+      }
+    ],
+    "file": "dark-current-20-top.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "current",
+    "rows": 20,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          25,
+          22,
+          21,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          21,
+          19,
+          17,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          17,
+          15,
+          14,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          16,
+          14,
+          13,
+          255
+        ]
+      }
+    ],
+    "file": "dark-current-20-bottom.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "current",
+    "rows": 100,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          57,
+          51,
+          45,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          51,
+          46,
+          41,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          47,
+          42,
+          37,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          41,
+          37,
+          33,
+          255
+        ]
+      }
+    ],
+    "file": "dark-current-100-top.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "current",
+    "rows": 100,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          15,
+          13,
+          12,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          14,
+          12,
+          11,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          13,
+          11,
+          10,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          14,
+          12,
+          11,
+          255
+        ]
+      }
+    ],
+    "file": "dark-current-100-bottom.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "main-fixed",
+    "rows": 3,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          52,
+          47,
+          41,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          34,
+          30,
+          28,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          24,
+          21,
+          20,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          15,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-main-fixed-3-top.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "main-fixed",
+    "rows": 3,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          52,
+          46,
+          41,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          33,
+          30,
+          27,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          24,
+          21,
+          20,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          15,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-main-fixed-3-bottom.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "main-fixed",
+    "rows": 20,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          53,
+          47,
+          42,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          35,
+          31,
+          28,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          24,
+          21,
+          20,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          15,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-main-fixed-20-top.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "main-fixed",
+    "rows": 20,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          44,
+          38,
+          35,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          33,
+          30,
+          27,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          25,
+          22,
+          20,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          16,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-main-fixed-20-bottom.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "main-fixed",
+    "rows": 100,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          54,
+          48,
+          43,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          37,
+          32,
+          30,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          25,
+          22,
+          21,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          15,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-main-fixed-100-top.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "main-fixed",
+    "rows": 100,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "body": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "scroll"
+      },
+      "main": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          42,
+          36,
+          33,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          32,
+          29,
+          26,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          25,
+          22,
+          20,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          16,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-main-fixed-100-bottom.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "all-fixed",
+    "rows": 3,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      },
+      "body": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      },
+      "main": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          52,
+          47,
+          41,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          34,
+          30,
+          28,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          24,
+          21,
+          20,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          15,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-all-fixed-3-top.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "all-fixed",
+    "rows": 3,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      },
+      "body": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      },
+      "main": {
+        "height": 1016,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          52,
+          47,
+          41,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          33,
+          30,
+          27,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          24,
+          21,
+          20,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          15,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-all-fixed-3-bottom.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "all-fixed",
+    "rows": 20,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      },
+      "body": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      },
+      "main": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          52,
+          47,
+          41,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          34,
+          30,
+          28,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          24,
+          21,
+          20,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          15,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-all-fixed-20-top.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "all-fixed",
+    "rows": 20,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      },
+      "body": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      },
+      "main": {
+        "height": 2171,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          53,
+          47,
+          43,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          34,
+          31,
+          28,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          25,
+          22,
+          20,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          16,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-all-fixed-20-bottom.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "all-fixed",
+    "rows": 100,
+    "position": "top",
+    "styles": {
+      "html": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      },
+      "body": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      },
+      "main": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          52,
+          47,
+          41,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          34,
+          30,
+          28,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          24,
+          21,
+          20,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          15,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-all-fixed-100-top.png"
+  },
+  {
+    "theme": "dark",
+    "variant": "all-fixed",
+    "rows": 100,
+    "position": "bottom",
+    "styles": {
+      "html": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      },
+      "body": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      },
+      "main": {
+        "height": 8331,
+        "backgroundImage": "radial-gradient(circle at 0px 0px, rgba(55, 48, 43, 0.72), rgba(28, 25, 23, 0.98) 40%, rgb(12, 10, 9) 100%)",
+        "attachment": "fixed"
+      }
+    },
+    "samples": [
+      {
+        "x": 8,
+        "y": 100,
+        "rgba": [
+          53,
+          47,
+          43,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 500,
+        "rgba": [
+          34,
+          31,
+          28,
+          255
+        ]
+      },
+      {
+        "x": 8,
+        "y": 900,
+        "rgba": [
+          25,
+          22,
+          20,
+          255
+        ]
+      },
+      {
+        "x": 1430,
+        "y": 500,
+        "rgba": [
+          16,
+          13,
+          12,
+          255
+        ]
+      }
+    ],
+    "file": "dark-all-fixed-100-bottom.png"
+  }
+]

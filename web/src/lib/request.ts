@@ -69,7 +69,7 @@ request.interceptors.response.use(
             payload?.message ||
             error.message ||
             `请求失败 (${status || 500})`;
-        return Promise.reject(new Error(message));
+        return Promise.reject(new Error(message, {cause: error}));
     },
 );
 

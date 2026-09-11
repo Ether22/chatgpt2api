@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Clock3, Download, EyeOff, LoaderCircle, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 
 import { toast } from "sonner";
@@ -70,6 +70,15 @@ export function ImageResults({
   formatConversationTime,
 }: ImageResultsProps) {
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const displayTurns = useMemo(() => {
+    const groups = new Map<string, ImageTurn[]>();
+    for (const turn of selectedConversation?.turns ?? []) {
+      const key = turn.sourceEntryId ?? turn.id;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(turn);
+    }
+    return [...groups.values()].flat();
+  }, [selectedConversation?.turns]);
   
   // 仅在存在 loading 图片时启动定时器，避免空闲时无谓重渲染
   const hasLoadingImages = selectedConversation?.turns.some(
@@ -119,8 +128,8 @@ export function ImageResults({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[980px] flex-col gap-5 sm:gap-8">
-      {selectedConversation.turns.map((turn, turnIndex) => {
+    <div className="mx-auto flex w-full max-w-[980px] flex-col gap-4">
+      {displayTurns.map((turn) => {
         const readyReferences = turn.referenceImages.filter(image => image.url);
         const referenceLightboxImages = readyReferences.map((image, index) => ({
           id: `${turn.id}-reference-${index}`,
@@ -146,12 +155,12 @@ export function ImageResults({
         });
 
         return (
-          <div key={turn.id} data-turn-id={turn.id} data-result-anchor tabIndex={-1} className="flex flex-col gap-3 outline-none sm:gap-4">
+          <div key={turn.id} data-turn-id={turn.id} data-result-anchor tabIndex={-1} className="flex flex-col gap-2 outline-none">
             {!turn.promptDeleted ? (
               <div className="flex justify-end">
-                <div className="max-w-[90%] px-1 py-1 text-[14px] leading-6 text-stone-900 sm:max-w-[82%] sm:text-[15px] sm:leading-7">
+                <div className="min-w-0 max-w-[90%] px-1 py-1 text-sm leading-6 text-stone-900 sm:max-w-[82%] sm:text-[15px] sm:leading-7">
                   <div className="mb-1.5 flex flex-wrap justify-end gap-2 text-[11px] text-stone-400 sm:mb-2">
-                    <span>第 {(selectedConversation.pagination?.offset ?? 0) + turnIndex + 1} 轮</span>
+                    <span>第 {turn.sourceOrdinal ?? 1} 次</span>
                     <span>
                       {turn.mode === "edit" ? "编辑图" : "文生图"}
                     </span>
@@ -159,7 +168,12 @@ export function ImageResults({
                     <span>{formatConversationTime(turn.createdAt)}</span>
                     {turn.md && <span>{turn.md.document_id} · {turn.md.name} · {turn.md.document_name}</span>}
                   </div>
-                  <CollapsiblePrompt prompt={turn.prompt} id={`prompt-${turn.id}`} />
+                  <details className="rounded-xl bg-stone-50/80 px-3 py-2 text-right">
+                    <summary aria-label="展开或收起 Prompt" className="cursor-pointer select-none truncate text-stone-700">
+                      {turn.prompt.trim().split(/\r?\n/, 1)[0] || "Prompt"}
+                    </summary>
+                    <p className="mt-3 whitespace-pre-wrap break-words text-left text-stone-900">{turn.prompt}</p>
+                  </details>
                   <div className="mt-2 flex flex-wrap justify-end gap-1.5">
                     <button
                       type="button"
@@ -180,7 +194,7 @@ export function ImageResults({
                 </div>
               </div>
             ) : (
-              <div className="flex justify-end text-xs text-stone-500">
+              <div className="flex text-xs text-stone-500">
                 <span>提示词已删除</span>
                 <button type="button" className="ml-3 underline" onClick={() => void onReuseTurnConfig(selectedConversation.id, turn.id)}>复用其他配置</button>
               </div>
@@ -190,9 +204,9 @@ export function ImageResults({
               <div className="flex justify-start">
                 <div className="w-full p-1">
                   {readyReferences.length > 0 ? (
-                    <div className="mb-4 flex flex-col items-end">
-                      <div className="mb-3 text-xs font-medium text-stone-500">本轮参考图</div>
-                      <div className="flex flex-wrap justify-end gap-3">
+                    <div className="mb-2 flex flex-col items-end">
+                      <div className="mb-2 text-xs font-medium text-stone-500">本轮参考图</div>
+                      <div className="flex flex-wrap justify-end gap-2">
                         {readyReferences.map((image, index) => (
                           <div key={`${turn.id}-${image.name}-${index}`} className="flex flex-col items-end gap-2">
                             <button
@@ -222,7 +236,7 @@ export function ImageResults({
                     </div>
                   ) : null}
 
-                  <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px] text-stone-500 sm:mb-4 sm:gap-2 sm:text-xs">
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] text-stone-500">
                     <span className="rounded-full bg-stone-100 px-3 py-1">{turn.count} 张</span>
                     <span className="rounded-full bg-stone-100 px-3 py-1">{getTurnStatusLabel(turn.status)}</span>
                     {turn.status === "queued" ? (
@@ -236,7 +250,8 @@ export function ImageResults({
                       <Button size="sm" variant="outline" onClick={() => void onRetryDeleteImage(selectedConversation.id, turn.id, cleanup.id, cleanup.ordinal)}>重试清理结果 {cleanup.ordinal}</Button>
                     </div>
                   ))}
-                  <div className="grid grid-cols-3 items-start gap-2 sm:grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] sm:gap-4">
+                  <div className={cn("grid grid-cols-2 items-start gap-2 sm:gap-4 xl:grid-cols-3",
+                    turn.images.length === 4 && "xl:max-w-[calc((200%-1rem)/3)] xl:grid-cols-2")}>
                     {turn.images.map((image, index) => {
                       const ordinal = image.ordinal ?? index + 1;
                       const imageSrc = image.status === "success" ? getStoredImageSrc(image) : "";
@@ -256,7 +271,7 @@ export function ImageResults({
                               src={imageSrc}
                               dimensions={imageDimensions.get(image.id)}
                               alt={`Generated result ${ordinal}`}
-                              className="group block aspect-square w-full cursor-zoom-in overflow-hidden rounded-xl sm:aspect-auto"
+                              className="group flex h-full w-full cursor-zoom-in items-center justify-center"
                               onLoad={(event) => {
                                 updateImageDimensions(
                                   image.id,
@@ -266,10 +281,10 @@ export function ImageResults({
                               }}
                               onOpen={() => onOpenLightbox(successfulTurnImages, currentIndex)}
                             />
-                            <div className="flex flex-col gap-1 px-0.5 py-1 text-[10px] sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-3 sm:py-3 sm:text-xs">
+                            <div className="flex flex-col gap-1 px-0.5 py-1 text-[10px] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:text-xs">
                               <div className="min-w-0 text-stone-500">
                                 <span>结果 {ordinal}</span>
-                                {image.durationMs != null ? <span className="text-stone-400 sm:ml-2">{formatDuration(image.durationMs)}</span> : null}
+                                {image.durationMs != null ? <span className="ml-1 text-stone-400 sm:ml-2">{formatDuration(image.durationMs)}</span> : null}
                                 <span className="block min-h-[1lh] text-stone-400">{imageMeta || "\u00a0"}</span>
                               </div>
                               <div className="flex items-center gap-1.5">
@@ -313,17 +328,10 @@ export function ImageResults({
                         return (
                           <div key={image.id} data-image-id={image.id} data-result-anchor tabIndex={-1} className="min-w-0">
                             <div
-                              className={cn(
-                                "overflow-auto rounded-xl border border-rose-200 bg-rose-50",
-                                "min-h-56 sm:aspect-square",
-                                turn.ratio === "1:1" && "sm:aspect-square",
-                                turn.ratio === "16:9" && "sm:aspect-video",
-                                turn.ratio === "9:16" && "sm:aspect-[9/16]",
-                                turn.ratio === "4:3" && "sm:aspect-[4/3]",
-                                turn.ratio === "3:4" && "sm:aspect-[3/4]",
-                              )}
+                              className="aspect-square overflow-auto rounded-xl border border-rose-200 bg-rose-50"
+                              style={{ aspectRatio: turn.size.replace("x", " / ") }}
                             >
-                            <div className="flex h-full min-h-56 flex-col items-center justify-center gap-1.5 px-2 py-2 text-center text-[11px] leading-4 text-rose-600 sm:gap-3 sm:px-6 sm:py-8 sm:text-sm sm:leading-6">
+                            <div className="flex min-h-full flex-col items-center justify-center gap-1.5 px-2 py-2 text-center text-[11px] leading-4 text-rose-600 sm:px-3 sm:text-xs">
                               <p className="font-medium">图片 {ordinal}/{turn.count}</p>
                               <span className="shrink-0 line-clamp-2 sm:line-clamp-none">{image.error || "生成失败"}</span>
                               <details className="w-full text-left">
@@ -351,7 +359,7 @@ export function ImageResults({
                               </div>
                             </div>
                             </div>
-                            <div className="flex flex-col gap-1 px-0.5 py-1 text-[10px] sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-3 sm:py-3 sm:text-xs">
+                            <div className="flex flex-col gap-1 px-0.5 py-1 text-[10px] sm:text-xs">
                               <div className="min-w-0 text-stone-500">
                                 <span>结果 {ordinal}</span>
                                 {image.durationMs != null ? <span className="text-stone-400 sm:ml-2">{formatDuration(image.durationMs)}</span> : null}
@@ -375,16 +383,10 @@ export function ImageResults({
                       return (
                         <div key={image.id} data-image-id={image.id} data-result-anchor tabIndex={-1} className="min-w-0">
                           <div
-                            className={cn(
-                              "overflow-hidden rounded-xl border border-stone-200/80 bg-stone-100/80 relative",
-                              turn.ratio === "1:1" && "aspect-square",
-                              turn.ratio === "16:9" && "aspect-video",
-                              turn.ratio === "9:16" && "aspect-[9/16]",
-                              turn.ratio === "4:3" && "aspect-[4/3]",
-                              turn.ratio === "3:4" && "aspect-[3/4]",
-                            )}
+                            className="relative aspect-square overflow-auto rounded-xl border border-stone-200/80 bg-stone-100/80"
+                            style={{ aspectRatio: turn.size.replace("x", " / ") }}
                           >
-                          <div className="flex h-full flex-col items-center justify-center gap-1.5 px-2 py-3 text-center text-stone-500 sm:gap-3 sm:px-6 sm:py-8">
+                          <div className="flex min-h-full flex-col items-center justify-center gap-1.5 px-2 py-3 text-center text-stone-500">
                             <div className="rounded-full bg-white p-2 shadow-sm sm:p-3">
                               {imageTaskStatus === "queued" ? (
                                 <Clock3 className="size-4 sm:size-5" />
@@ -459,44 +461,6 @@ function RegenerateTurn({ count, onRegenerate }: { count: number; onRegenerate: 
   </>;
 }
 
-function CollapsiblePrompt({ prompt, id }: { prompt: string; id: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const [isLong, setIsLong] = useState(false);
-  const textRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const element = textRef.current;
-    if (!element) return;
-    const measure = () => {
-      const lineHeight = Number.parseFloat(window.getComputedStyle(element).lineHeight);
-      setIsLong(element.scrollHeight > lineHeight * 2 + 1);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [prompt]);
-
-  return (
-    <div className="text-right">
-      <div ref={textRef} id={id} className={cn("whitespace-pre-wrap break-words", !expanded && "line-clamp-2")}>
-        {prompt}
-      </div>
-      {isLong ? (
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-controls={id}
-          onClick={() => setExpanded((value) => !value)}
-          className="mt-1 rounded px-1 text-xs text-stone-500 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-stone-500"
-        >
-          {expanded ? "收起 Prompt" : "展开 Prompt"}
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 function getTurnStatusLabel(status: ImageTurnStatus) {
   if (status === "queued") {
     return "排队中";
@@ -564,8 +528,7 @@ const LazyImage = memo(function LazyImage({ src, alt, className, dimensions, onL
   onOpen?: () => void;
 }) {
   const [isVisible, setIsVisible] = useState(false);
-  const [size, setSize] = useState(dimensions);
-  const placeholderHeightRef = useRef(280);
+  const [aspectRatio, setAspectRatio] = useState(dimensions ? dimensions.width / dimensions.height : 1);
   const imageSource = useImageSource(isVisible ? src : undefined);
   const imgRef = useRef<HTMLDivElement>(null);
 
@@ -576,7 +539,6 @@ const LazyImage = memo(function LazyImage({ src, alt, className, dimensions, onL
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries.at(-1)!;
-        if (!entry.isIntersecting && entry.boundingClientRect.height > 0) placeholderHeightRef.current = entry.boundingClientRect.height;
         setIsVisible(entry.isIntersecting);
       },
       { rootMargin: "400px" },
@@ -586,7 +548,7 @@ const LazyImage = memo(function LazyImage({ src, alt, className, dimensions, onL
   }, []);
 
   return (
-    <div ref={imgRef} className="relative" style={!size ? { minHeight: placeholderHeightRef.current } : undefined} data-image-frame>
+    <div ref={imgRef} className="relative" style={{ aspectRatio }} data-image-frame>
       {isVisible && imageSource ? (
         <button
           type="button"
@@ -596,19 +558,18 @@ const LazyImage = memo(function LazyImage({ src, alt, className, dimensions, onL
           <img
             src={imageSource}
             alt={alt}
-            width={size?.width}
-            height={size?.height}
-            className="block h-full w-full object-cover transition duration-200 group-hover:brightness-90 sm:h-auto sm:object-contain"
+            width={dimensions?.width}
+            height={dimensions?.height}
+            className="block h-full w-full rounded-xl object-contain transition duration-200 group-hover:brightness-90"
             onLoad={(event) => {
-              setSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight });
+              setAspectRatio(event.currentTarget.naturalWidth / event.currentTarget.naturalHeight);
               onLoad?.(event);
             }}
           />
         </button>
       ) : (
         <div
-          style={size ? { "--image-ratio": `${size.width} / ${size.height}` } as React.CSSProperties : { height: placeholderHeightRef.current }}
-          className={cn("rounded-xl bg-stone-100", className, size && "sm:aspect-[var(--image-ratio)]")}
+          className={cn("rounded-xl bg-stone-100", className)}
         />
       )}
     </div>

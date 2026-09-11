@@ -153,7 +153,7 @@ class AccountUsageModeTests(unittest.TestCase):
         self.service.init_refresh_progress("quota", 4)
         self.addCleanup(self.service.clean_refresh_progress, "quota")
         for token in self.service.list_tokens():
-            self.service.update_refresh_progress("quota", token)
+            self.service.update_refresh_progress("quota", token, succeeded=True)
         progress = self.service.get_refresh_progress("quota")
         self.assertEqual(progress["total_quota"], 3)
         self.assertEqual(progress["monitor_quota"], 16)

@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ChevronLeft, ChevronRight, Download, ExternalLink, RotateCcw, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, RotateCcw, Trash2, X } from "lucide-react";
+import { isAxiosError } from "axios";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
-import { downloadStoredImage, useImageSource } from "@/store/image-conversations";
+import { downloadStoredImage, fetchStoredImageBlob, managedImagePath } from "@/store/image-conversations";
 import { getStoredAuthKey } from "@/store/auth";
-import { IdentityChanged } from "@/lib/identity-request";
+import { IdentityChanged, identityAuth } from "@/lib/identity-request";
 
 type LightboxImage = {
   id: string;
@@ -84,20 +85,6 @@ function getTouchCenter(touches: TouchPoints) {
   };
 }
 
-function normalizeTransform(transform: ImageTransform) {
-  if (transform.scale <= minScale) {
-    return { scale: minScale, x: 0, y: 0 };
-  }
-
-  const maxX = window.innerWidth * (transform.scale - 1) * 0.5;
-  const maxY = window.innerHeight * (transform.scale - 1) * 0.5;
-  return {
-    scale: transform.scale,
-    x: clamp(transform.x, -maxX, maxX),
-    y: clamp(transform.y, -maxY, maxY),
-  };
-}
-
 export function ImageLightbox({
   images,
   currentIndex,
@@ -111,23 +98,80 @@ export function ImageLightbox({
   pageLoading = false,
 }: ImageLightboxProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const mouseDragRef = useRef<{ pointerId: number; startX: number; startY: number; startTransform: ImageTransform } | null>(null);
   const gestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef(0);
   const pendingTransformRef = useRef<ImageTransform | null>(null);
   const rafRef = useRef<number | null>(null);
   const [transform, setTransform] = useState<ImageTransform>({ scale: 1, x: 0, y: 0 });
   const [isGesturing, setIsGesturing] = useState(false);
-  const [dimensions, setDimensions] = useState<{ id: string; value: string } | null>(null);
+  const [displayed, setDisplayed] = useState<{
+    image: LightboxImage; url: string; objectUrl: string; dimensions: string; index: number; offset: number; total: number;
+  } | null>(null);
+  const previewIdentity = useRef<Promise<string> | null>(null);
   const [downloads, setDownloads] = useState<{ image: LightboxImage; name?: string; error?: string }[]>([]);
   const [downloading, setDownloading] = useState(false);
   const downloadController = useRef<AbortController | null>(null);
   const current = images[currentIndex];
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [failedImage, setFailedImage] = useState<string | null>(null);
-  const markFailed = useCallback(() => setFailedImage(current?.id ?? null), [current?.id]);
-  const imageSource = useImageSource(open ? current?.src : undefined, loadAttempt, markFailed);
+  const targetKey = `${current?.id}:${current?.src}`;
+  // Keep an old page visible during navigation, but never retain a deleted image.
+  const visible = displayed && (images.some(image => image.id === displayed.image.id && image.src === displayed.image.src)
+    || (offset !== displayed.offset && total >= displayed.total)) ? displayed : null;
+  const ready = !!visible && visible.image.id === current?.id && visible.image.src === current?.src && !pageLoading;
+  const shown = visible?.image ?? current;
   const hasPrev = offset + currentIndex > 0;
   const hasNext = offset + currentIndex < total - 1;
+
+  useEffect(() => {
+    previewIdentity.current = open ? getStoredAuthKey() : null;
+    if (!open) setDisplayed(null);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !current) return;
+    const controller = new AbortController();
+    let objectUrl = "";
+    let committed = false;
+    setFailedImage(null);
+    void (async () => {
+      const key = await previewIdentity.current!;
+      await identityAuth(key);
+      if (managedImagePath(current.src)) {
+        const blob = await fetchStoredImageBlob(current.src, controller.signal, key);
+        controller.signal.throwIfAborted();
+        objectUrl = URL.createObjectURL(blob);
+      }
+      const image = new Image();
+      image.src = objectUrl || current.src;
+      await image.decode();
+      await identityAuth(key);
+      controller.signal.throwIfAborted();
+      committed = true;
+      setDisplayed({ image: current, url: image.src, objectUrl, dimensions: `${image.naturalWidth} x ${image.naturalHeight}`,
+        index: currentIndex, offset, total });
+    })().catch(error => {
+      if (objectUrl && !committed) URL.revokeObjectURL(objectUrl);
+      if (controller.signal.aborted) return;
+      if (error instanceof IdentityChanged || (isAxiosError(error.cause) && [401, 403].includes(error.cause.response?.status ?? 0))) {
+        setDisplayed(null);
+      }
+      setFailedImage(targetKey);
+    });
+    return () => {
+      controller.abort();
+      if (objectUrl && !committed) URL.revokeObjectURL(objectUrl);
+    };
+  }, [open, current?.id, current?.src, currentIndex, offset, loadAttempt]);
+
+  useEffect(() => () => { if (displayed?.objectUrl) URL.revokeObjectURL(displayed.objectUrl); }, [displayed]);
+
+  useEffect(() => {
+    if (displayed && !visible) setDisplayed(null);
+  }, [displayed, visible]);
 
   useEffect(() => {
     if (!open) { setDownloads([]); setDownloading(false); }
@@ -155,6 +199,13 @@ export function ImageLightbox({
     });
   }, []);
 
+  const normalizeTransform = useCallback((next: ImageTransform) => {
+    const scale = clamp(next.scale, minScale, maxScale);
+    const maxX = (imageRef.current?.offsetWidth ?? 0) * (scale - 1) / 2;
+    const maxY = (imageRef.current?.offsetHeight ?? 0) * (scale - 1) / 2;
+    return { scale, x: clamp(next.x, -maxX, maxX), y: clamp(next.y, -maxY, maxY) };
+  }, []);
+
   const flushScheduledTransform = useCallback(() => {
     if (rafRef.current != null) {
       cancelAnimationFrame(rafRef.current);
@@ -172,6 +223,9 @@ export function ImageLightbox({
     setTransform({ scale: 1, x: 0, y: 0 });
     setIsGesturing(false);
     gestureRef.current = null;
+    const pointerId = mouseDragRef.current?.pointerId;
+    mouseDragRef.current = null;
+    if (pointerId !== undefined && imageRef.current?.hasPointerCapture(pointerId)) imageRef.current.releasePointerCapture(pointerId);
   }, [cancelScheduledTransform]);
 
   const goPrev = useCallback(() => {
@@ -184,8 +238,7 @@ export function ImageLightbox({
 
   useEffect(() => {
     resetTransform();
-    setFailedImage(null);
-  }, [current?.id, open, resetTransform]);
+  }, [displayed?.url, displayed?.image.id, open, resetTransform]);
 
   useEffect(() => {
     return () => {
@@ -207,7 +260,7 @@ export function ImageLightbox({
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         goNext();
-      } else if (e.key === "Delete" && onDelete) {
+      } else if (e.key === "Delete" && onDelete && ready) {
         e.preventDefault();
         onDelete();
       }
@@ -215,7 +268,7 @@ export function ImageLightbox({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, goPrev, goNext, onDelete]);
+  }, [open, goPrev, goNext, onDelete, ready]);
 
   const handleDownload = useCallback(async (targets: LightboxImage[], batch = false) => {
     if (downloadController.current && !downloadController.current.signal.aborted) return;
@@ -250,10 +303,45 @@ export function ImageLightbox({
   }, []);
 
   const toggleZoom = useCallback(() => {
+    cancelScheduledTransform();
     setTransform((currentTransform) =>
       currentTransform.scale > minScale ? { scale: 1, x: 0, y: 0 } : { scale: 2.5, x: 0, y: 0 },
     );
-  }, []);
+  }, [cancelScheduledTransform]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!open || !visible || !canvas) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      if (!imageRef.current) return;
+      const currentTransform = pendingTransformRef.current ?? transform;
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1);
+      const scale = clamp(currentTransform.scale * Math.exp(-delta * 0.002), minScale, maxScale);
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - (rect.left + rect.width / 2);
+      const y = event.clientY - (rect.top + rect.height / 2);
+      const ratio = scale / currentTransform.scale;
+      const next = normalizeTransform({ scale, x: x - (x - currentTransform.x) * ratio, y: y - (y - currentTransform.y) * ratio });
+      const drag = mouseDragRef.current;
+      if (drag) {
+        drag.startX = event.clientX;
+        drag.startY = event.clientY;
+        drag.startTransform = next;
+      }
+      scheduleTransform(next);
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [open, visible, transform, normalizeTransform, scheduleTransform]);
+
+  const finishMouseDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (mouseDragRef.current?.pointerId !== event.pointerId) return;
+    mouseDragRef.current = null;
+    flushScheduledTransform();
+    setIsGesturing(false);
+    if (imageRef.current?.hasPointerCapture(event.pointerId)) imageRef.current.releasePointerCapture(event.pointerId);
+  }, [flushScheduledTransform]);
 
   const handleTouchStart = useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {
@@ -317,8 +405,10 @@ export function ImageLightbox({
         );
         const effectiveRatio = targetScale / gesture.startTransform.scale;
         const center = getTouchCenter(event.touches);
-        const viewportCenterX = window.innerWidth / 2;
-        const viewportCenterY = window.innerHeight / 2;
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const viewportCenterX = rect.left + rect.width / 2;
+        const viewportCenterY = rect.top + rect.height / 2;
         const nextX =
           center.x -
           viewportCenterX -
@@ -350,7 +440,7 @@ export function ImageLightbox({
         gestureRef.current = null;
       }
     },
-    [scheduleTransform],
+    [scheduleTransform, normalizeTransform],
   );
 
   const handleTouchEnd = useCallback(
@@ -417,19 +507,38 @@ export function ImageLightbox({
 
 
           <div
+            ref={canvasRef}
+            data-image-canvas
             className="relative flex min-h-0 w-full flex-1 touch-none items-center justify-center overflow-hidden sm:absolute sm:inset-0"
             onClick={(event) => { if (event.target === event.currentTarget) onOpenChange(false); }}
+            onPointerDown={(event) => {
+              if (event.pointerType !== "mouse" || event.button !== 0 || event.target !== imageRef.current) return;
+              const currentTransform = pendingTransformRef.current ?? transform;
+              event.preventDefault();
+              flushScheduledTransform();
+              mouseDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, startTransform: currentTransform };
+              imageRef.current!.setPointerCapture(event.pointerId);
+              setIsGesturing(true);
+            }}
+            onPointerMove={(event) => {
+              const drag = mouseDragRef.current;
+              if (!drag || drag.pointerId !== event.pointerId) return;
+              const dx = event.clientX - drag.startX, dy = event.clientY - drag.startY;
+              scheduleTransform(normalizeTransform({ scale: drag.startTransform.scale, x: drag.startTransform.x + dx, y: drag.startTransform.y + dy }));
+            }}
+            onPointerUp={finishMouseDrag}
+            onPointerCancel={finishMouseDrag}
+            onLostPointerCapture={finishMouseDrag}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             onTouchCancel={handleTouchCancel}
           >
-            <img
-              key={`${current.id}:${loadAttempt}`}
-              src={imageSource}
+            {visible && <img
+              ref={imageRef}
+              src={visible.url}
               alt=""
-              onError={markFailed}
-              onLoad={(event) => setDimensions({ id: current.id, value: `${event.currentTarget.naturalWidth} x ${event.currentTarget.naturalHeight}` })}
+              decoding="sync"
               className={cn(
                 "max-h-full max-w-[90vw] rounded-lg object-contain will-change-transform sm:max-h-[82dvh]",
                 isGesturing ? "" : "transition-transform duration-150 ease-out",
@@ -444,7 +553,7 @@ export function ImageLightbox({
                 toggleZoom();
               }}
               draggable={false}
-            />
+            />}
           {hasPrev && transform.scale <= minScale && (
                 <button
                   type="button"
@@ -470,14 +579,15 @@ export function ImageLightbox({
               )}
           </div>
           <div className="relative z-10 mb-[max(1rem,env(safe-area-inset-bottom))] max-h-[55dvh] w-max max-w-[94vw] shrink-0 overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-black/55 p-2 text-sm text-white shadow-2xl backdrop-blur-md sm:absolute sm:bottom-[max(1rem,env(safe-area-inset-bottom))] sm:left-1/2 sm:mb-0 sm:max-h-[calc(100dvh-2rem)] sm:-translate-x-1/2">
-            {failedImage === current.id && <p role="alert" className="mb-2 text-center text-sm">原图加载失败。<button type="button" className="ml-2 min-h-9 underline" onClick={() => { setFailedImage(null); setLoadAttempt((value) => value + 1); }}><RotateCcw className="mr-1 inline size-4" />重试加载</button></p>}
+            {failedImage === targetKey ? <p role="alert" className="mb-2 text-center text-sm">目标图片加载失败。<button type="button" className="ml-2 min-h-9 underline" onClick={() => { setFailedImage(null); setLoadAttempt((value) => value + 1); }}><RotateCcw className="mr-1 inline size-4" />重试加载</button></p>
+              : !ready && <p role="status" className="mb-2 text-center text-sm">正在加载{pageLoading ? "下一页图片" : `第 ${offset + currentIndex + 1} 张图片`}…</p>}
             <div className="flex flex-wrap items-center justify-center gap-2">
-              <span className="rounded-full bg-white/10 px-3 py-2 text-xs">{[current.sizeLabel, dimensions?.id === current.id ? dimensions.value : current.dimensions].filter(Boolean).join(" · ") || "图片"}</span>
-              <span className="rounded-full bg-white/10 px-3 py-2 text-xs">图片 {current.ordinal ?? offset + currentIndex + 1}（{offset + currentIndex + 1}/{total}）{pageLoading ? " 加载中…" : ""}</span>
-              <button type="button" disabled={downloading} onClick={() => void handleDownload([current])} className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 disabled:opacity-50 focus-visible:outline-2" aria-label="下载图片"><Download className="size-4" />{downloads.some((item) => item.image.id === current.id && item.error) ? "重试下载" : "下载"}</button>
-              {imageSource && <a href={imageSource} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 focus-visible:outline-2"><ExternalLink className="size-4" />打开原图</a>}
-              {roundImages && <button type="button" disabled={downloading || !roundImages.length} onClick={() => void handleDownload(roundImages, true)} className="min-h-9 rounded-full bg-white/10 px-3 text-sm disabled:opacity-50 focus-visible:outline-2" aria-label="下载本轮成功图片">下载本轮（{roundImages.length}）</button>}
-              {onDelete && <button type="button" onClick={onDelete} aria-label="删除当前生成结果" className="inline-flex min-h-9 items-center gap-1 rounded-full bg-rose-500/20 px-3 text-rose-200 hover:bg-rose-500/30 focus-visible:outline-2"><Trash2 className="size-4" />删除</button>}
+              <span className="rounded-full bg-white/10 px-3 py-2 text-xs">{[shown.sizeLabel, visible?.dimensions ?? shown.dimensions].filter(Boolean).join(" · ") || "图片"}</span>
+              <span className="rounded-full bg-white/10 px-3 py-2 text-xs">图片 {shown.ordinal ?? (visible ? visible.offset + visible.index + 1 : offset + currentIndex + 1)}（{visible ? visible.offset + visible.index + 1 : offset + currentIndex + 1}/{total}）</span>
+              <button type="button" onClick={resetTransform} disabled={!visible} aria-label="重置缩放" title="滚轮缩放，可同时按住左键拖拽；点击恢复 100%" className="min-h-9 rounded-full bg-white/10 px-3 text-xs tabular-nums disabled:opacity-50 focus-visible:outline-2">{Math.round(transform.scale * 100)}%</button>
+              <button type="button" disabled={downloading || !ready} onClick={() => void handleDownload([current])} className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 disabled:opacity-50 focus-visible:outline-2" aria-label="下载图片"><Download className="size-4" />{downloads.some((item) => item.image.id === current.id && item.error) ? "重试下载" : "下载"}</button>
+              {roundImages && <button type="button" disabled={downloading || !ready || !roundImages.length} onClick={() => void handleDownload(roundImages, true)} className="min-h-9 rounded-full bg-white/10 px-3 text-sm disabled:opacity-50 focus-visible:outline-2" aria-label="下载本轮成功图片">下载本轮（{roundImages.length}）</button>}
+              {onDelete && <button type="button" disabled={!ready} onClick={onDelete} aria-label="删除当前生成结果" className="inline-flex min-h-9 items-center gap-1 rounded-full bg-rose-500/20 px-3 text-rose-200 hover:bg-rose-500/30 disabled:opacity-50 focus-visible:outline-2"><Trash2 className="size-4" />删除</button>}
               <DialogPrimitive.Close className="inline-flex min-h-9 items-center gap-1 rounded-full bg-white/10 px-3 focus-visible:outline-2"><X className="size-4" />关闭</DialogPrimitive.Close>
             </div>
             {downloads.length > 0 && <div className="mx-auto mt-2 max-w-xl text-xs">

@@ -90,7 +90,7 @@ export function ConfigCard() {
         </div>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm text-stone-700">账号刷新间隔</label>
+            <label className="block text-sm text-stone-700">账号刷新间隔</label>
             <Input
               value={String(config?.refresh_account_interval_minute || "")}
               onChange={(event) => setRefreshAccountIntervalMinute(event.target.value)}
@@ -100,7 +100,7 @@ export function ConfigCard() {
             <p className="text-xs text-stone-500">单位分钟，控制账号自动刷新频率。</p>
           </div>
           <div className="space-y-2">
-            <label className="text-sm text-stone-700">全局代理</label>
+            <label className="block text-sm text-stone-700">全局代理</label>
             <Input
               value={String(config?.proxy || "")}
               onChange={(event) => {
@@ -140,7 +140,7 @@ export function ConfigCard() {
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-sm text-stone-700">图片访问地址</label>
+            <label className="block text-sm text-stone-700">图片访问地址</label>
             <Input
               value={String(config?.base_url || "")}
               onChange={(event) => setBaseUrl(event.target.value)}
@@ -150,7 +150,7 @@ export function ConfigCard() {
             <p className="text-xs text-stone-500">用于生成图片结果的访问前缀地址。</p>
           </div>
           <div className="space-y-2">
-            <label className="text-sm text-stone-700">默认请求上游模型名称</label>
+            <label className="block text-sm text-stone-700">默认请求上游模型名称</label>
             <Input
               value={String(config?.default_upstream_model_name || "")}
               onChange={(event) => setDefaultUpstreamModelName(event.target.value)}
@@ -160,12 +160,12 @@ export function ConfigCard() {
             <p className="text-xs text-stone-500">gpt-image-2 发起图片请求时使用的上游模型名称，默认 gpt-5-5。</p>
           </div>
           <div className="space-y-2">
-            <label className="text-sm text-stone-700">默认思考强度</label>
+            <label className="block text-sm text-stone-700">默认思考强度</label>
             <Select
               value={String(config?.default_thinking_effort || "auto")}
               onValueChange={(value) => setDefaultThinkingEffort(value as "auto" | "standard" | "extended" | "max")}
             >
-              <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white">
+              <SelectTrigger className="h-10 w-full rounded-xl border-stone-200 bg-white">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -178,7 +178,7 @@ export function ConfigCard() {
             <p className="text-xs text-stone-500">模型名称以 -standard、-extended 或 -max 结尾时，模型后缀优先。</p>
           </div>
           <div className="space-y-2">
-            <label className="text-sm text-stone-700">图片自动清理</label>
+            <label className="block text-sm text-stone-700">图片自动清理</label>
             <Input
               value={String(config?.image_retention_days || "")}
               onChange={(event) => setImageRetentionDays(event.target.value)}
@@ -188,7 +188,7 @@ export function ConfigCard() {
             <p className="text-xs text-stone-500">自动删除多少天前的本地图片。</p>
           </div>
           <div className="space-y-2">
-            <label className="text-sm text-stone-700">图片轮询超时</label>
+            <label className="block text-sm text-stone-700">图片轮询超时</label>
             <Input
               value={String(config?.image_poll_timeout_secs || "")}
               onChange={(event) => setImagePollTimeoutSecs(event.target.value)}
@@ -198,7 +198,7 @@ export function ConfigCard() {
             <p className="text-xs text-stone-500">单位秒，等待上游图片结果的最长时间。</p>
           </div>
           <div className="space-y-2">
-            <label className="text-sm text-stone-700">单账号图片并发</label>
+            <label className="block text-sm text-stone-700">单账号图片并发</label>
             <Input
               value={String(config?.image_account_concurrency || "")}
               onChange={(event) => setImageAccountConcurrency(event.target.value)}
@@ -206,6 +206,27 @@ export function ConfigCard() {
               className="h-10 rounded-xl border-stone-200 bg-white"
             />
             <p className="text-xs text-stone-500">限制每个账号同时处理的图片请求数量，默认 3。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="block text-sm text-stone-700">图片超时继续等待时间</label>
+            <Input
+              value={String(config?.image_timeout_retry_secs || "30")}
+              onChange={(event) => setImageTimeoutRetrySecs(event.target.value)}
+              placeholder="30"
+              className="h-10 rounded-xl border-stone-200 bg-white"
+            />
+            <p className="text-xs text-stone-500">单位秒，超时后点击"继续等待"额外等待的时间。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="block text-sm text-stone-700">图片二次确认等待时间</label>
+            <Input
+              value={String(config?.image_settle_secs || "2.0")}
+              onChange={(event) => setImageSettleSecs(event.target.value)}
+              placeholder="2.0"
+              className="h-10 rounded-xl border-stone-200 bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!config?.image_settle_enabled}
+            />
+            <p className="text-xs text-stone-500">单位秒，找到图片后等待多久再次确认。需配合图片二次确认机制使用。</p>
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
@@ -237,28 +258,7 @@ export function ConfigCard() {
             </div>
             <p className="text-xs text-stone-500">失败、超时或只返回文本时也一并隐藏对话记录（打开后包含出图成功的情况）。</p>
           </div>
-          <div className="space-y-2">
-            <label className="text-sm text-stone-700">图片超时继续等待时间</label>
-            <Input
-              value={String(config?.image_timeout_retry_secs || "30")}
-              onChange={(event) => setImageTimeoutRetrySecs(event.target.value)}
-              placeholder="30"
-              className="h-10 rounded-xl border-stone-200 bg-white"
-            />
-            <p className="text-xs text-stone-500">单位秒，超时后点击"继续等待"额外等待的时间。</p>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm text-stone-700">图片二次确认等待时间</label>
-            <Input
-              value={String(config?.image_settle_secs || "2.0")}
-              onChange={(event) => setImageSettleSecs(event.target.value)}
-              placeholder="2.0"
-              className="h-10 rounded-xl border-stone-200 bg-white disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!config?.image_settle_enabled}
-            />
-            <p className="text-xs text-stone-500">单位秒，找到图片后等待多久再次确认。需配合图片二次确认机制使用。</p>
-          </div>
-          <div className="grid gap-4 md:col-span-2 md:grid-cols-2">
+          <div className="contents">
             <div className="space-y-2">
               <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
                 <Checkbox checked={Boolean(config?.auto_remove_invalid_accounts)} onCheckedChange={(checked) => setAutoRemoveInvalidAccounts(Boolean(checked))} />
@@ -283,11 +283,10 @@ export function ConfigCard() {
               </label>
               <p className="text-xs text-stone-500">开启后刷新时自动尝试密码登录恢复账号。</p>
             </div>
-            <div className="flex-1" aria-hidden="true" />
           </div>
-          <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
+          <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3 md:col-span-2">
             <div>
-              <label className="text-sm text-stone-700">控制台日志级别</label>
+              <label className="block text-sm text-stone-700">控制台日志级别</label>
               <p className="mt-1 text-xs text-stone-500">不选择时使用默认 info / warning / error。</p>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -303,7 +302,7 @@ export function ConfigCard() {
             </div>
           </div>
           <div className="space-y-2 md:col-span-2">
-            <label className="text-sm text-stone-700">全局附加指令</label>
+            <label className="block text-sm text-stone-700">全局附加指令</label>
             <Textarea
               value={String(config?.global_system_prompt || "")}
               onChange={(event) => setGlobalSystemPrompt(event.target.value)}
@@ -313,7 +312,7 @@ export function ConfigCard() {
             <p className="text-xs text-stone-500">每次请求都会作为 system 消息注入，可用于审核用户提示词、避免违规内容、统一约束模型行为或固定角色设定。</p>
           </div>
           <div className="space-y-2 md:col-span-2">
-            <label className="text-sm text-stone-700">敏感词</label>
+            <label className="block text-sm text-stone-700">敏感词</label>
             <Textarea
               value={(config?.sensitive_words || []).join("\n")}
               onChange={(event) => setSensitiveWordsText(event.target.value)}
@@ -372,13 +371,13 @@ export function ConfigCard() {
             </div>
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
-                <label className="text-sm text-stone-700">保存模式</label>
+                <label className="block text-sm text-stone-700">保存模式</label>
                 <Select
                   value={String(config?.image_storage?.mode || "local")}
                   onValueChange={(value) => setImageStorageField("mode", value as ImageStorageMode)}
                   disabled={!config?.image_storage?.enabled}
                 >
-                  <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white shadow-none">
+                  <SelectTrigger className="h-10 w-full rounded-xl border-stone-200 bg-white shadow-none">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -389,7 +388,7 @@ export function ConfigCard() {
                 </Select>
               </div>
               <div className="space-y-2 md:col-span-2">
-                <label className="text-sm text-stone-700">WebDAV URL</label>
+                <label className="block text-sm text-stone-700">WebDAV URL</label>
                 <Input
                   value={String(config?.image_storage?.webdav_url || "")}
                   onChange={(event) => setImageStorageField("webdav_url", event.target.value)}
@@ -399,7 +398,7 @@ export function ConfigCard() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm text-stone-700">用户名</label>
+                <label className="block text-sm text-stone-700">用户名</label>
                 <Input
                   value={String(config?.image_storage?.webdav_username || "")}
                   onChange={(event) => setImageStorageField("webdav_username", event.target.value)}
@@ -408,7 +407,7 @@ export function ConfigCard() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm text-stone-700">密码</label>
+                <label className="block text-sm text-stone-700">密码</label>
                 <Input
                   type="password"
                   value={String(config?.image_storage?.webdav_password || "")}
@@ -418,7 +417,7 @@ export function ConfigCard() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm text-stone-700">远端目录</label>
+                <label className="block text-sm text-stone-700">远端目录</label>
                 <Input
                   value={String(config?.image_storage?.webdav_root_path || "")}
                   onChange={(event) => setImageStorageField("webdav_root_path", event.target.value)}
@@ -428,7 +427,7 @@ export function ConfigCard() {
                 />
               </div>
               <div className="space-y-2 md:col-span-3">
-                <label className="text-sm text-stone-700">公开访问前缀</label>
+                <label className="block text-sm text-stone-700">公开访问前缀</label>
                 <Input
                   value={String(config?.image_storage?.public_base_url || "")}
                   onChange={(event) => setImageStorageField("public_base_url", event.target.value)}
@@ -453,20 +452,20 @@ export function ConfigCard() {
             </p>
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
-                <label className="text-sm text-stone-700">Base URL</label>
+                <label className="block text-sm text-stone-700">Base URL</label>
                 <Input value={String(config?.ai_review?.base_url || "")} onChange={(event) => setAIReviewField("base_url", event.target.value)} placeholder="https://api.openai.com" className="h-10 rounded-xl border-stone-200 bg-white" />
               </div>
               <div className="space-y-2">
-                <label className="text-sm text-stone-700">API Key</label>
+                <label className="block text-sm text-stone-700">API Key</label>
                 <Input value={String(config?.ai_review?.api_key || "")} onChange={(event) => setAIReviewField("api_key", event.target.value)} placeholder="sk-..." className="h-10 rounded-xl border-stone-200 bg-white" />
               </div>
               <div className="space-y-2">
-                <label className="text-sm text-stone-700">Model</label>
+                <label className="block text-sm text-stone-700">Model</label>
                 <Input value={String(config?.ai_review?.model || "")} onChange={(event) => setAIReviewField("model", event.target.value)} placeholder="gpt-5.4-mini" className="h-10 rounded-xl border-stone-200 bg-white" />
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-sm text-stone-700">审核提示词</label>
+              <label className="block text-sm text-stone-700">审核提示词</label>
               <Textarea value={String(config?.ai_review?.prompt || "")} onChange={(event) => setAIReviewField("prompt", event.target.value)} placeholder="判断用户请求是否允许。只回答 ALLOW 或 REJECT。" className="min-h-24 rounded-xl border-stone-200 bg-white text-xs shadow-none" />
             </div>
           </div>

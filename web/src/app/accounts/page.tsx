@@ -139,7 +139,7 @@ function formatRestoreAt(value?: string | null) {
 
 function formatQuotaSummary(accounts: Account[]) {
   const availableAccounts = accounts.filter((account) => account.status === "正常" && account.usage_mode === "normal");
-  return formatCompact(availableAccounts.reduce((sum, account) => sum + Math.max(0, account.quota), 0));
+  return availableAccounts.reduce((sum, account) => sum + Math.max(0, account.quota), 0).toLocaleString("zh-CN");
 }
 
 function maskToken(token?: string) {
@@ -185,8 +185,8 @@ function SortableAccountRow({ account, disabled, selected, onSelect, onStart, on
     <Reorder.Item as="tr" value={account.access_token} dragListener={false} dragControls={controls}
       onDragStart={onStart} onDragEnd={onEnd} style={{ position: "relative" }}
       transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 38 }}
-      whileDrag={{ zIndex: 1, boxShadow: "0 8px 24px #0002" }}
-      className={cn("border-b border-stone-100/80 bg-white text-sm text-stone-600 hover:bg-stone-50", account.usage_mode === "monitor" && "bg-amber-50 hover:bg-amber-100")}
+      whileDrag={{ zIndex: 1, boxShadow: "0 8px 24px #0002", backgroundColor: "var(--card)" }}
+      className={cn("border-b border-stone-100/80 text-sm text-stone-600 hover:bg-stone-50", account.usage_mode === "monitor" && "bg-amber-50/70 hover:bg-amber-100")}
     >
       <td className={cn("px-4 py-3", account.usage_mode === "monitor" && "border-l-4 border-l-amber-400")}>
         <button ref={handleRef} type="button" disabled={disabled} aria-label={`排序 ${account.email || maskToken(account.access_token)}`}
@@ -218,6 +218,8 @@ function AccountsPageContent() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [liveStats, setLiveStats] = useState<RefreshProgressResponse["stats"]>();
+  const [refreshQuota, setRefreshQuota] = useState<number>();
+  useEffect(() => setLiveStats(undefined), [accounts]);
   const dragRef = useRef<{ token: string; original: string[]; order: string[] } | null>(null);
   const [dragOrder, setDragOrder] = useState<string[] | null>(null);
   const [isMoving, setIsMoving] = useState(false);
@@ -380,18 +382,18 @@ function AccountsPageContent() {
     currentRows.length > 0 && currentRows.every((row) => selectedIds.includes(row.access_token));
 
   const summary = useMemo(() => {
-    if (liveStats && (isRefreshing || isRelogining)) {
-      return { ...liveStats, quota: formatCompact(liveStats.total_quota) };
+    if (liveStats) {
+      return { ...liveStats, quota: (refreshQuota ?? liveStats.total_quota).toLocaleString("zh-CN") };
     }
     const total = accounts.length;
     const active = accounts.filter((item) => item.status === "正常" && item.usage_mode === "normal").length;
     const limited = accounts.filter((item) => item.status === "限流").length;
     const abnormal = accounts.filter((item) => item.status === "异常").length;
     const disabled = accounts.filter((item) => item.usage_mode === "disabled").length;
-    const quota = formatQuotaSummary(accounts);
+    const quota = refreshQuota?.toLocaleString("zh-CN") ?? formatQuotaSummary(accounts);
 
     return { total, active, limited, abnormal, disabled, quota };
-  }, [accounts, liveStats, isRefreshing, isRelogining]);
+  }, [accounts, liveStats, refreshQuota]);
 
   const accountTypeOptions = useMemo(
     () => [
@@ -420,10 +422,11 @@ function AccountsPageContent() {
     return items;
   }, [pageCount, safePage]);
 
-  const waitForRelogin = async (progressId: string) => {
+  const waitForRelogin = async (progressId: string, refreshedQuota = 0) => {
     while (true) {
       const p = await fetchReLoginProgress(progressId);
       if (p.stats) setLiveStats(p.stats);
+      setRefreshQuota(refreshedQuota + (p.total_quota ?? 0));
       setProgress({ visible: true, current: p.processed, total: p.total,
         message: p.done ? "恢复流程已完成" : "正在尝试恢复异常账号…", email: "" });
       if (p.error) throw new Error(p.error);
@@ -435,14 +438,18 @@ function AccountsPageContent() {
   const handleRefreshAccounts = async (accessTokens: string[]) => {
     if (!accessTokens.length || isRefreshing || isRelogining) return;
     setIsRefreshing(true);
+    setRefreshQuota(0);
     setRefreshingTokens(new Set(accessTokens));
     setProgress({ visible: true, current: 0, total: accessTokens.length, message: "正在刷新账号信息…", email: "" });
     try {
       const { progress_id } = await refreshAccounts(accessTokens);
       let data: AccountRefreshResponse;
+      let refreshedQuota = 0;
       while (true) {
         const p = await fetchRefreshProgress(progress_id);
         if (p.stats) setLiveStats(p.stats);
+        refreshedQuota = p.total_quota ?? 0;
+        setRefreshQuota(refreshedQuota);
         setProgress((prev) => ({ ...prev, current: p.processed }));
         if (p.error) throw new Error(p.error);
         if (p.done) {
@@ -455,8 +462,7 @@ function AccountsPageContent() {
       setAccounts(data.items);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
       if (data.relogin_progress_id) {
-        await waitForRelogin(data.relogin_progress_id);
-        await loadAccounts(true);
+        await waitForRelogin(data.relogin_progress_id, refreshedQuota);
       }
       const errors = data.errors ?? [];
       await loadModels(true);
@@ -465,14 +471,16 @@ function AccountsPageContent() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "刷新账户失败");
     } finally {
+      await loadAccounts(true);
+      setRefreshQuota(undefined);
       setProgress({ visible: false, current: 0, total: 0, message: "", email: "" });
       setRefreshingTokens(new Set());
       setIsRefreshing(false);
-      setLiveStats(undefined);
     }
   };
 
   const handleReLogin = async (accessTokens: string[]) => {
+    if (isRefreshing || isRelogining) return;
     if (accessTokens.length === 0) {
       toast.error("请先选择要恢复的账户");
       return;
@@ -494,6 +502,7 @@ function AccountsPageContent() {
     }
 
     setIsRelogining(true);
+    setRefreshQuota(0);
 
     // 显示进度条（真实进度）
     const total = abnormalTokens.length;
@@ -503,7 +512,6 @@ function AccountsPageContent() {
       const { progress_id } = await reLoginAccounts(abnormalTokens);
 
       await waitForRelogin(progress_id);
-      await loadAccounts(true);
 
       setProgress({
         visible: true,
@@ -520,8 +528,9 @@ function AccountsPageContent() {
       const message = error instanceof Error ? error.message : "重新登录失败";
       toast.error(message);
     } finally {
+      await loadAccounts(true);
+      setRefreshQuota(undefined);
       setIsRelogining(false);
-      setLiveStats(undefined);
     }
   };
 
@@ -606,7 +615,7 @@ function AccountsPageContent() {
             variant="outline"
             className="h-10 rounded-xl border-stone-200 bg-white/80 px-4 text-stone-700 hover:bg-white"
             onClick={() => void handleRefreshAccounts(accounts.map((item) => item.access_token))}
-            disabled={isLoading || isRefreshing || accounts.length === 0}
+            disabled={isLoading || isRefreshing || isRelogining || accounts.length === 0}
           >
             <RefreshCw className={cn("size-4", isRefreshing ? "animate-spin" : "")} />
             一键刷新所有账号信息和额度
@@ -892,7 +901,7 @@ function AccountsPageContent() {
                   variant="ghost"
                   className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-100"
                   onClick={() => void handleRefreshAccounts(selectedTokens)}
-                  disabled={selectedTokens.length === 0 || isRefreshing}
+                  disabled={selectedTokens.length === 0 || isRefreshing || isRelogining}
                 >
                   {isRefreshing ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                   刷新选中账号信息和额度
@@ -901,7 +910,7 @@ function AccountsPageContent() {
                   variant="ghost"
                   className="h-8 rounded-lg px-3 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
                   onClick={() => void handleReLogin(selectedTokens)}
-                  disabled={selectedTokens.length === 0 || isRelogining}
+                  disabled={selectedTokens.length === 0 || isRelogining || isRefreshing}
                   title="尝试密码登录恢复账号"
                 >
                   {isRelogining ? <LoaderCircle className="size-4 animate-spin" /> : <LogIn className="size-4" />}
@@ -1084,7 +1093,7 @@ function AccountsPageContent() {
                               className="rounded-lg p-2 transition hover:bg-stone-100 hover:text-stone-700"
                               onClick={() => void handleRefreshAccounts([account.access_token])}
                               aria-label="刷新账号"
-                              disabled={isRefreshing || refreshingTokens.has(account.access_token)}
+                              disabled={isRefreshing || isRelogining || refreshingTokens.has(account.access_token)}
                             >
                               <RefreshCw className={cn("size-4", (isRefreshing || refreshingTokens.has(account.access_token)) ? "animate-spin" : "")} />
                             </button>

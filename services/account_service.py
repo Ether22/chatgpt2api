@@ -513,6 +513,17 @@ class AccountService:
                     "status": "正常",
                 }, quiet=True)
 
+                quota_error = None
+                try:
+                    self.fetch_remote_info(new_token, event=f"{event}:password_relogin_quota")
+                except Exception as exc:
+                    # A quota lookup failure must not discard newly recovered credentials.
+                    quota_error = str(exc)
+                    self.update_account(new_token, {
+                        "last_refresh_error": quota_error,
+                        "last_refresh_error_at": datetime.now(timezone.utc).isoformat(),
+                    }, quiet=True)
+
                 log_service.add(
                     LOG_TYPE_ACCOUNT,
                     "更新账号",
@@ -522,10 +533,11 @@ class AccountService:
                         "new_token": anonymize_token(new_access_token),
                         "email": email,
                         "status": "成功",
+                        "quota_error": quota_error,
                     },
                 )
                 if progress_id:
-                    self.update_relogin_progress(progress_id, access_token, "成功")
+                    self.update_relogin_progress(progress_id, access_token, "成功", quota_error)
             else:
                 # 登录失败
                 error_type = result.get("error", "")
@@ -1491,11 +1503,11 @@ class AccountService:
                 "monitor_quota": 0,
             }
 
-    def update_refresh_progress(self, progress_id: str, token: str) -> None:
-        """刷新单个账号后，更新进度计数。"""
+    def update_refresh_progress(self, progress_id: str, token: str, *, succeeded: bool) -> None:
+        """记录已处理账号，只累计本次成功查询的额度。"""
         account = self.get_account(token)
         status = str(account.get("status") or "正常").strip() if account else "正常"
-        quota = max(0, int(account.get("quota") or 0)) if account else 0
+        quota = max(0, int(account.get("quota") or 0)) if account and succeeded else 0
 
         with self._refresh_progress_lock:
             progress = self._refresh_progress.get(progress_id)
@@ -1544,15 +1556,19 @@ class AccountService:
                 "done": False,
                 "error": None,
                 "results": [],
+                "total_quota": 0,
             }
 
     def update_relogin_progress(self, progress_id: str, token: str, status: str, error: str | None = None) -> None:
         """更新单个重新登录进度。当所有账号处理完毕时自动标记完成。"""
+        account = self.get_account(token) if error is None and status in {"成功", "正常"} else None
         with self._relogin_progress_lock:
             progress = self._relogin_progress.get(progress_id)
             if progress is None:
                 return
             progress["processed"] += 1
+            if self._is_image_account_available(account or {}):
+                progress["total_quota"] += max(0, int(account.get("quota") or 0))
             progress["results"].append({
                 "token": anonymize_token(token),
                 "status": status,
@@ -1615,6 +1631,7 @@ class AccountService:
             }
             for future in as_completed(futures):
                 token = futures[future]
+                succeeded = False
                 try:
                     account = future.result()
                 except (KeyboardInterrupt, SystemExit):
@@ -1629,9 +1646,10 @@ class AccountService:
                 else:
                     if account is not None:
                         refreshed += 1
+                        succeeded = True
 
                 if progress_id:
-                    self.update_refresh_progress(progress_id, token)
+                    self.update_refresh_progress(progress_id, token, succeeded=succeeded)
         except (KeyboardInterrupt, SystemExit):
             if progress_id:
                 self.finish_refresh_progress(progress_id, error="cancelled")

@@ -223,8 +223,71 @@ class AccountRetentionTests(unittest.TestCase):
                 progress = self.service.get_relogin_progress(progress_id)
                 assert progress["done"] and progress["processed"] == 1
                 assert progress["stats"]["abnormal"] == 0 and progress["stats"]["total_quota"] == 8
+                assert progress["total_quota"] == 8
         finally:
             release.set()
+
+    def test_password_recovery_queries_quota_before_finishing_and_keeps_credentials_on_lookup_failure(self):
+        for mode in ("normal", "monitor", "disabled"):
+            for failed in (False, True):
+                with self.subTest(mode=mode, failed=failed):
+                    self.service.update_account("retained", {"usage_mode": mode, "status": "异常", "quota": 0})
+                    progress_id = f"quota-{mode}-{failed}"
+                    self.service.init_relogin_progress(progress_id, 1)
+                    self.addCleanup(self.service.clean_relogin_progress, progress_id)
+                    def info():
+                        self.assertFalse(self.service.get_relogin_progress(progress_id)["done"])
+                        if failed:
+                            raise RuntimeError("controlled quota lookup timeout")
+                        return {"status": "正常", "quota": 49}
+                    with patch.object(self.service, "_login_with_password", return_value={
+                        "ok": True, "access_token": "recovered", "refresh_token": "new-refresh", "id_token": "new-id",
+                    }), patch.object(self.service, "refresh_access_token", return_value=None), \
+                         patch("services.openai_backend_api.OpenAIBackendAPI.get_user_info", side_effect=info):
+                        self.service._password_re_login_thread("retained", "test@example.invalid", "fake", "test", progress_id)
+                    account = self.service.get_account("retained")
+                    self.assertEqual(account["access_token"], "recovered")
+                    self.assertEqual(account["refresh_token"], "new-refresh")
+                    self.assertEqual(account["usage_mode"], mode)
+                    self.assertEqual(account["status"], "正常")
+                    self.assertEqual(account["quota"], 0 if failed else 49)
+                    progress = self.service.get_relogin_progress(progress_id)
+                    self.assertTrue(progress["done"])
+                    self.assertEqual(progress["stats"]["total_quota"], 49 if mode == "normal" and not failed else 0)
+                    self.assertEqual(progress["total_quota"], 49 if mode == "normal" and not failed else 0)
+                    self.assertEqual(bool(progress["results"][0]["error"]), failed)
+                    self.assertEqual(bool(account["last_refresh_error"]), failed)
+
+    def test_refresh_accumulates_only_successful_consumable_quota(self):
+        self.service.add_account_items([
+            {"access_token": token, "usage_mode": mode, "status": "正常", "quota": quota}
+            for token, mode, quota in [("failed", "normal", 99), ("untouched", "normal", 70),
+                                       ("monitor", "monitor", 13), ("disabled", "disabled", 17)]
+        ])
+        def fetch(token, *_):
+            if token == "failed":
+                raise RuntimeError("controlled network failure")
+            if token == "retained":
+                return self.service.update_account(token, {"quota": 20})
+            return self.service.get_account(token)
+        totals = [0]
+        update = self.service.update_refresh_progress
+        def record(*args, **kwargs):
+            update(*args, **kwargs)
+            totals.append(self.service.get_refresh_progress("accumulate")["total_quota"])
+        self.addCleanup(self.service.clean_refresh_progress, "accumulate")
+        with patch.dict(config.data, {"auto_relogin_after_refresh": False}), \
+             patch.object(self.service, "fetch_remote_info", side_effect=fetch), \
+             patch.object(self.service, "update_refresh_progress", side_effect=record):
+            self.service.refresh_accounts(["retained", "failed", "monitor", "disabled"], "accumulate")
+        progress = self.service.get_refresh_progress("accumulate")
+        self.assertTrue(progress["done"])
+        self.assertEqual(progress["processed"], 4)
+        self.assertEqual(totals, sorted(totals))
+        self.assertEqual(progress["total_quota"], 20)
+        self.assertEqual(progress["monitor_quota"], 13)
+        self.assertEqual(progress["stats"]["total_quota"], 189)
+        self.assertEqual(self.service.get_account("failed")["quota"], 99)
 
     def test_text_and_image_invalid_token_errors_retain_account_and_release_capacity(self):
         with patch.dict(config.data, {"auto_remove_invalid_accounts": False}), \

@@ -132,6 +132,10 @@
   }
 }
 
+html, body, main {
+  background-attachment: fixed;
+}
+
 @layer utilities {
   .hide-scrollbar {
     -ms-overflow-style: none;

@@ -293,7 +293,7 @@ export async function clearImageConversations(authKey: string): Promise<void> {
   await identityRequest(authKey, "/api/image-conversations", { method: "DELETE" });
 }
 
-function managedImagePath(src: string) {
+export function managedImagePath(src: string) {
   const path = new URL(src, window.location.origin).pathname;
   return /^\/(images|image-thumbnails)\/managed\//i.test(path) ? path : null;
 }
