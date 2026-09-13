@@ -4,11 +4,14 @@ import copy
 import re
 
 HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
-IDENTIFIER = re.compile(r"^(?:\[([^\]\n]+)\]|((?:MAIN|SUB|A-D|A-M|[PDM]\d+)[A-Za-z0-9-]*))(?=\s|[｜|:：·]|$)", re.I)
+IDENTIFIER = re.compile(r"^(?:\[([^\]\n]+)\]|((?:MAIN|SUB|A-D|A-M|[PDMSA]\d+)[A-Za-z0-9_-]*))(?=\s|[｜|:：·]|$)", re.I)
 DIMENSION = re.compile(r"(?<![\d.eE+-])(\d+)\s*[xX×*]\s*(\d+)(?![\d.eE])")
 FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
 FIELD = re.compile(r"^(?:[-*+]\s+)?(?:\*\*)?([^:：]+?)(?:\*\*)?\s*[:：]\s*(.*)$")
 REFERENCE_FIELDS = {"参考图", "参考图片", "参考图文件", "必须上传的参考图", "参考图声明", "references"}
+REFERENCE_LIST_ITEM = re.compile(r"^(?:\s+[-*+]\s+|\s*\d+[.、)]\s*)")
+ANNOTATED_REFERENCE = re.compile(
+    r"^R\d+\s+[—–-]\s+(?:`([^`]+\.(?:png|jpe?g|webp|gif))`|([^`]+?\.(?:png|jpe?g|webp|gif)))(?=\s*(?:[，,；;]|$))", re.I)
 SIZE_FIELDS = {"尺寸", "目标尺寸", "输出尺寸", "size"}
 OUTPUT_FIELDS = {"输出名", "输出文件名", "输出名称", "output_name", "filename"}
 NO_REFERENCES = {"无", "无参考图", "无需参考图", "none"}
@@ -24,6 +27,10 @@ def filenames(value):
     names = []
     for line in value.splitlines():
         line = re.sub(r"^\s*[-*+]\s+", "", line).strip()
+        annotated = ANNOTATED_REFERENCE.match(re.sub(r"^\d+[.、)]\s*", "", line))
+        if annotated:
+            names.append(annotated[1] or annotated[2])
+            continue
         for segment in re.split(r"(`[^`]*`)", line):
             if segment.startswith("`") and segment.endswith("`"):
                 names.append(segment[1:-1])
@@ -96,7 +103,7 @@ def parse_section(section):
                     break
                 block.append(lines[index])
                 index += 1
-            if prompt_section:
+            if prompt_section or (direct and marker[2].strip().lower() == "text"):
                 values["prompt"].append("\n".join(block).strip())
                 if index == len(lines):
                     errors.append(error("prompt", "unclosed_prompt", "Prompt 代码围栏未闭合"))
@@ -105,10 +112,11 @@ def parse_section(section):
         field = FIELD.match(line.strip())
         if field:
             key, value = field[1].strip().lower(), field[2].strip()
+            reference_key = re.sub(r"\s*[（(][^（）()]*[）)]$", "", key)
             if direct and key in {"生成方式", "处理方式", "状态", "生成"} and value.strip("*。 ") in {"直通", "无需生成"}:
                 return None
-            if key in REFERENCE_FIELDS:
-                while index + 1 < len(lines) and (not lines[index + 1].strip() or re.match(r"^\s+(?:[-*+]\s+|\d+[.、)]\s*)", lines[index + 1])):
+            if reference_key in REFERENCE_FIELDS:
+                while index + 1 < len(lines) and (not lines[index + 1].strip() or REFERENCE_LIST_ITEM.match(lines[index + 1])):
                     index += 1
                     value += "\n" + lines[index]
                 names = [] if value.strip().lower() in NO_REFERENCES else filenames(value) or None
@@ -122,6 +130,8 @@ def parse_section(section):
                     errors.append(error("size", "invalid_size", f"无法识别尺寸：{value}"))
             elif key in OUTPUT_FIELDS:
                 values["output_name"].append(value.strip("`"))
+            elif direct and key == "用途" and not config["name"]:
+                config["name"] = value
             elif key in {"prompt", "提示词"}:
                 prompt_section = True
                 if value:

@@ -47,6 +47,79 @@ def correct(env, state, candidate, changes, request_id="correct"):
         json={"request_id": request_id, "version": state["version"], "md_version": state["md_version"], "changes": changes})
 
 
+def test_double_wall_mug_pack_preserves_all_prompts_and_annotated_reference_order(imports):
+    import re
+
+    content = (Path(__file__).parent / "fixtures/image-imports/double-wall-glass-mug.md").read_text(encoding="utf-8")
+    state = replace(imports, content)
+    candidates = state["candidates"]
+    identities = ["M01", *[f"S{i:02}" for i in range(1, 7)],
+                  *[f"A{i:02}_{device}" for i in range(1, 7) for device in ("D", "M")]]
+    assert [c["config"]["document_id"] for c in candidates] == identities
+    assert [c["config"]["prompt"] for c in candidates] == re.findall(r"```text\n(.*?)\n```", content, re.S)
+    assert candidates[0]["config"]["name"] == "无字主图｜360 ml双杯"
+    assert [c["config"]["size"] for c in candidates] == ["1600x1600"] * 7 + ["1464x600", "1500x1125"] * 6
+    detailed = {"S04", "A04_D", "A04_M"}
+    bases = {"S02", "S05", "A02_D", "A02_M", "A05_D", "A05_M"}
+    for candidate in candidates:
+        identity = candidate["config"]["document_id"]
+        expected = ["1 (4).jpg"]
+        expected += ["1 (3).jpg", "1 (1).jpg"] if identity in detailed else ["1 (7).jpg"] if identity in bases else []
+        assert candidate["config"]["reference_names"] == expected
+        assert {e["code"] for e in candidate["errors"]} == {"missing_file"}
+    for index in (4, 7, 3, 1):
+        state = reserve(imports, f"ref-{index}", f"1 ({index}).jpg", state["version"]).json()
+        state = upload(imports, f"ref-{index}", f"1 ({index}).jpg").json()
+    assert all(c["status"] == "ready" for c in state["candidates"])
+    assert [m["upload_id"] for m in state["candidates"][4]["matches"]] == ["ref-4", "ref-3", "ref-1"]
+    assert imports["calls"] == []
+
+
+def test_direct_text_prompt_excludes_metadata_and_reports_conflicting_blocks(imports):
+    content = """## A12_M
+用途：手机端示例
+目标尺寸：1500×1125（横向4:3）
+参考图（按上传顺序）：
+
+1. R04 — `Case (4).JPG`，只采用下方；用途：外形
+
+图中文字：不作为 Prompt
+```json
+{"example": "not a prompt"}
+```
+```text
+Keep this literal:
+## S99
+参考图：other.png
+无需生成
+```
+### 说明
+```text
+Do not append this documentation.
+```
+## S12
+参考图：无
+目标尺寸：800x800
+```text
+first
+```
+```text
+second
+```
+## M12
+参考图：无
+目标尺寸：800x800
+```text
+unclosed
+"""
+    first, second, third = replace(imports, content)["candidates"]
+    assert first["config"]["reference_names"] == ["Case (4).JPG"]
+    assert first["config"]["prompt"] == "Keep this literal:\n## S99\n参考图：other.png\n无需生成"
+    assert {e["code"] for e in first["errors"]} == {"missing_file"}
+    assert {e["code"] for e in second["errors"]} == {"conflicting_field"}
+    assert {e["code"] for e in third["errors"]} == {"unclosed_prompt"}
+
+
 def test_model_refresh_is_admin_only_and_removed_history_migration_is_unavailable(environment, monkeypatch):
     from api import ai, support
     calls = []

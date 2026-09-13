@@ -224,6 +224,7 @@ export function ImageImportDialog({ open, onOpenChange, authKey, conversationId,
       pendingBatch.current = null;
       setSubmissionMessage(`已接受 ${submitted.entries.length} 条；各条参考图就绪后自动生成。`);
       await onAccepted(saved, submitted.conversation_id, submitted.draft_id);
+      if (mounted.current && !identityChanged.current) onOpenChange(false);
     } catch (reason) {
       setError(handleImportError(reason));
     } finally { if (mounted.current) setSubmitting(false); }
