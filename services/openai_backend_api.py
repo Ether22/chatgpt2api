@@ -600,6 +600,7 @@ class OpenAIBackendAPI:
         elif base_model == CODEX_IMAGE_MODEL:
             upstream_model = base_model
         else:
+            # [image-2.5] gpt-image-2.5 系列不做 exact 映射，走 ChatGPT Web 的 auto 路由
             return "auto", ""
         model_name, separator, suffix = upstream_model.rpartition("-")
         if separator and suffix.lower() in {"standard", "extended", "max"}:
